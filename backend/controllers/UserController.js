@@ -8,22 +8,18 @@ UserController.showAll = async (req, res) => {
 };
 
 UserController.createUser = async (req, res) => {
-    await User.createUser(req.body, (err, add) => {
-        console.log(add);
-        if (add != false) {
-            res.send({
-                status: 200,
-                message: "new user successfully created",
-            });
-        } else {
-            console.log(err);
-            res.send({
-                status: 400,
-                message: "error",
-            });
-        }
-    });
+    try {
+        await User.createUser(req.body);
+        res.send({
+            status: 200,
+            message: "new user successfully created",
+        });
+    } catch (err) {
+        res.send({
+            status: 400,
+            message: err.stack,
+        });
+    }
 };
-// UserController.createUser = async (req, res) => {};
 
 module.exports = UserController;
