@@ -4,7 +4,7 @@ const { uuid } = require("uuidv4");
 Ticket = {};
 
 Ticket.showAll = async () => {
-    let items = db.query(`SELECT * FROM "TICKET"`);
+    let items = await db.query(`SELECT * FROM ticket`);
     return items;
 };
 

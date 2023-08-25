@@ -17,4 +17,10 @@ TicketController.openNew = async (req, res) => {
     }
 };
 
+TicketController.showAll = async (req, res) => {
+    let row = await Ticket.showAll();
+    let count = { count: row.rowCount, data: row.rows };
+    res.send(count);
+};
+
 module.exports = TicketController;

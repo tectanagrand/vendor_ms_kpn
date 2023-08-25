@@ -6,7 +6,7 @@ const { hashPassword } = require("../middleware/hashpass.js");
 User = {};
 
 User.showAll = () => {
-    const row = db.query(`SELECT * FROM "MST_MGR"`);
+    const row = db.query(`SELECT * FROM mst_mgr`);
     return row;
 };
 
