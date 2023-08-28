@@ -4,8 +4,20 @@ const { uuid } = require("uuidv4");
 Ticket = {};
 
 Ticket.showAll = async () => {
-    let items = await db.query(`SELECT * FROM ticket`);
+    let items = await db.query(
+        `SELECT * FROM ticket T left join vendor V on V.ven_id = T.ven_id`
+    );
     return items;
+};
+
+Ticket.headerTicket = async params => {
+    let formhd = await db.query(
+        `SELECT user.fullname, user.email, user.department, t.ticket_num 
+        from mst_user user 
+            left join ticket t on t.proc_id = user.user_id 
+        where t.ticket_num = '${params.ticket_num}'`
+    );
+    return formhd;
 };
 
 Ticket.openNew = async params => {
