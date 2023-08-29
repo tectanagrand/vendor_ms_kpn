@@ -2,23 +2,36 @@ const User = require("../models/UserModel");
 UserController = {};
 
 UserController.showAll = async (req, res) => {
-    let row = await User.showAll();
-    let count = { count: row.rowCount, data: row.rows };
-    res.send(count);
+    try {
+        let row = await User.showAll();
+        let count = { status: 200, count: row.rowCount, data: row.rows };
+        res.status(200).send(count);
+    } catch (err) {
+        res.status(500).send({
+            message: "Server Error",
+        });
+    }
 };
 
 UserController.createUser = async (req, res) => {
     try {
         await User.createUser(req.body);
-        res.send({
+        res.status(200).send({
             status: 200,
             message: "new user successfully created",
         });
     } catch (err) {
-        res.send({
-            status: 400,
-            message: err.stack,
-        });
+        if (err.code == "23505") {
+            res.status(400).send({
+                status: 400,
+                message: `${err.constraint} already taken`,
+            });
+        } else {
+            res.status(400).send({
+                status: 500,
+                message: `error occured`,
+            });
+        }
     }
 };
 

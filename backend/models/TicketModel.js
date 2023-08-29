@@ -11,13 +11,22 @@ Ticket.showAll = async () => {
 };
 
 Ticket.headerTicket = async params => {
-    let formhd = await db.query(
-        `SELECT user.fullname, user.email, user.department, t.ticket_num 
-        from mst_user user 
-            left join ticket t on t.proc_id = user.user_id 
-        where t.ticket_num = '${params.ticket_num}'`
-    );
-    return formhd;
+    console.log(params);
+    try {
+        let formhd = await db.query(
+            `SELECT proc.fullname, proc.email, proc.department, t.ticket_id, t.is_active
+            from mst_user proc 
+                left join ticket t on t.proc_id = proc.user_id 
+            where t.ticket_id = '${params.tnum}'`
+        );
+        if (formhd.rows[0].is_active === false) {
+            throw { message: `Ticket ${params.tnum} is inactive` };
+        }
+        return formhd.rows[0];
+    } catch (err) {
+        console.log(err);
+        throw err;
+    }
 };
 
 Ticket.openNew = async params => {
