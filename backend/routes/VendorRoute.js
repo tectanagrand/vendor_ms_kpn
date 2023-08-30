@@ -4,6 +4,7 @@ const controller = require("../controllers/VendorController");
 
 route.get("/", controller.showAll);
 route.post("/add/:id", controller.newbyVendor);
-route.get("/uploadtemp", controller.setTempFile);
+route.post("/uploadtemp", controller.setTempFile);
+route.get("/temp/:id", controller.getFile);
 
 module.exports = route;

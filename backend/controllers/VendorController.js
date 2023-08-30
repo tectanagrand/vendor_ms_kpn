@@ -1,18 +1,26 @@
 const Vendor = require("../models/VendorModel");
+const formidable = require("formidable");
+const fs = require("fs");
+const path = require("path");
 
-Vendor.showAll = async (req, res) => {
+VendorController = {};
+
+VendorController.showAll = async (req, res) => {
     await res.status(200);
 };
 
-Vendor.newbyVendor = async (req, res) => {
+VendorController.newbyVendor = async (req, res) => {
     try {
-        const insert = await Vendor.newbyVendor(req.body);
+        const params = req.body;
+        params.ven_id = req.params.id;
+        const insert = await Vendor.newbyVendor(params);
         const response = {
             status: 200,
             message: `Vendor ${insert} successfully requested`,
         };
         res.status(200).send(response);
     } catch (err) {
+        console.log(err);
         if (err.code == "23505") {
             res.status(400).send({
                 status: 400,
@@ -21,23 +29,36 @@ Vendor.newbyVendor = async (req, res) => {
         } else {
             res.status(400).send({
                 status: 500,
-                message: `error occured`,
+                message: err.stack,
             });
         }
     }
 };
 
-Vendor.setTempFile = async (req, res) => {
-    console.log(req);
+VendorController.setTempFile = async (req, res) => {
     try {
-        const insertFile = await Vendor.setTempFile(req);
-        const response = {
+        const form = new formidable.IncomingForm();
+        [fields, items] = await form.parse(req);
+        let files = items.file_atth;
+        let uploaded_files = [];
+        files.map(async file => {
+            const date = Date.now().toString();
+            let name = file.originalFilename.split(".");
+            let newName = name[0] + date + "." + name[1];
+            let oldPath = file.filepath;
+            let newPath =
+                path.join(path.resolve(), "backend\\public") + "\\" + newName;
+            uploaded_files.push(newName);
+            let rawData = fs.readFileSync(oldPath);
+            await fs.promises.writeFile(newPath, rawData);
+        });
+        await Vendor.setTemp({ fields, uploaded_files });
+        res.status(200).send({
             status: 200,
-            message: "Files Uploaded",
-        };
-        res.status(200).send(response);
+            message: "File Uploaded",
+        });
     } catch (err) {
-        // console.log(err);
+        console.error(err);
         res.status(500).send({
             status: 500,
             message: err.stack,
@@ -45,4 +66,17 @@ Vendor.setTempFile = async (req, res) => {
     }
 };
 
-module.exports = Vendor;
+VendorController.getFile = async (req, res) => {
+    try {
+        const result = await Vendor.getFiles(req.params.id);
+        // console.log(result);
+        res.status(200).send({
+            status: 200,
+            data: result,
+        });
+    } catch (err) {
+        res.status(500);
+    }
+};
+
+module.exports = VendorController;
