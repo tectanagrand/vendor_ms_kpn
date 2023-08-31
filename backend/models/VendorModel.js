@@ -3,16 +3,35 @@ const { TRANS } = require("../config/transaction.js");
 const uuid = require("uuidv4");
 
 const Vendor = {
-    showAll() {
-        return null;
+    async showAll() {
+        try {
+            const client = await db.connect();
+            const q = `SELECT V.TICKET_NUM,
+                            V.VEN_ID,
+                            V.VEN_CODE,
+                            V.CREATED_AT,
+                            V.NAME_1,
+                            V.VEN_CODE,
+                            TI.cur_pos,
+                            TI.is_active,
+                            TI.is_reject
+                        FROM VENDOR V
+                        LEFT JOIN TICKET TI ON V.TICKET_NUM = TI.TICKET_ID
+                        `;
+            const result = await client.query(q);
+            return {
+                count: result.rowCount,
+                data: result.rows,
+            };
+        } catch (err) {
+            console.error(err);
+            throw err;
+        }
     },
 
     async addBank(client, ven_id, banks) {
         const promise = new Promise(async (resolve, reject) => {
             try {
-                if (banks.length === 0) {
-                    throw new Error("Bank not inputed");
-                }
                 banks.map(async bank => {
                     let qInsert = `insert into ven_bank(bankv_id, ven_id, bank_id, bank_acc, acc_hold, acc_name)
                 values($1, $2, $3, $4, $5, $6);`;
@@ -42,7 +61,7 @@ const Vendor = {
                     `select * from temp_ven_file_atth where ven_id = '${ven_id}'`
                 );
                 if (files.rows.length === 0) {
-                    throw new Error("File is empty");
+                    resolve(true);
                 }
                 files.rows.map(async file => {
                     let qInsert = `insert into ven_file_atth(file_id, ven_id, file_name, file_type, created_at, created_by, desc_file)
@@ -73,7 +92,7 @@ const Vendor = {
     async newbyVendor(params) {
         /*Flow :
     - file temporary already stored in temp_ven_file_atth, delete after move
-    - bank could be multiply, map through bank object
+    - bank could be multiple, map through bank object
    */
         const promise = new Promise(async (resolve, reject) => {
             const client = await db.connect();
@@ -156,17 +175,13 @@ const Vendor = {
     },
 
     async setTemp(params) {
-        // console.log("hey");
-        // console.log(params);
-        console.log(uuid.uuid());
         const { fields, uploaded_files } = params;
-        console.log(fields, uploaded_files);
         // return;
         const client = await db.connect();
         await db.query("BEGIN");
         try {
             const qInsert = `insert into temp_ven_file_atth(file_id, ven_id, file_name, file_type, created_by, desc_file)
-    values($1, $2, $3, $4, $5, $6)`;
+    values($1, $2, $3, $4, $5, $6) returning file_id, file_name, desc_file`;
             // const { fields, upFile } = await uploadFile(params);
             // console.log(result);
 
@@ -181,8 +196,9 @@ const Vendor = {
                 ];
                 return client.query(qInsert, values);
             });
-            await Promise.all(promise);
+            const result = await Promise.all(promise);
             await db.query("COMMIT");
+            return result;
         } catch (err) {
             await db.query("ROLLBACK");
             console.error(err.stack);
@@ -190,13 +206,13 @@ const Vendor = {
         }
     },
 
-    async getFiles(params) {
-        console.log(params);
+    async getFiles(ven_id) {
         try {
             const client = await db.connect();
             const items =
-                await client.query(`select file_name, desc_file, created_at from temp_ven_file_atth where ven_id = '${params}' 
-            union select file_name, desc_file, created_at from ven_file_atth where ven_id = '${params}'`);
+                await client.query(`select file_name, desc_file, created_at, 'temp_ven_file_atth' as tbl_src from temp_ven_file_atth 
+                where ven_id = '${ven_id}' 
+            union select file_name, desc_file, created_at, 'ven_file_atth' as tbl_src from ven_file_atth where ven_id = '${ven_id}'`);
             // console.log(items);
             let result = {
                 count: items.rowCount,
@@ -207,6 +223,116 @@ const Vendor = {
             throw err;
         }
     },
+
+    async getBank(ven_id) {
+        try {
+            const client = await db.connect();
+            const items = await client.query(
+                `SELECT * FROM VEN_BANK WHERE VEN_ID = '${ven_id}'`
+            );
+            // console.log(items);
+            let result = {
+                count: items.rowCount,
+                data: items.rows,
+            };
+            return result;
+        } catch (err) {
+            console.error(err);
+            throw err;
+        }
+    },
+
+    async editBank(bankv_id, mode, params) {
+        try {
+            const client = await db.connect();
+            let q;
+            let val;
+            let result;
+            switch (mode) {
+                case "edit":
+                    q = `UPDATE ven_bank 
+                            SET bank_id = $1,
+                            bank_acc = $2,
+                            acc_hold = $3,
+                            acc_name = $4, 
+                            updated_at = DEFAULT,
+                        WHERE bankv_id = '${bankv_id}' RETURNING bank_id, bank_acc, acc_hold, acc_name
+                            `;
+                    val = [
+                        params.bank_id,
+                        params.bank_acc,
+                        params.acc_hold,
+                        params.acc_name,
+                    ];
+                    result = await client.query(q, val);
+                    break;
+
+                case "delete":
+                    q = `DELETE FROM ven_bank WHERE bankv_id = '${bankv_id}' RETURNING bankv_id`;
+                    result = await client.query(q);
+                    break;
+            }
+            return {
+                mode: mode,
+                result: result,
+            };
+        } catch (err) {
+            console.error(err);
+            throw err;
+        }
+    },
+
+    /*
+     There will be :
+     - setter : setDetailVen, setBankVen, setFileVen, setTempFileVen
+     - getter : getDetailVen, getBankVen, getFileVen => fetch from each table
+     - process : Submit
+        =>  Submit : promise all setDetailVen, setBankVen, setFileVen
+
+     -setDetailVen : 
+        expected input :
+            {
+                {ven_id : <ven_id>,
+                ... fields for detail vendor}
+            }
+        expected output :
+            boolean
+    -setBankVen :
+        expected input :
+            [
+                {
+                    mode : <insert, update, delete>,
+                    bank_id : <bank_id>,
+                    ... fields for bank
+                }
+                ... array of object bank
+            ]
+        expected output :
+            boolean
+    -setFileVen :
+        expected input :
+            [
+                {
+                    mode : <insert, delete>,
+                    file_id : <file_id>,
+                    ... fields for file
+                }
+                ...array of object file
+            ]
+        expected output :
+            boolean
+    -setTempFileVen :
+        expected input : multiform 
+        expected output :
+        [
+            {
+                mode : insert
+                file_id : <file_id>,
+                file_name : <file_name>,
+                desc_file : <desc_file>
+            }
+        ]
+    */
 };
 
 module.exports = Vendor;

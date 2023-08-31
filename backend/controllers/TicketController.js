@@ -34,9 +34,32 @@ TicketController.headerTicket = async (req, res) => {
 };
 
 TicketController.showAll = async (req, res) => {
-    let row = await Ticket.showAll();
-    let count = { count: row.rowCount, data: row.rows };
-    res.send(count);
+    try {
+        const row = await Ticket.showAll();
+        res.status(200).send({
+            status: 200,
+            data: row,
+        });
+    } catch (err) {
+        res.status(500).send({
+            status: 500,
+            message: "Failed to fetch data",
+        });
+    }
 };
 
+TicketController.getTicketById = async (req, res) => {
+    try {
+        const result = await Ticket.getTicketById(req.params.t_num);
+        res.status(200).send({
+            status: 200,
+            data: result,
+        });
+    } catch (err) {
+        res.status(500).send({
+            status: 500,
+            message: "Failed to fetch data",
+        });
+    }
+};
 module.exports = TicketController;

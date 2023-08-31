@@ -6,7 +6,18 @@ const path = require("path");
 VendorController = {};
 
 VendorController.showAll = async (req, res) => {
-    await res.status(200);
+    try {
+        const result = await Vendor.showAll();
+        res.status(200).send({
+            status: 200,
+            result: result,
+        });
+    } catch (err) {
+        res.status(500).send({
+            status: 500,
+            message: "Failed to fetch data",
+        });
+    }
 };
 
 VendorController.newbyVendor = async (req, res) => {
