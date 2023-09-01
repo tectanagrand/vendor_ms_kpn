@@ -1,8 +1,9 @@
 const db = require("../config/connection");
 const uuid = require("uuidv4");
 const TRANS = require("../config/transaction");
+const crud = require("../helper/crudquery");
 
-Ticket = {
+const Ticket = {
     async showAll() {
         try {
             const client = await db.connect();
@@ -26,7 +27,6 @@ Ticket = {
         }
     },
     async headerTicket(params) {
-        console.log(params);
         try {
             let formhd = await db.query(
                 `SELECT proc.fullname, proc.email, proc.department, t.ticket_id, t.is_active, t.ven_id, t.cur_pos, r.reject_by
@@ -39,7 +39,7 @@ Ticket = {
             }
             return formhd.rows[0];
         } catch (err) {
-            console.log(err);
+            console.error(err);
             throw err;
         }
     },
@@ -66,20 +66,17 @@ Ticket = {
             // insert into ticket
             const client = await db.connect();
             await client.query("BEGIN");
-            const query_tick = `INSERT INTO ticket(ticket_id, ven_id, proc_id, created_at, valid_until, cur_pos, reject_by, is_active, token)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8) returning ticket_id`;
-            values = [
-                ticketNumber,
-                ven_id,
-                params.USER_ID,
-                f_today,
-                f_until,
-                "VENDOR",
-                null,
-                true,
-                uuid.uuid(),
-            ];
-            const result = await client.query(query_tick, values);
+            const ticket = {
+                ticket_id: ticketNumber,
+                ven_id: ven_id,
+                proc_id: params.user_id,
+                valid_until: f_until,
+                cur_pos: "VENDOR",
+                is_active: true,
+                token: uuid.uuid(),
+            };
+            const [q, val] = crud.insertItem("TICKET", ticket, "ticket_id");
+            const result = await client.query(q, val);
             await client.query("COMMIT");
             return result.rows[0].ticket_id;
         } catch (err) {
@@ -88,6 +85,7 @@ Ticket = {
             throw err;
         }
     },
+
     async getTicketById(ticket_num) {
         try {
             const client = await db.connect();
@@ -111,21 +109,53 @@ Ticket = {
         }
     },
 
-    // async deleteTicket(ticket_num) {
-    //     try {
-    //         const client = await db.connect();
-    //         //check ticket current position
-    //         let q;
-    //         const t_stat = client.query(
-    //             `SELECT CUR_POS, REJECT_BY FROM TICKET WHERE TICKET_ID = '${ticket_num}'`
-    //         );
-    //         const cur_pos = t_stat.rows[0].cur_pos;
-    //         const reject_by = t_stat.rows[0].reject_by;
-    //         //delete ticket
-
-    //         await client.query(TRANS.BEGIN);
-    //     } catch (err) {}
-    // },
+    async submitTicket(ticket_id, client) {
+        const promise = new Promise(async (resolve, reject) => {
+            try {
+                await client.query(TRANS.BEGIN);
+                const ticketq =
+                    await client.query(`SELECT tic.ticket_id, tic.cur_pos, proc.department as proc, mdm.department, v.is_tender as mdm from ticket tic
+                        left join (select user_id, department from mst_user) proc on proc.user_id = tic.proc_id
+                        left join (select user_id, department from mst_user) mdm on mdm.user_id = tic.mdm_id
+                        left join vendor v on tic.ven_id = v.ven_id 
+                        where tic.ticket_id = '${ticket_id}'`);
+                const ticket = ticketq.rows[0];
+                const session = ticket.cur_pos;
+                const proc = ticket.proc;
+                const mdm = ticket.mdm;
+                let cur_pos;
+                switch (session) {
+                    case "VENDOR":
+                        cur_pos = proc;
+                        break;
+                    case "PROC":
+                        if (ticket.is_tender) {
+                            cur_pos = "MGR";
+                        } else {
+                            cur_pos = mdm;
+                        }
+                        break;
+                    case "MDM":
+                        cur_pos = "END";
+                }
+                const q = `UPDATE ticket
+                                set cur_pos = '${cur_pos}',
+                                updated_at = DEFAULT
+                                where ticket_id = '${ticket.ticket_id}'
+                                returning ticket_id`;
+                const upTick = await client.query(q);
+                await client.query(TRANS.COMMIT);
+                await client.end();
+                resolve(upTick.rows[0].ticket_id);
+            } catch (err) {
+                await client.query(TRANS.ROLLBACK);
+                await client.end();
+                console.error(err);
+                reject(err);
+            }
+        });
+        return promise;
+    },
 };
 
 module.exports = Ticket;

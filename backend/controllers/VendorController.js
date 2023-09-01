@@ -20,11 +20,11 @@ VendorController.showAll = async (req, res) => {
     }
 };
 
-VendorController.newbyVendor = async (req, res) => {
+VendorController.setVenDetail = async (req, res) => {
     try {
         const params = req.body;
         params.ven_id = req.params.id;
-        const insert = await Vendor.newbyVendor(params);
+        const insert = await Vendor.setDetailVen(params);
         const response = {
             status: 200,
             message: `Vendor ${insert} successfully requested`,
@@ -63,10 +63,10 @@ VendorController.setTempFile = async (req, res) => {
             let rawData = fs.readFileSync(oldPath);
             await fs.promises.writeFile(newPath, rawData);
         });
-        await Vendor.setTemp({ fields, uploaded_files });
+        const result = await Vendor.setTemp({ fields, uploaded_files });
         res.status(200).send({
             status: 200,
-            message: "File Uploaded",
+            data: result,
         });
     } catch (err) {
         console.error(err);
