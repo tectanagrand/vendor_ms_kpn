@@ -112,9 +112,8 @@ const Ticket = {
     async submitTicket(ticket_id, client) {
         const promise = new Promise(async (resolve, reject) => {
             try {
-                await client.query(TRANS.BEGIN);
                 const ticketq =
-                    await client.query(`SELECT tic.ticket_id, tic.cur_pos, proc.department as proc, mdm.department, v.is_tender as mdm from ticket tic
+                    await client.query(`SELECT tic.ticket_id, tic.cur_pos, proc.department as proc, mdm.department as mdm, v.is_tender, v.name_1  from ticket tic
                         left join (select user_id, department from mst_user) proc on proc.user_id = tic.proc_id
                         left join (select user_id, department from mst_user) mdm on mdm.user_id = tic.mdm_id
                         left join vendor v on tic.ven_id = v.ven_id 
@@ -123,6 +122,7 @@ const Ticket = {
                 const session = ticket.cur_pos;
                 const proc = ticket.proc;
                 const mdm = ticket.mdm;
+                const name_1 = ticket.name_1;
                 let cur_pos;
                 switch (session) {
                     case "VENDOR":
@@ -144,12 +144,8 @@ const Ticket = {
                                 where ticket_id = '${ticket.ticket_id}'
                                 returning ticket_id`;
                 const upTick = await client.query(q);
-                await client.query(TRANS.COMMIT);
-                await client.end();
-                resolve(upTick.rows[0].ticket_id);
+                resolve([upTick.rows[0].ticket_id, name_1]);
             } catch (err) {
-                await client.query(TRANS.ROLLBACK);
-                await client.end();
                 console.error(err);
                 reject(err);
             }

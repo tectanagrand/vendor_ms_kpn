@@ -1,6 +1,7 @@
 const TRANS = require("../config/transaction");
 const Ticket = require("../models/TicketModel");
 const Vendor = require("../models/VendorModel");
+const db = require("../config/connection");
 
 const TicketController = {};
 
@@ -97,12 +98,12 @@ TicketController.submitTicket = async (req, res) => {
         */
         const { ticket_id, ven_detail, ven_banks, ven_files } = req.body;
         //change ticket cur_pos
-        const client = db.connect();
+        const client = await db.connect();
         await client.query(TRANS.BEGIN);
         let promises = [];
         promises.push(Ticket.submitTicket(ticket_id, client));
         if (ven_detail != null) {
-            promises.push(Ticket.setDetailVen(ven_detail, client));
+            promises.push(Vendor.setDetailVen(ven_detail, client));
         }
         if (ven_banks.length != 0) {
             promises.push(Vendor.setBank(ven_banks, client));
@@ -111,12 +112,21 @@ TicketController.submitTicket = async (req, res) => {
             promises.push(Vendor.setFile(ven_files, client));
         }
 
-        const [res_tnum, name_1, ,] = Promise.all(promises);
-
-        res.status(200).send({
-            status: 200,
-            message: `${res_tnum} Vendor with num ticket : ${name_1} has been requested`,
-        });
+        Promise.all(promises)
+            .then(async result => {
+                let [[res_tnum, name_1], name_1_v, ...rest] = result;
+                res.status(200).send({
+                    status: 200,
+                    message: `${
+                        name_1 ? name_1 : name_1_v
+                    } Vendor with num ticket : ${res_tnum} has been requested`,
+                });
+                await client.query(TRANS.COMMIT);
+            })
+            .catch(async err => {
+                await client.query(TRANS.ROLLBACK);
+                throw err;
+            });
     } catch (err) {
         res.status(500).send({
             status: 500,

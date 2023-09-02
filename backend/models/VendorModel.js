@@ -90,18 +90,17 @@ const Vendor = {
         return promise;
     },
 
-    async setDetailVen(detail) {
+    async setDetailVen(detail, client) {
         /*Flow :
     - file temporary already stored in temp_ven_file_atth, delete after move
     - bank could be multiple, map through bank object
    */
         const promise = new Promise(async (resolve, reject) => {
+            let q, value;
             try {
-                const client = await db.connect();
                 const isExist = await client.query(
                     `SELECT * FROM VENDOR WHERE ven_id = '${detail.ven_id}'`
                 );
-                await client.query(TRANS.BEGIN);
                 const today = new Date().toLocaleDateString();
                 const valid_until = new Date(
                     detail.valid_until
@@ -110,7 +109,7 @@ const Vendor = {
                 detail.updated_at = today;
                 detail.created_at = today;
                 if (isExist.rowCount != 0) {
-                    const [q, value] = crud.updateItem(
+                    [q, value] = crud.updateItem(
                         "VENDOR",
                         detail,
                         {
@@ -120,19 +119,16 @@ const Vendor = {
                         "name_1"
                     );
                 } else {
-                    const [q, value] = crud.insertItem(
-                        "VENDOR",
-                        detail,
-                        "name_1"
-                    );
+                    [q, value] = crud.insertItem("VENDOR", detail, "name_1");
                 }
                 let insertNew = await client.query(q, value);
                 // console.log(insertNew);
-                await client.query("COMMIT");
+                // return;
+                // console.log(insertNew);
                 resolve(insertNew.rows[0].name_1);
             } catch (err) {
-                // console.error(err.stack);
-                await client.query("ROLLBACK");
+                await client.query(TRANS.ROLLBACK);
+                console.error(err.stack);
                 reject(err);
             }
         });
@@ -211,14 +207,13 @@ const Vendor = {
         }
     },
 
-    async setBank(banks) {
+    async setBank(banks, client) {
         let method;
         let q;
         let val;
-        const client = await db.connect();
-        await client.query(TRANS.BEGIN);
         const promises = banks.map(async bank => {
             method = bank.method;
+            delete bank.method;
             switch (method) {
                 case "insert":
                     bank.bankv_id = uuid.uuid();
@@ -240,31 +235,34 @@ const Vendor = {
         const promise = new Promise(async (resolve, reject) => {
             Promise.all(promises)
                 .then(async result => {
-                    await client.query(TRANS.COMMIT);
                     resolve(true);
                 })
                 .catch(async err => {
-                    await client.query(TRANS.ROLLBACK);
+                    console.error(err.stack);
                     reject(err);
-                })
-                .finally(await client.end());
+                });
         });
         return promise;
     },
 
-    async setFile(files) {
+    async setFile(files, client) {
         let method;
         let q;
         let val;
         let data;
-        const client = await db.connect();
-        await client.query(TRANS.BEGIN);
+        let ven_id;
+        let cleanTemp = false;
         const promises = files.map(async file => {
             method = file.method;
+            delete file.method;
             switch (method) {
                 case "insert":
-                    data = client.query(
-                        `SELECT * FROM TEMP_VEN_FILE_ATTH WHERE file_id = '${file.file_id}'`
+                    if (!cleanTemp) {
+                        cleanTemp = true;
+                        ven_id = file.ven_id;
+                    }
+                    data = await client.query(
+                        `SELECT file_id, ven_id, file_name, file_type, created_at, created_by, desc_file FROM TEMP_VEN_FILE_ATTH WHERE file_id = '${file.file_id}'`
                     );
                     [q, val] = crud.insertItem("VEN_FILE_ATTH", data.rows[0]);
                     return client.query(q, val);
@@ -288,14 +286,24 @@ const Vendor = {
         const promise = new Promise(async (resolve, reject) => {
             Promise.all(promises)
                 .then(async result => {
-                    await client.query(TRANS.COMMIT);
+                    if (cleanTemp) {
+                        q = crud.deleteItem(
+                            "TEMP_VEN_FILE_ATTH",
+                            "ven_id",
+                            ven_id
+                        );
+                        try {
+                            await client.query(q);
+                        } catch (err) {
+                            reject(err);
+                        }
+                    }
                     resolve(true);
                 })
                 .catch(async err => {
-                    await client.query(TRANS.ROLLBACK);
+                    console.error(err.stack);
                     reject(err);
-                })
-                .finally(await client.end());
+                });
         });
         return promise;
     },
