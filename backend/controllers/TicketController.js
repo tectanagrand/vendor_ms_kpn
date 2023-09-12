@@ -67,11 +67,13 @@ TicketController.getTicketById = async (req, res) => {
 };
 
 TicketController.submitTicket = async (req, res) => {
+    const client = await db.connect();
     try {
         //expected input :
         /*
             {
-                ticket_id :
+                is_draft : <boolean>,
+                ticket_id : ,
                 ven_detail : {
                     ticket_id :
                     ven_id :,
@@ -96,12 +98,15 @@ TicketController.submitTicket = async (req, res) => {
                 ]
             }
         */
-        const { ticket_id, ven_detail, ven_banks, ven_files } = req.body;
+        const { ticket_id, ven_detail, ven_banks, ven_files, is_draft } =
+            req.body;
+        let res_tnum, name_1, rest;
         //change ticket cur_pos
-        const client = await db.connect();
         await client.query(TRANS.BEGIN);
         let promises = [];
-        promises.push(Ticket.submitTicket(ticket_id, client));
+        if (!is_draft) {
+            promises.push(Ticket.submitTicket(ticket_id, client));
+        }
         if (ven_detail != null) {
             promises.push(Vendor.setDetailVen(ven_detail, client));
         }
@@ -114,23 +119,73 @@ TicketController.submitTicket = async (req, res) => {
 
         Promise.all(promises)
             .then(async result => {
-                let [[res_tnum, name_1], name_1_v, ...rest] = result;
+                // console.log(result);
+                // return;
+                [[res_tnum, name_1], ...rest] = result;
                 res.status(200).send({
                     status: 200,
-                    message: `${
-                        name_1 ? name_1 : name_1_v
-                    } Vendor with num ticket : ${res_tnum} has been requested`,
+                    message: !is_draft
+                        ? `${name_1} Vendor with num ticket : ${ticket_id} has been requested`
+                        : `${ticket_id} Ticket draft has been saved`,
+                    data: req.body,
                 });
-                await client.query(TRANS.COMMIT);
             })
             .catch(async err => {
+                res.status(500).send({
+                    status: 500,
+                    message: err.message,
+                });
                 await client.query(TRANS.ROLLBACK);
-                throw err;
+                console.error(err.stack);
             });
+        await client.query(TRANS.COMMIT);
+    } catch (err) {
+        await client.query(TRANS.ROLLBACK);
+        res.status(500).send({
+            status: 500,
+            message: err.message,
+        });
+    }
+};
+
+TicketController.singleSubmit = async (req, res) => {
+    const client = await db.connect();
+    try {
+        await client.query(TRANS.BEGIN);
+        const [ticket_num, name_1] = await Ticket.submitTicket(
+            req.body.ticket_id,
+            client
+        );
+        res.status(200).send({
+            status: 200,
+            message: `Ticket ${ticket_num} is submitted`,
+        });
+        await client.query(TRANS.COMMIT);
+    } catch (err) {
+        await client.query(TRANS.ROLLBACK);
+        res.status(500).send({
+            status: 500,
+            message: `Error submission`,
+        });
+    } finally {
+        await client.end();
+    }
+};
+
+TicketController.rejectTicket = async (req, res) => {
+    const params = req.body;
+    try {
+        const [ticket_id, reject_by] = await Ticket.rejectTicket(
+            params.ticket_id
+        );
+        res.status(200).send({
+            status: 200,
+            message: `Ticket Number : ${ticket_id} is rejected by ${reject_by}`,
+        });
     } catch (err) {
         res.status(500).send({
             status: 500,
-            message: err.stack,
+            message: err.message,
         });
     }
 };

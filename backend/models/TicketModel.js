@@ -29,9 +29,10 @@ const Ticket = {
     async headerTicket(params) {
         try {
             let formhd = await db.query(
-                `SELECT proc.fullname, proc.email, proc.department, t.ticket_id, t.is_active, t.ven_id, t.cur_pos, r.reject_by
-                from mst_user proc 
-                    left join ticket t on t.proc_id = proc.user_id 
+                `SELECT proc.fullname as fn_proc, proc.email as email_proc, proc.department as dep_proc, mdm.fullname as fn_mdm, mdm.email as email_mdm, mdm.department as dep_mdm, t.ticket_id, t.is_active, t.ven_id, t.cur_pos, t.reject_by
+                from ticket t 
+                    left join mst_user proc on t.proc_id = proc.user_id 
+                    left join mst_user mdm on t.mdm_id = mdm.user_id
                 where t.ticket_id = '${params.tnum}'`
             );
             if (formhd.rows[0].is_active === false) {
@@ -140,6 +141,7 @@ const Ticket = {
                 }
                 const q = `UPDATE ticket
                                 set cur_pos = '${cur_pos}',
+                                reject_by = null,
                                 updated_at = DEFAULT
                                 where ticket_id = '${ticket.ticket_id}'
                                 returning ticket_id`;
@@ -151,6 +153,59 @@ const Ticket = {
             }
         });
         return promise;
+    },
+
+    async rejectTicket(ticket_id) {
+        const client = await db.connect();
+        try {
+            await client.query(TRANS.BEGIN);
+            const ticketq =
+                await client.query(`SELECT tic.ticket_id, tic.cur_pos, proc.department as proc, mdm.department as mdm, v.is_tender, v.name_1  from ticket tic
+                        left join (select user_id, department from mst_user) proc on proc.user_id = tic.proc_id
+                        left join (select user_id, department from mst_user) mdm on mdm.user_id = tic.mdm_id
+                        left join vendor v on tic.ven_id = v.ven_id 
+                        where tic.ticket_id = '${ticket_id}'`);
+            const ticket = ticketq.rows[0];
+            const session = ticket.cur_pos;
+            const proc = ticket.proc;
+            const mdm = ticket.mdm;
+            const name_1 = ticket.name_1;
+            let reject_by;
+            let cur_pos;
+            switch (session) {
+                case "VENDOR":
+                    reject_by = proc;
+                    cur_pos = "VENDOR";
+                    break;
+                case "PROC":
+                    reject_by = proc;
+                    cur_pos = "VENDOR";
+                    break;
+                case "MGR":
+                    reject_by = "MGR";
+                    cur_pos = proc;
+                    break;
+                case "MDM":
+                    reject_by = mdm;
+                    cur_pos = "PROC";
+                    break;
+            }
+            const q = `UPDATE ticket
+                                set reject_by = '${reject_by}',
+                                cur_pos = '${cur_pos}',
+                                updated_at = DEFAULT
+                                where ticket_id = '${ticket.ticket_id}'
+                                returning ticket_id`;
+            const upTick = await client.query(q);
+            await client.query(TRANS.COMMIT);
+            return [upTick.rows[0].ticket_id, reject_by];
+        } catch (err) {
+            console.error(err.stack);
+            await client.query(TRANS.ROLLBACK);
+            return err;
+        } finally {
+            await client.end();
+        }
     },
 };
 

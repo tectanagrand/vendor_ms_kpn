@@ -5,7 +5,7 @@ const { hashPassword } = require("../middleware/hashpass.js");
 
 User = {
     showAll() {
-        const row = db.query(`SELECT * FROM mst_mgr`);
+        const row = db.query(`SELECT * FROM mst_user`);
         return row;
     },
     async createUser(params) {
@@ -26,7 +26,7 @@ User = {
                 case "USER":
                     table = "mst_user";
                     column = `("user_id", "mgr_id", "fullname", "username", "email", "role", "created_at", "updated_at", "is_active", 
-                "expired_date", "password")`;
+                "expired_date", "password", "department")`;
                     value = [
                         uuid.uuid(),
                         params.MGR_ID,
@@ -39,8 +39,10 @@ User = {
                         1,
                         exp_date(date),
                         pass,
+                        params.DEPARTMENT,
                     ];
-                    parse = "($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)";
+                    parse =
+                        "($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)";
                     break;
                 case "MANAGER":
                     table = "MST_MGR";

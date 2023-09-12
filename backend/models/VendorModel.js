@@ -2,20 +2,14 @@ const db = require("../config/connection");
 const TRANS = require("../config/transaction");
 const uuid = require("uuidv4");
 const crud = require("../helper/crudquery");
+const path = require("path");
+const fs = require("fs");
 
 const Vendor = {
     async showAll() {
         try {
             const client = await db.connect();
-            const q = `SELECT V.TICKET_NUM,
-                            V.VEN_ID,
-                            V.VEN_CODE,
-                            V.CREATED_AT,
-                            V.NAME_1,
-                            V.VEN_CODE,
-                            TI.cur_pos,
-                            TI.is_active,
-                            TI.is_reject
+            const q = `SELECT V.*
                         FROM VENDOR V
                         LEFT JOIN TICKET TI ON V.TICKET_NUM = TI.TICKET_ID
                         `;
@@ -113,7 +107,7 @@ const Vendor = {
                         "VENDOR",
                         detail,
                         {
-                            col: ven_id,
+                            col: "ven_id",
                             value: detail.ven_id,
                         },
                         "name_1"
@@ -125,7 +119,7 @@ const Vendor = {
                 // console.log(insertNew);
                 // return;
                 // console.log(insertNew);
-                resolve(insertNew.rows[0].name_1);
+                resolve([detail.ticket_num, insertNew.rows[0].name_1]);
             } catch (err) {
                 await client.query(TRANS.ROLLBACK);
                 console.error(err.stack);
@@ -143,7 +137,7 @@ const Vendor = {
         await db.query("BEGIN");
         try {
             const qInsert = `insert into temp_ven_file_atth(file_id, ven_id, file_name, file_type, created_by, desc_file)
-    values($1, $2, $3, $4, $5, $6) returning file_id, file_name, desc_file, 'temp_ven_file_atth' as source, 'insert' as method`;
+    values($1, $2, $3, $4, $5, $6) returning ven_id, file_id, file_name, desc_file, 'temp_ven_file_atth' as source, 'insert' as method`;
             // const { fields, upFile } = await uploadFile(params);
             // console.log(result);
 
@@ -267,14 +261,12 @@ const Vendor = {
                     [q, val] = crud.insertItem("VEN_FILE_ATTH", data.rows[0]);
                     return client.query(q, val);
 
-                case "update":
-                    [q, val] = crud.updateItem("VEN_FILE_ATTH", file, {
-                        col: "file_id",
-                        value: file.file_id,
-                    });
-                    return client.query(q, val);
-
                 case "delete":
+                    await fs.promises.unlink(
+                        path.join(path.resolve(), "backend\\public") +
+                            "\\" +
+                            file.file_name
+                    );
                     q = crud.deleteItem(
                         "VEN_FILE_ATTH",
                         "file_id",
@@ -283,25 +275,26 @@ const Vendor = {
                     return client.query(q);
             }
         });
+        // console.log(promises);
+        if (cleanTemp) {
+            const tempdelPromise = new Promise(async (resolve, reject) => {
+                q = crud.deleteItem("TEMP_VEN_FILE_ATTH", "ven_id", ven_id);
+                try {
+                    await client.query(q);
+                    resolve(true);
+                } catch (err) {
+                    reject(err);
+                }
+            });
+            promises.push(tempdelPromise);
+        }
         const promise = new Promise(async (resolve, reject) => {
             Promise.all(promises)
                 .then(async result => {
-                    if (cleanTemp) {
-                        q = crud.deleteItem(
-                            "TEMP_VEN_FILE_ATTH",
-                            "ven_id",
-                            ven_id
-                        );
-                        try {
-                            await client.query(q);
-                        } catch (err) {
-                            reject(err);
-                        }
-                    }
                     resolve(true);
                 })
                 .catch(async err => {
-                    console.error(err.stack);
+                    console.log(err);
                     reject(err);
                 });
         });
