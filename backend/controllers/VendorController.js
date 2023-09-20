@@ -48,9 +48,15 @@ VendorController.setVenDetail = async (req, res) => {
 
 VendorController.setTempFile = async (req, res) => {
     try {
+        // console.log(req);
         const form = new formidable.IncomingForm();
         [fields, items] = await form.parse(req);
         let files = items.file_atth;
+        // console.log(fields);
+        // res.status(200).send({
+        //     status: 200,
+        //     data: { fields, items },
+        // });
         let uploaded_files = [];
         files.map(async file => {
             const date = Date.now().toString();

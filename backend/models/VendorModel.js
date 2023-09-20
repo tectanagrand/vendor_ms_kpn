@@ -165,13 +165,41 @@ const Vendor = {
         }
     },
 
+    async deleteTemp({ id, ven_id }) {
+        if (id != null) {
+            try {
+                const client = await db.connect();
+                await db.query("BEGIN");
+                const q =
+                    "DELETE FROM temp_ven_file_atth where id = $1 returning file_name ;";
+                const result = await client.query(q, [id]);
+                await db.query("COMMIT");
+                return result.rows;
+            } catch (err) {
+                throw err;
+            }
+        } else {
+            try {
+                const client = await db.connect();
+                await db.query("BEGIN");
+                const q =
+                    "DELETE FROM temp_ven_file_atth where ven_id = $1 returning file_name ;";
+                const result = await client.query(q, [ven_id]);
+                await db.query("COMMIT");
+                return result.rows;
+            } catch (err) {
+                throw err;
+            }
+        }
+    },
+
     async getFiles(ven_id) {
         try {
             const client = await db.connect();
             const items =
-                await client.query(`select file_name, desc_file, created_at, 'temp_ven_file_atth' as tbl_src from temp_ven_file_atth 
+                await client.query(`select file_name, desc_file, created_at, 'temp_ven_file_atth' as source from temp_ven_file_atth 
                 where ven_id = '${ven_id}' 
-            union select file_name, desc_file, created_at, 'ven_file_atth' as tbl_src from ven_file_atth where ven_id = '${ven_id}'`);
+            union select file_name, desc_file, created_at, 'ven_file_atth' as source from ven_file_atth where ven_id = '${ven_id}'`);
             // console.log(items);
             let result = {
                 count: items.rowCount,
