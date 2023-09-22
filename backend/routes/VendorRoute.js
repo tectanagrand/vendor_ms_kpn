@@ -6,5 +6,6 @@ route.get("/", controller.showAll);
 route.post("/add/:id", controller.setVenDetail);
 route.post("/uploadtemp", controller.setTempFile);
 route.get("/temp/:id", controller.getFile);
+route.delete("/file/:id", controller.deleteTempId);
 
 module.exports = route;

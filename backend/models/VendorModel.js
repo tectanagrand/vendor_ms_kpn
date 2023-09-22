@@ -165,16 +165,16 @@ const Vendor = {
         }
     },
 
-    async deleteTemp({ id, ven_id }) {
+    async deleteTemp({ id, ven_id = null }) {
         if (id != null) {
             try {
                 const client = await db.connect();
                 await db.query("BEGIN");
                 const q =
-                    "DELETE FROM temp_ven_file_atth where id = $1 returning file_name ;";
+                    "DELETE FROM temp_ven_file_atth where file_id = $1 returning file_name ;";
                 const result = await client.query(q, [id]);
                 await db.query("COMMIT");
-                return result.rows;
+                return result.rows[0];
             } catch (err) {
                 throw err;
             }
@@ -186,7 +186,7 @@ const Vendor = {
                     "DELETE FROM temp_ven_file_atth where ven_id = $1 returning file_name ;";
                 const result = await client.query(q, [ven_id]);
                 await db.query("COMMIT");
-                return result.rows;
+                return result.rows[0];
             } catch (err) {
                 throw err;
             }

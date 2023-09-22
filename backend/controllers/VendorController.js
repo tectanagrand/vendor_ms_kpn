@@ -20,6 +20,23 @@ VendorController.showAll = async (req, res) => {
     }
 };
 
+VendorController.deleteTempId = async (req, res) => {
+    try {
+        const id = req.params.id;
+        const result = await Vendor.deleteTemp({ id });
+        res.status(200).send({
+            status: 200,
+            data: result,
+        });
+    } catch (err) {
+        console.log(err.stack);
+        res.status(500).send({
+            status: 500,
+            data: "failed to fetch data",
+        });
+    }
+};
+
 VendorController.setVenDetail = async (req, res) => {
     try {
         const params = req.body;
@@ -58,6 +75,7 @@ VendorController.setTempFile = async (req, res) => {
         //     data: { fields, items },
         // });
         let uploaded_files = [];
+        // console.log(items);
         files.map(async file => {
             const date = Date.now().toString();
             let name = file.originalFilename.split(".");
