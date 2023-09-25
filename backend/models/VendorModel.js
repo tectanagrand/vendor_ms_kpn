@@ -99,7 +99,7 @@ const Vendor = {
                 const valid_until = new Date(
                     detail.valid_until
                 ).toLocaleDateString();
-                detail.valid_until = valid_until;
+                detail.valid_until = valid_until ? valid_until : null;
                 detail.updated_at = today;
                 detail.created_at = today;
                 if (isExist.rowCount != 0) {
@@ -165,14 +165,21 @@ const Vendor = {
         }
     },
 
-    async deleteTemp({ id, ven_id = null }) {
-        if (id != null) {
+    async deleteTemp({ id, ven_id }) {
+        console.log(id);
+        if (id !== "") {
             try {
                 const client = await db.connect();
                 await db.query("BEGIN");
                 const q =
                     "DELETE FROM temp_ven_file_atth where file_id = $1 returning file_name ;";
                 const result = await client.query(q, [id]);
+                const file_name = result.rows[0].file_name;
+                await fs.promises.unlink(
+                    path.join(path.resolve(), "backend\\public") +
+                        "\\" +
+                        file_name
+                );
                 await db.query("COMMIT");
                 return result.rows[0];
             } catch (err) {
@@ -185,8 +192,20 @@ const Vendor = {
                 const q =
                     "DELETE FROM temp_ven_file_atth where ven_id = $1 returning file_name ;";
                 const result = await client.query(q, [ven_id]);
+                result.rows.forEach(async item => {
+                    const fileName = item.file_name;
+                    try {
+                        await fs.promises.unlink(
+                            path.join(path.resolve(), "backend\\public") +
+                                "\\" +
+                                fileName
+                        );
+                    } catch (error) {
+                        throw error;
+                    }
+                });
                 await db.query("COMMIT");
-                return result.rows[0];
+                return result.rows;
             } catch (err) {
                 throw err;
             }

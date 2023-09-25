@@ -22,8 +22,9 @@ VendorController.showAll = async (req, res) => {
 
 VendorController.deleteTempId = async (req, res) => {
     try {
-        const id = req.params.id;
-        const result = await Vendor.deleteTemp({ id });
+        const id = req.body.id;
+        const ven_id = req.body.ven_id;
+        const result = await Vendor.deleteTemp({ id, ven_id });
         res.status(200).send({
             status: 200,
             data: result,
