@@ -33,7 +33,7 @@ const Ticket = {
                 from ticket t 
                     left join mst_user proc on t.proc_id = proc.user_id 
                     left join mst_user mdm on t.mdm_id = mdm.user_id
-                where t.ticket_id = '${params.tnum}'`
+                where t.token = '${params.tnum}'`
             );
             if (formhd.rows[0].is_active === false) {
                 throw { message: `Ticket ${params.tnum} is inactive` };

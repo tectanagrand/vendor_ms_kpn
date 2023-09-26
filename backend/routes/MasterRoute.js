@@ -4,5 +4,6 @@ const controller = require("../controllers/MasterController");
 
 router.post("/country", controller.getCountry);
 router.post("/city", controller.getCity);
+router.get("/curr", controller.getCurrency);
 
 module.exports = router;
