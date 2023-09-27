@@ -31,6 +31,21 @@ const MasterController = {
         }
     },
 
+    getBank: async (req, res) => {
+        try {
+            const result = await Master.getBank();
+            res.status(200).send({
+                status: 200,
+                data: result,
+            });
+        } catch (error) {
+            res.status(500).send({
+                status: 500,
+                message: "failed to fetch data",
+            });
+        }
+    },
+
     getCity: async (req, res) => {
         try {
             const countryId = req.body.countryId ? req.body.countryId : null;

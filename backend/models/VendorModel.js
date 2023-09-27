@@ -229,7 +229,6 @@ const Vendor = {
             throw err;
         }
     },
-
     async getBank(ven_id) {
         try {
             const client = await db.connect();
@@ -247,7 +246,6 @@ const Vendor = {
             throw err;
         }
     },
-
     async setBank(banks, client) {
         let method;
         let q;

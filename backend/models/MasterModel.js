@@ -49,6 +49,24 @@ const Master = {
             throw error;
         }
     },
+
+    async getBank(ven_id) {
+        try {
+            const client = await db.connect();
+            const items = await client.query(
+                `SELECT * FROM MST_BANK ORDER BY BANK_NAME`
+            );
+            // console.log(items);
+            let result = {
+                count: items.rowCount,
+                data: items.rows,
+            };
+            return result;
+        } catch (err) {
+            console.error(err);
+            throw err;
+        }
+    },
 };
 
 module.exports = Master;
