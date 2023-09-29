@@ -6,7 +6,7 @@ const crud = require("../helper/crudquery");
 const Ticket = {
     async showAll() {
         try {
-            const client = await db.connect();
+            const client = db;
             const items = await client.query(
                 `SELECT T.*,
                     V.NAME_1,
@@ -65,7 +65,7 @@ const Ticket = {
 
         try {
             // insert into ticket
-            const client = await db.connect();
+            const client = db;
             await client.query("BEGIN");
             const ticket = {
                 ticket_id: ticketNumber,
@@ -89,7 +89,7 @@ const Ticket = {
 
     async getTicketById(ticket_num) {
         try {
-            const client = await db.connect();
+            const client = db;
             const q = `SELECT T.*,
                                 V.NAME_1,
                                 V.VEN_CODE,
@@ -156,7 +156,7 @@ const Ticket = {
     },
 
     async rejectTicket(ticket_id) {
-        const client = await db.connect();
+        const client = db;
         try {
             await client.query(TRANS.BEGIN);
             const ticketq =

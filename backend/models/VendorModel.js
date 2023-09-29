@@ -8,7 +8,7 @@ const fs = require("fs");
 const Vendor = {
     async showAll() {
         try {
-            const client = await db.connect();
+            const client = db;
             const q = `SELECT V.*
                         FROM VENDOR V
                         LEFT JOIN TICKET TI ON V.TICKET_NUM = TI.TICKET_ID
@@ -96,12 +96,15 @@ const Vendor = {
                     `SELECT * FROM VENDOR WHERE ven_id = '${detail.ven_id}'`
                 );
                 const today = new Date().toLocaleDateString();
-                const valid_until = new Date(
-                    detail.valid_until
-                ).toLocaleDateString();
-                detail.valid_until = valid_until ? valid_until : null;
+                if ("valid_until" in detail) {
+                    const valid_until = new Date(
+                        detail.valid_until
+                    ).toLocaleDateString();
+                    detail.valid_until = valid_until ? valid_until : null;
+                }
                 detail.updated_at = today;
                 detail.created_at = today;
+                console.log(detail);
                 if (isExist.rowCount != 0) {
                     [q, value] = crud.updateItem(
                         "VENDOR",
@@ -133,7 +136,7 @@ const Vendor = {
         const { fields, uploaded_files } = params;
         let data = [];
         // return;
-        const client = await db.connect();
+        const client = db;
         await db.query("BEGIN");
         try {
             const qInsert = `insert into temp_ven_file_atth(file_id, ven_id, file_name, file_type, created_by, desc_file)
@@ -169,7 +172,7 @@ const Vendor = {
         console.log(id);
         if (id !== "") {
             try {
-                const client = await db.connect();
+                const client = db;
                 await db.query("BEGIN");
                 const q =
                     "DELETE FROM temp_ven_file_atth where file_id = $1 returning file_name ;";
@@ -187,7 +190,7 @@ const Vendor = {
             }
         } else {
             try {
-                const client = await db.connect();
+                const client = db;
                 await db.query("BEGIN");
                 const q =
                     "DELETE FROM temp_ven_file_atth where ven_id = $1 returning file_name ;";
@@ -214,7 +217,7 @@ const Vendor = {
 
     async getFiles(ven_id) {
         try {
-            const client = await db.connect();
+            const client = db;
             const items =
                 await client.query(`select file_name, desc_file, created_at, 'temp_ven_file_atth' as source from temp_ven_file_atth 
                 where ven_id = '${ven_id}' 
@@ -231,7 +234,7 @@ const Vendor = {
     },
     async getBank(ven_id) {
         try {
-            const client = await db.connect();
+            const client = db;
             const items = await client.query(
                 `SELECT * FROM VEN_BANK WHERE VEN_ID = '${ven_id}'`
             );
@@ -303,6 +306,7 @@ const Vendor = {
                     data = await client.query(
                         `SELECT file_id, ven_id, file_name, file_type, created_at, created_by, desc_file FROM TEMP_VEN_FILE_ATTH WHERE file_id = '${file.file_id}'`
                     );
+
                     [q, val] = crud.insertItem("VEN_FILE_ATTH", data.rows[0]);
                     return client.query(q, val);
 
@@ -321,22 +325,28 @@ const Vendor = {
             }
         });
         // console.log(promises);
-        if (cleanTemp) {
-            const tempdelPromise = new Promise(async (resolve, reject) => {
-                q = crud.deleteItem("TEMP_VEN_FILE_ATTH", "ven_id", ven_id);
-                try {
-                    await client.query(q);
-                    resolve(true);
-                } catch (err) {
-                    reject(err);
-                }
-            });
-            promises.push(tempdelPromise);
-        }
+        // if (cleanTemp) {
+        //     const tempdelPromise = new Promise(async (resolve, reject) => {
+        //         q = crud.deleteItem("TEMP_VEN_FILE_ATTH", "ven_id", ven_id);
+        //         try {
+        //             await client.query(q);
+        //             resolve(true);
+        //         } catch (err) {
+        //             reject(err);
+        //         }
+        //     });
+        //     promises.push(tempdelPromise);
+        // }
         const promise = new Promise(async (resolve, reject) => {
             Promise.all(promises)
                 .then(async result => {
-                    resolve(true);
+                    q = crud.deleteItem("TEMP_VEN_FILE_ATTH", "ven_id", ven_id);
+                    try {
+                        await client.query(q);
+                        resolve(true);
+                    } catch (error) {
+                        reject(error);
+                    }
                 })
                 .catch(async err => {
                     console.log(err);

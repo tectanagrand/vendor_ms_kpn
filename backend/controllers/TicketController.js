@@ -101,6 +101,7 @@ TicketController.submitTicket = async (req, res) => {
         const { ticket_id, ven_detail, ven_banks, ven_files, is_draft } =
             req.body;
         let res_tnum, name_1, rest;
+        // console.log(req.body);
         //change ticket cur_pos
         await client.query(TRANS.BEGIN);
         let promises = [];

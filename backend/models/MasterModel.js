@@ -3,8 +3,7 @@ const db = require("../config/connection");
 const Master = {
     async getCurrency() {
         try {
-            const client = await db.connect();
-            const countries = await client.query("SELECT * FROM mst_currency");
+            const countries = await db.query("SELECT * FROM mst_currency");
             return {
                 count: countries.rowCount,
                 data: countries.rows,
@@ -16,8 +15,7 @@ const Master = {
     },
     async getCountry() {
         try {
-            const client = await db.connect();
-            const countries = await client.query(
+            const countries = await db.query(
                 "SELECT * FROM mst_country order by country_name"
             );
             return {
@@ -32,14 +30,11 @@ const Master = {
 
     async getCities(idCountry) {
         try {
-            const client = await db.connect();
             const where = `country_id = '${idCountry}'`;
             let q = "SELECT * FROM mst_cities";
-            if (idCountry !== null) {
-                q = q + " where " + where;
-            }
+            q = q + " where " + where;
             q += " order by city asc";
-            const cities = await client.query(q);
+            const cities = await db.query(q);
             return {
                 count: cities.rowCount,
                 data: cities.rows,
@@ -52,8 +47,7 @@ const Master = {
 
     async getBank(ven_id) {
         try {
-            const client = await db.connect();
-            const items = await client.query(
+            const items = await db.query(
                 `SELECT * FROM MST_BANK ORDER BY BANK_NAME`
             );
             // console.log(items);
