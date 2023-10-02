@@ -2,6 +2,7 @@ const db = require("../config/connection");
 const uuid = require("uuidv4");
 const TRANS = require("../config/transaction");
 const crud = require("../helper/crudquery");
+const jwt = require("jsonwebtoken");
 
 const Ticket = {
     async showAll() {
@@ -28,6 +29,7 @@ const Ticket = {
     },
     async headerTicket(params) {
         try {
+            const verif = jwt.verify(params.tnum, process.env.TOKEN_KEY);
             let formhd = await db.query(
                 `SELECT proc.fullname as fn_proc, proc.email as email_proc, proc.department as dep_proc, mdm.fullname as fn_mdm, mdm.email as email_mdm, mdm.department as dep_mdm, t.ticket_id, t.is_active, t.ven_id, t.cur_pos, t.reject_by
                 from ticket t 
@@ -50,7 +52,7 @@ const Ticket = {
         const year = today.getFullYear().toString().substr(-2);
         const month = ("0" + (today.getMonth() + 1).toString()).substr(-2);
         const f_today = today.toLocaleDateString();
-        until.setDate(today.getMonth() + 1);
+        until.setDate(today.getDate() + 7);
         const f_until = until.toLocaleDateString();
         const ticketid = await db.query(
             "SELECT id FROM ticket order by id desc"
@@ -63,6 +65,11 @@ const Ticket = {
         const ticketNumber =
             "VMS-" + year + month + String(latestnum).padStart(4, "0");
 
+        const token = jwt.sign(
+            { ticket_num: ticketNumber },
+            process.env.TOKEN_KEY,
+            { expiresIn: "180" }
+        );
         try {
             // insert into ticket
             const client = db;
@@ -74,7 +81,7 @@ const Ticket = {
                 valid_until: f_until,
                 cur_pos: "VENDOR",
                 is_active: true,
-                token: uuid.uuid(),
+                token: token,
             };
             const [q, val] = crud.insertItem("TICKET", ticket, "ticket_id");
             const result = await client.query(q, val);
@@ -207,6 +214,19 @@ const Ticket = {
             await client.end();
         }
     },
+
+    // async refreshTicketToken (params) {
+    //     try {
+    //         const q = `select cur_pos from ticket where ticket_id = '${params.ticketnum}'` ;
+    //         const curpos = await db.query(q) ;
+    //         if(curpos != 'VENDOR') {
+    //             return {status : true, message : 'Form already been submitted'}
+    //         }
+    //         const newToken =
+    //     } catch (error) {
+
+    //     }
+    // }
 };
 
 module.exports = Ticket;
