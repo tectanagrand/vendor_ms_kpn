@@ -1,6 +1,6 @@
 const db = require("../config/connection.js");
 const uuid = require("uuidv4");
-const bcrypt = require("bcrypt");
+const jwt = require("jsonwebtoken");
 const { hashPassword } = require("../middleware/hashpass.js");
 
 User = {
@@ -14,11 +14,18 @@ User = {
         let column = "";
         let value;
         let pass = await hashPassword(params.PASSWORD);
+        const token = jwt.sign(
+            { username: params.USERNAME },
+            process.env.TOKEN_KEY,
+            { expiresIn: "1d" }
+        );
         try {
             const date = new Date().toLocaleDateString();
             const exp_date = date => {
                 let currentdate = new Date(date);
+                const today = new Date(date);
                 currentdate.setMonth(currentdate.getMonth() + 36);
+                currentdate.setDate(today.getDate());
                 let nextMonth = currentdate.toLocaleDateString();
                 return nextMonth;
             };
@@ -26,7 +33,7 @@ User = {
                 case "USER":
                     table = "mst_user";
                     column = `("user_id", "mgr_id", "fullname", "username", "email", "role", "created_at", "updated_at", "is_active", 
-                "expired_date", "password", "department")`;
+                "expired_date", "password", "department", "token")`;
                     value = [
                         uuid.uuid(),
                         params.MGR_ID,
@@ -40,9 +47,10 @@ User = {
                         exp_date(date),
                         pass,
                         params.DEPARTMENT,
+                        token,
                     ];
                     parse =
-                        "($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)";
+                        "($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)";
                     break;
                 case "MANAGER":
                     table = "MST_MGR";

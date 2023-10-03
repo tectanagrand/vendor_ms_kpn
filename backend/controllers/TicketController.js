@@ -10,7 +10,8 @@ TicketController.openNew = async (req, res) => {
         let result = await Ticket.openNew(req.body);
         res.status(200).send({
             status: 200,
-            message: `Ticket ${result} successfully created`,
+            message: `Ticket ${result.ticket_id} successfully created`,
+            data: result,
         });
     } catch (err) {
         res.status(500).send({

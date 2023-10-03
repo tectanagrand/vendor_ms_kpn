@@ -68,7 +68,7 @@ const Ticket = {
         const token = jwt.sign(
             { ticket_num: ticketNumber },
             process.env.TOKEN_KEY,
-            { expiresIn: "180" }
+            { expiresIn: "7d" }
         );
         try {
             // insert into ticket
@@ -81,12 +81,13 @@ const Ticket = {
                 valid_until: f_until,
                 cur_pos: "VENDOR",
                 is_active: true,
-                token: token,
+                token: uuid.uuid(),
+                jwttoken: token,
             };
-            const [q, val] = crud.insertItem("TICKET", ticket, "ticket_id");
+            const [q, val] = crud.insertItem("TICKET", ticket, "*");
             const result = await client.query(q, val);
             await client.query("COMMIT");
-            return result.rows[0].ticket_id;
+            return result.rows[0];
         } catch (err) {
             console.error(err);
             await client.query("ROLLBACK");
