@@ -29,7 +29,6 @@ const Ticket = {
     },
     async headerTicket(params) {
         try {
-            const verif = jwt.verify(params.tnum, process.env.TOKEN_KEY);
             let formhd = await db.query(
                 `SELECT proc.fullname as fn_proc, proc.email as email_proc, proc.department as dep_proc, mdm.fullname as fn_mdm, mdm.email as email_mdm, mdm.department as dep_mdm, t.ticket_id, t.is_active, t.ven_id, t.cur_pos, t.reject_by
                 from ticket t 
@@ -58,6 +57,7 @@ const Ticket = {
             "SELECT id FROM ticket order by id desc"
         );
         const ven_id = uuid.uuid();
+        const token = uuid.uuid();
         // console.log(ticketid.rows);
         const latestnum =
             Number(ticketid.rows.length != 0 ? ticketid.rows[0].id : 0) + 1;
@@ -65,8 +65,8 @@ const Ticket = {
         const ticketNumber =
             "VMS-" + year + month + String(latestnum).padStart(4, "0");
 
-        const token = jwt.sign(
-            { ticket_num: ticketNumber },
+        const jwttoken = jwt.sign(
+            { ticket_num: token },
             process.env.TOKEN_KEY,
             { expiresIn: "7d" }
         );
@@ -81,8 +81,8 @@ const Ticket = {
                 valid_until: f_until,
                 cur_pos: "VENDOR",
                 is_active: true,
-                token: uuid.uuid(),
-                jwttoken: token,
+                token: token,
+                jwttoken: jwttoken,
             };
             const [q, val] = crud.insertItem("TICKET", ticket, "*");
             const result = await client.query(q, val);
