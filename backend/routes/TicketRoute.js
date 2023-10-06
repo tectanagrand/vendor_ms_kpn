@@ -4,7 +4,7 @@ const controller = require("../controllers/TicketController");
 const AuthToken = require("../middleware/tokenmanager");
 
 router.post("/new", controller.openNew);
-router.get("/form/new/:tnum", AuthToken.authToken, controller.headerTicket);
+router.get("/form/new/:tnum", controller.headerTicket);
 router.get("/form/:id", controller.getTicketById); // get ticket by id ;
 router.post("/form/submit", controller.submitTicket);
 router.post("/form/v1/submit", controller.singleSubmit);

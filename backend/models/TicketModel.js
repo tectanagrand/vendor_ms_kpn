@@ -30,14 +30,28 @@ const Ticket = {
     async headerTicket(params) {
         try {
             let formhd = await db.query(
-                `SELECT proc.fullname as fn_proc, proc.email as email_proc, proc.department as dep_proc, mdm.fullname as fn_mdm, mdm.email as email_mdm, mdm.department as dep_mdm, t.ticket_id, t.is_active, t.ven_id, t.cur_pos, t.reject_by
+                `SELECT proc.fullname as fn_proc, proc.email as email_proc, proc.department as dep_proc, mdm.fullname as fn_mdm, mdm.email as email_mdm, mdm.department as dep_mdm, t.ticket_id, t.is_active, t.ven_id, t.cur_pos, t.reject_by, t.valid_until
                 from ticket t 
                     left join mst_user proc on t.proc_id = proc.user_id 
                     left join mst_user mdm on t.mdm_id = mdm.user_id
                 where t.token = '${params.tnum}'`
             );
+            if (formhd.rows[0] == null || formhd.rows[0] == undefined) {
+                throw {
+                    message: "Ticket is not found",
+                };
+            }
+            const ticketDate = new Date(formhd.rows[0].valid_until).getTime();
+            const today = new Date().getTime();
             if (formhd.rows[0].is_active === false) {
-                throw { message: `Ticket ${params.tnum} is inactive` };
+                throw {
+                    message: `Ticket ${formhd.rows[0].ticket_id} is inactive`,
+                };
+            }
+            if (today > ticketDate) {
+                throw {
+                    message: `Ticket ${formhd.rows[0].ticket_id} is expired`,
+                };
             }
             return formhd.rows[0];
         } catch (err) {
@@ -51,7 +65,7 @@ const Ticket = {
         const year = today.getFullYear().toString().substr(-2);
         const month = ("0" + (today.getMonth() + 1).toString()).substr(-2);
         const f_today = today.toLocaleDateString();
-        until.setDate(today.getDate() + 7);
+        until.setDate(today.getDate() - 1);
         const f_until = until.toLocaleDateString();
         const ticketid = await db.query(
             "SELECT id FROM ticket order by id desc"
@@ -65,11 +79,6 @@ const Ticket = {
         const ticketNumber =
             "VMS-" + year + month + String(latestnum).padStart(4, "0");
 
-        const jwttoken = jwt.sign(
-            { ticket_num: token },
-            process.env.TOKEN_KEY,
-            { expiresIn: "7d" }
-        );
         try {
             // insert into ticket
             const client = db;
@@ -82,7 +91,6 @@ const Ticket = {
                 cur_pos: "VENDOR",
                 is_active: true,
                 token: token,
-                jwttoken: jwttoken,
             };
             const [q, val] = crud.insertItem("TICKET", ticket, "*");
             const result = await client.query(q, val);
@@ -126,7 +134,7 @@ const Ticket = {
                         left join (select user_id, department from mst_user) proc on proc.user_id = tic.proc_id
                         left join (select user_id, department from mst_user) mdm on mdm.user_id = tic.mdm_id
                         left join vendor v on tic.ven_id = v.ven_id 
-                        where tic.ticket_id = '${ticket_id}'`);
+                        where tic.token = '${ticket_id}'`);
                 const ticket = ticketq.rows[0];
                 const session = ticket.cur_pos;
                 const proc = ticket.proc;
