@@ -1,14 +1,15 @@
 const db = require("../config/connection.js");
 const uuid = require("uuidv4");
 const jwt = require("jsonwebtoken");
-const { hashPassword } = require("../middleware/hashpass.js");
+const { hashPassword, validatePassword } = require("../middleware/hashpass.js");
+const TRANS = require("../config/transaction.js");
 
-User = {
-    showAll() {
+const User = {
+    showAll: () => {
         const row = db.query(`SELECT * FROM mst_user`);
         return row;
     },
-    async createUser(params) {
+    createUser: async params => {
         const client = await db.connect();
         let table = "";
         let column = "";
@@ -82,6 +83,48 @@ User = {
             await client.query("ROLLBACK");
             throw err;
             // console.log("err");
+        }
+    },
+    loginUser: async ({ username, password }) => {
+        try {
+            let newtoken = "";
+            const userData = await db.query(
+                `SELECT * FROM MST_USER WHERE username = '${username}'`
+            );
+            if (userData.rows.length === 0) {
+                throw new Error("User not found");
+            }
+            const hashed = userData.rows[0].password;
+            const valid = validatePassword({ password, hashed });
+            if (valid === false) {
+                throw new Error("Password false");
+            }
+            const resdata = userData.rows[0];
+            if (resdata.token === null) {
+                newtoken = jwt.sign(
+                    { username: resdata.username, email: resdata.email },
+                    process.env.TOKEN_KEY
+                );
+                try {
+                    await db.query(TRANS.BEGIN);
+                    await db.query(
+                        `UPDATE MST_USER SET token = '${newtoken}' where user_id ='${resdata.user_id}'`
+                    );
+                    await db.query(TRANS.COMMIT);
+                } catch (error) {
+                    await db.query(TRANS.ROLLBACK);
+                    throw error;
+                }
+            }
+            return {
+                fullname: resdata.fullname,
+                username: resdata.username,
+                email: resdata.email,
+                token: resdata.token !== null ? resdata.token : newtoken,
+            };
+        } catch (error) {
+            console.log(error);
+            throw err;
         }
     },
 };
