@@ -14,4 +14,8 @@ async function hashPassword(user) {
     return hashedPassword;
 }
 
-module.exports = { hashPassword };
+async function validatePassword({ password, hashed }) {
+    return bcrypt.compareSync(password, hashed);
+}
+
+module.exports = { hashPassword, validatePassword };
