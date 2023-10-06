@@ -19,15 +19,14 @@ const TokenManager = {
     authToken: async (req, res, next) => {
         try {
             let token;
-            console.log(req.headers.hasOwnProperty("authorization"));
             if (req.headers.hasOwnProperty("authorization") === false) {
                 token = await getTicketToken(req.params.tnum);
             } else {
                 token = req.headers.authorization.split(" ")[1];
             }
             if (token == null || token == undefined) {
-                res.status(400).send({
-                    status: 400,
+                res.status(401).send({
+                    status: 401,
                     message: "token required",
                 });
             }
