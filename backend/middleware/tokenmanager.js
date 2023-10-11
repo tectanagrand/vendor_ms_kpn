@@ -34,10 +34,32 @@ const TokenManager = {
             req.tokendecode = decode;
             next();
         } catch (error) {
-            res.status(500).send({
-                status: 500,
+            res.status(401).send({
                 message: error.stack,
             });
+        }
+    },
+
+    authSession: async (req, res, next) => {
+        console.log(req.headers);
+        if (
+            req.headers.authorization === undefined ||
+            req.headers.authorization === null
+        ) {
+            res.status(401).send({
+                message: "Access Denied",
+            });
+        } else {
+            try {
+                let token = req.headers.authorization.split(" ")[1];
+                const decode = jwt.verify(token, process.env.TOKEN_KEY);
+                req.useridSess = decode.id;
+                next();
+            } catch (err) {
+                res.status(500).send({
+                    message: err.stack,
+                });
+            }
         }
     },
 };
