@@ -102,7 +102,11 @@ const User = {
             const resdata = userData.rows[0];
             if (resdata.token === null) {
                 newtoken = jwt.sign(
-                    { username: resdata.username, email: resdata.email },
+                    {
+                        id: resdata.user_id,
+                        username: resdata.username,
+                        email: resdata.email,
+                    },
                     process.env.TOKEN_KEY
                 );
                 try {

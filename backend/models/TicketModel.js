@@ -65,7 +65,7 @@ const Ticket = {
         const year = today.getFullYear().toString().substr(-2);
         const month = ("0" + (today.getMonth() + 1).toString()).substr(-2);
         const f_today = today.toLocaleDateString();
-        until.setDate(today.getDate() - 1);
+        until.setDate(today.getDate() + 3);
         const f_until = until.toLocaleDateString();
         const ticketid = await db.query(
             "SELECT id FROM ticket order by id desc"
@@ -106,14 +106,11 @@ const Ticket = {
     async getTicketById(ticket_num) {
         try {
             const client = db;
-            const q = `SELECT T.*,
-                                V.NAME_1,
-                                V.VEN_CODE,
-                                UR.EMAIL
+            const q = `SELECT *
                             FROM TICKET T
                             LEFT JOIN VENDOR V ON V.VEN_ID = T.VEN_ID
                             LEFT JOIN MST_USER UR ON UR.USER_ID = T.PROC_ID
-                            WHERE T.TICKET_ID = ${ticket_num}
+                            WHERE T.TOKEN = '${ticket_num}'
                             ORDER BY T.CREATED_AT DESC`;
             const item = await client.query(q);
             return {
