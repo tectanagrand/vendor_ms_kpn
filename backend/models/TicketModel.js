@@ -106,24 +106,23 @@ const Ticket = {
     async getTicketById(ticket_num) {
         try {
             const client = db;
-            const q = `SELECT *
+            const q = `SELECT T.ticket_id as ticket_id, T.cur_pos, T.remarks,V.*, 
+            PROC.email as email_proc, PROC.department as dep_proc, MDM.email as email_mdm, MDM.department as dep_mdm 
                             FROM TICKET T
                             LEFT JOIN VENDOR V ON V.VEN_ID = T.VEN_ID
-                            LEFT JOIN MST_USER UR ON UR.USER_ID = T.PROC_ID
+                            LEFT JOIN MST_USER PROC ON PROC.USER_ID = T.PROC_ID
+                            LEFT JOIN MST_USER MDM ON MDM.USER_ID = T.MDM_ID
                             WHERE T.TOKEN = '${ticket_num}'
                             ORDER BY T.CREATED_AT DESC`;
             const item = await client.query(q);
-            return {
-                count: item.rowCount,
-                data: item.rows,
-            };
+            return item.rows[0];
         } catch (err) {
             console.error(err.stack);
             throw err;
         }
     },
 
-    async submitTicket(ticket_id, client) {
+    async submitTicket(item, client) {
         const promise = new Promise(async (resolve, reject) => {
             try {
                 const ticketq =
@@ -131,7 +130,7 @@ const Ticket = {
                         left join (select user_id, department from mst_user) proc on proc.user_id = tic.proc_id
                         left join (select user_id, department from mst_user) mdm on mdm.user_id = tic.mdm_id
                         left join vendor v on tic.ven_id = v.ven_id 
-                        where tic.token = '${ticket_id}'`);
+                        where tic.token = '${item.ticket_id}'`);
                 const ticket = ticketq.rows[0];
                 const session = ticket.cur_pos;
                 const proc = ticket.proc;
@@ -140,13 +139,13 @@ const Ticket = {
                 let cur_pos;
                 switch (session) {
                     case "VENDOR":
-                        cur_pos = proc;
+                        cur_pos = "PROC";
                         break;
                     case "PROC":
                         if (ticket.is_tender) {
                             cur_pos = "MGR";
                         } else {
-                            cur_pos = mdm;
+                            cur_pos = "MDM";
                         }
                         break;
                     case "MDM":
@@ -154,6 +153,7 @@ const Ticket = {
                 }
                 const q = `UPDATE ticket
                                 set cur_pos = '${cur_pos}',
+                                remarks = '${item.remarks}',
                                 reject_by = null,
                                 updated_at = DEFAULT
                                 where ticket_id = '${ticket.ticket_id}'

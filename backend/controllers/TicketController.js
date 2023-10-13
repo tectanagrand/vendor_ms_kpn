@@ -54,7 +54,7 @@ TicketController.showAll = async (req, res) => {
 
 TicketController.getTicketById = async (req, res) => {
     try {
-        const result = await Ticket.getTicketById(req.params.t_num);
+        const result = await Ticket.getTicketById(req.params.id);
         res.status(200).send({
             status: 200,
             data: result,
@@ -99,15 +99,26 @@ TicketController.submitTicket = async (req, res) => {
                 ]
             }
         */
-        const { ticket_id, ven_detail, ven_banks, ven_files, is_draft } =
-            req.body;
+        const {
+            ticket_id,
+            remarks,
+            ven_detail,
+            ven_banks,
+            ven_files,
+            is_draft,
+        } = req.body;
         let res_tnum, name_1, rest;
         // console.log(req.body);
         //change ticket cur_pos
         await client.query(TRANS.BEGIN);
         let promises = [];
         if (!is_draft) {
-            promises.push(Ticket.submitTicket(ticket_id, client));
+            promises.push(
+                Ticket.submitTicket(
+                    { ticket_id: ticket_id, remarks: remarks },
+                    client
+                )
+            );
         }
         if (ven_detail != null) {
             promises.push(Vendor.setDetailVen(ven_detail, client));
@@ -127,7 +138,9 @@ TicketController.submitTicket = async (req, res) => {
                 res.status(200).send({
                     status: 200,
                     message: !is_draft
-                        ? `${name_1} Vendor with num ticket : ${ticket_id} has been requested`
+                        ? `${
+                              name_1 ? name_1 : ven_detail.name_1
+                          } Vendor with num ticket : ${ticket_id} has been requested`
                         : `${ticket_id} Ticket draft has been saved`,
                     data: req.body,
                 });
