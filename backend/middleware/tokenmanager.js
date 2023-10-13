@@ -41,7 +41,8 @@ const TokenManager = {
     },
 
     authSession: async (req, res, next) => {
-        console.log(req.headers);
+        let token = req.headers.authorization.split(" ")[1];
+        let decode;
         if (
             req.headers.authorization === undefined ||
             req.headers.authorization === null
@@ -51,14 +52,31 @@ const TokenManager = {
             });
         } else {
             try {
-                let token = req.headers.authorization.split(" ")[1];
-                const decode = jwt.verify(token, process.env.TOKEN_KEY);
+                if (token !== undefined) {
+                    decode = jwt.verify(token, process.env.TOKEN_KEY);
+                } else {
+                    const exception = new Error();
+                    exception.name = "Unauthorized";
+                    exception.response = {
+                        status: 401,
+                        data: {
+                            message: "Unauthorized",
+                        },
+                    };
+                    throw exception;
+                }
                 req.useridSess = decode.id;
                 next();
             } catch (err) {
-                res.status(500).send({
-                    message: err.stack,
-                });
+                if (err.response.status === 401) {
+                    res.status(401).send({
+                        message: err.response.data.message,
+                    });
+                } else {
+                    res.status(500).send({
+                        message: err.stack,
+                    });
+                }
             }
         }
     },
