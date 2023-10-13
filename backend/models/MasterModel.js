@@ -61,6 +61,23 @@ const Master = {
             throw err;
         }
     },
+
+    async getCompany() {
+        try {
+            const items = await db.query(
+                `SELECT * FROM MST_COMPANY ORDER BY code`
+            );
+            // console.log(items);
+            let result = {
+                count: items.rowCount,
+                data: items.rows,
+            };
+            return result;
+        } catch (err) {
+            console.error(err);
+            throw err;
+        }
+    },
 };
 
 module.exports = Master;

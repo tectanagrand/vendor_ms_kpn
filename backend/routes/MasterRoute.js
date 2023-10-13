@@ -6,5 +6,6 @@ router.post("/country", controller.getCountry);
 router.post("/city", controller.getCity);
 router.get("/curr", controller.getCurrency);
 router.get("/bank", controller.getBank);
+router.get("/company", controller.getCompany);
 
 module.exports = router;
