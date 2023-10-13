@@ -115,4 +115,28 @@ VendorController.getFile = async (req, res) => {
     }
 };
 
+VendorController.getBank = async (req, res) => {
+    try {
+        const result = await Vendor.getBank(req.params.id);
+        // console.log(result);
+        res.status(200).send({
+            status: 200,
+            data: result,
+        });
+    } catch (err) {
+        res.status(500);
+    }
+};
+
+VendorController.getHeaderCode = async (req, res) => {
+    try {
+        const result = await Vendor.getHeaderCode(req.body);
+        res.status(200).send({
+            data: result,
+        });
+    } catch (err) {
+        res.status(500).send(err);
+    }
+};
+
 module.exports = VendorController;

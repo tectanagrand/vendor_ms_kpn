@@ -219,9 +219,9 @@ const Vendor = {
         try {
             const client = db;
             const items =
-                await client.query(`select file_name, desc_file, created_at, 'temp_ven_file_atth' as source from temp_ven_file_atth 
+                await client.query(`select file_id, file_name, desc_file, created_at, 'temp_ven_file_atth' as source from temp_ven_file_atth 
                 where ven_id = '${ven_id}' 
-            union select file_name, desc_file, created_at, 'ven_file_atth' as source from ven_file_atth where ven_id = '${ven_id}'`);
+            union select file_id, file_name, desc_file, created_at, 'ven_file_atth' as source from ven_file_atth where ven_id = '${ven_id}'`);
             // console.log(items);
             let result = {
                 count: items.rowCount,
@@ -236,7 +236,7 @@ const Vendor = {
         try {
             const client = db;
             const items = await client.query(
-                `SELECT * FROM VEN_BANK WHERE VEN_ID = '${ven_id}'`
+                `SELECT bankv_id as id, bank_id, bank_acc, acc_hold, acc_name FROM VEN_BANK WHERE VEN_ID = '${ven_id}'`
             );
             // console.log(items);
             let result = {
@@ -352,6 +352,19 @@ const Vendor = {
                     console.log(err);
                     reject(err);
                 });
+        });
+        return promise;
+    },
+
+    async getHeaderCode({ local_ovs, ven_acc, ven_type, ven_group }) {
+        const promise = new Promise(async (resolve, reject) => {
+            const q = `SELECT HEADER FROM VEN_CODE_HD WHERE local_ovs='${local_ovs}' and ven_acc='${ven_acc}' and ven_type='${ven_type}' and ven_group='${ven_group}'`;
+            try {
+                const headercode = await db.query(q);
+                resolve({ status: true, header: headercode.rows[0] });
+            } catch (err) {
+                reject({ status: false, message: "Header not found" });
+            }
         });
         return promise;
     },
