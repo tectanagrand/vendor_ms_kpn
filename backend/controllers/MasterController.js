@@ -1,4 +1,5 @@
 const Master = require("../models/MasterModel");
+const path = require("path");
 
 const MasterController = {
     getCountry: async (req, res) => {
@@ -73,6 +74,19 @@ const MasterController = {
             res.status(500).send({
                 status: 500,
                 message: "failed to fetch data",
+            });
+        }
+    },
+
+    downloadFile: async (req, res) => {
+        try {
+            const filename = req.params.filename;
+            console.log(`${path.resolve()}\\backend\\public\\${filename}`);
+            res.download(`${path.resolve()}\\backend\\public\\${filename}`);
+        } catch (err) {
+            console.log(err);
+            res.status(500).send({
+                message: "Error retrieve file",
             });
         }
     },
