@@ -80,6 +80,7 @@ VendorController.setTempFile = async (req, res) => {
         files.map(async file => {
             const date = Date.now().toString();
             let name = file.originalFilename.split(".");
+            console.log(name);
             let newName = name[0] + date + "." + name[1];
             let oldPath = file.filepath;
             let newPath =

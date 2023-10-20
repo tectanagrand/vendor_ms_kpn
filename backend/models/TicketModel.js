@@ -12,11 +12,15 @@ const Ticket = {
                 `SELECT T.*,
                     V.NAME_1,
                     V.VEN_CODE,
-                    UR.EMAIL
+                    UR.EMAIL,
+                    CASE WHEN T.REJECT_BY IS NOT NULL THEN 'REJECT'
+                    WHEN T.CUR_POS = 'END' THEN 'ACCEPTED'
+                    ELSE 'ON PROCESS' END
+                    AS STATUS_TICKET
                 FROM TICKET T
                 LEFT JOIN VENDOR V ON V.VEN_ID = T.VEN_ID
                 LEFT JOIN MST_USER UR ON UR.USER_ID = T.PROC_ID
-                ORDER BY T.CREATED_AT DESC`
+                ORDER BY T.TICKET_ID DESC`
             );
             return {
                 count: items.rowCount,
@@ -27,14 +31,18 @@ const Ticket = {
             throw err;
         }
     },
-    async headerTicket(params) {
+    async headerTicket({ tnum: ticket_num }) {
         try {
             let formhd = await db.query(
-                `SELECT proc.fullname as fn_proc, proc.email as email_proc, proc.department as dep_proc, mdm.fullname as fn_mdm, mdm.email as email_mdm, mdm.department as dep_mdm, t.ticket_id, t.is_active, t.ven_id, t.cur_pos, t.reject_by, t.valid_until
-                from ticket t 
-                    left join mst_user proc on t.proc_id = proc.user_id 
-                    left join mst_user mdm on t.mdm_id = mdm.user_id
-                where t.token = '${params.tnum}'`
+                `SELECT T.ticket_id as ticket_id, T.cur_pos, T.remarks, t.valid_until, t.ven_id as ticket_ven_id, V.*, 
+                PROC.email as email_proc, PROC.department as dep_proc, MDM.email as email_mdm, MDM.department as dep_mdm, VHD.header 
+                                FROM TICKET T
+                                LEFT JOIN VENDOR V ON V.VEN_ID = T.VEN_ID
+                                LEFT JOIN MST_USER PROC ON PROC.USER_ID = T.PROC_ID
+                                LEFT JOIN MST_USER MDM ON MDM.USER_ID = T.MDM_ID
+                                LEFT JOIN VEN_CODE_HD VHD ON (V.local_ovs = VHD.local_ovs AND v.ven_group = vhd.ven_group AND v.ven_acc = vhd.ven_acc AND v.ven_type = vhd.ven_type )
+                                WHERE T.TOKEN = '${ticket_num}'
+                                ORDER BY T.CREATED_AT DESC`
             );
             if (formhd.rows[0] == null || formhd.rows[0] == undefined) {
                 throw {
@@ -88,7 +96,7 @@ const Ticket = {
                 ven_id: ven_id,
                 proc_id: params.user_id,
                 valid_until: f_until,
-                cur_pos: "VENDOR",
+                cur_pos: params.to_who,
                 is_active: true,
                 token: token,
             };
@@ -107,11 +115,12 @@ const Ticket = {
         try {
             const client = db;
             const q = `SELECT T.ticket_id as ticket_id, T.cur_pos, T.remarks,V.*, 
-            PROC.email as email_proc, PROC.department as dep_proc, MDM.email as email_mdm, MDM.department as dep_mdm 
+            PROC.email as email_proc, PROC.department as dep_proc, MDM.email as email_mdm, MDM.department as dep_mdm, VHD.header 
                             FROM TICKET T
                             LEFT JOIN VENDOR V ON V.VEN_ID = T.VEN_ID
                             LEFT JOIN MST_USER PROC ON PROC.USER_ID = T.PROC_ID
                             LEFT JOIN MST_USER MDM ON MDM.USER_ID = T.MDM_ID
+                            LEFT JOIN VEN_CODE_HD VHD ON (V.local_ovs = VHD.local_ovs AND v.ven_group = vhd.ven_group AND v.ven_acc = vhd.ven_acc AND v.ven_type = vhd.ven_type )
                             WHERE T.TOKEN = '${ticket_num}'
                             ORDER BY T.CREATED_AT DESC`;
             const item = await client.query(q);
@@ -187,19 +196,19 @@ const Ticket = {
             let cur_pos;
             switch (session) {
                 case "VENDOR":
-                    reject_by = proc;
+                    reject_by = "PROC";
                     cur_pos = "VENDOR";
                     break;
                 case "PROC":
-                    reject_by = proc;
+                    reject_by = "PROC";
                     cur_pos = "VENDOR";
                     break;
                 case "MGR":
                     reject_by = "MGR";
-                    cur_pos = proc;
+                    cur_pos = "PROC";
                     break;
                 case "MDM":
-                    reject_by = mdm;
+                    reject_by = "MDM";
                     cur_pos = "PROC";
                     break;
             }

@@ -140,7 +140,7 @@ TicketController.submitTicket = async (req, res) => {
                     message: !is_draft
                         ? `${
                               name_1 ? name_1 : ven_detail.name_1
-                          } Vendor with num ticket : ${ticket_id} has been requested`
+                          } Vendor with num ticket : ${res_tnum} has been requested`
                         : `${ticket_id} Ticket draft has been saved`,
                     data: req.body,
                 });
