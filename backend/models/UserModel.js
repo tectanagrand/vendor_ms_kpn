@@ -100,31 +100,32 @@ const User = {
                 throw new Error("Password false");
             }
             const resdata = userData.rows[0];
-            if (resdata.token === null) {
-                newtoken = jwt.sign(
-                    {
-                        id: resdata.user_id,
-                        username: resdata.username,
-                        email: resdata.email,
-                    },
-                    process.env.TOKEN_KEY
+            newtoken = jwt.sign(
+                {
+                    id: resdata.user_id,
+                    username: resdata.username,
+                    email: resdata.email,
+                },
+                process.env.TOKEN_KEY,
+                { expiresIn: "1d" }
+            );
+            try {
+                await db.query(TRANS.BEGIN);
+                await db.query(
+                    `UPDATE MST_USER SET token = '${newtoken}' where user_id ='${resdata.user_id}'`
                 );
-                try {
-                    await db.query(TRANS.BEGIN);
-                    await db.query(
-                        `UPDATE MST_USER SET token = '${newtoken}' where user_id ='${resdata.user_id}'`
-                    );
-                    await db.query(TRANS.COMMIT);
-                } catch (error) {
-                    await db.query(TRANS.ROLLBACK);
-                    throw error;
-                }
+                await db.query(TRANS.COMMIT);
+            } catch (error) {
+                await db.query(TRANS.ROLLBACK);
+                throw error;
             }
             return {
                 fullname: resdata.fullname,
                 username: resdata.username,
+                id: resdata.user_id,
                 email: resdata.email,
-                token: resdata.token !== null ? resdata.token : newtoken,
+                role: resdata.department,
+                token: newtoken,
             };
         } catch (error) {
             console.log(error);
