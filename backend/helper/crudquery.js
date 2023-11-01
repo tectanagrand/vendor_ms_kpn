@@ -6,13 +6,15 @@ const Crud = {
         Object.keys(val).forEach((key, ix) => {
             insertCol.push(key);
             valFormat.push("$" + (ix + 1));
+            value.push(val[key]);
         });
-        Object.values(val).forEach(v => {
-            value.push(v);
-        });
+        // Object.values(val).forEach(v => {
+        //     value.push(v);
+        // });
         const qinsertCol = insertCol.join(", ");
         const qvalFormat = valFormat.join(", ");
         let query = `INSERT INTO ${toTable}(${qinsertCol}) values(${qvalFormat}) `;
+        console.log(query);
         if (returning != null) {
             query += `RETURNING ${returning}`;
         } else {
@@ -34,6 +36,7 @@ const Crud = {
         });
         const qinsertCol = insertCol.join(", ");
         let query = `UPDATE ${toTable} SET ${qinsertCol} WHERE ${where.col} = '${where.value}' `;
+        console.log(query);
         if (returning != null) {
             query += `RETURNING ${returning}`;
         } else {

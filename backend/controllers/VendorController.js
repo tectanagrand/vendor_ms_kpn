@@ -7,14 +7,10 @@ VendorController = {};
 
 VendorController.showAll = async (req, res) => {
     try {
-        const result = await Vendor.showAll();
-        res.status(200).send({
-            status: 200,
-            result: result,
-        });
+        const result = await Vendor.showAll(req.query);
+        res.status(200).send(result);
     } catch (err) {
         res.status(500).send({
-            status: 500,
             message: "Failed to fetch data",
         });
     }
