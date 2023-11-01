@@ -1,6 +1,7 @@
 const TRANS = require("../config/transaction");
 const Ticket = require("../models/TicketModel");
 const Vendor = require("../models/VendorModel");
+const Emailer = require("../models/EmailModel");
 const db = require("../config/connection");
 
 const TicketController = {};
@@ -68,7 +69,7 @@ TicketController.getTicketById = async (req, res) => {
 };
 
 TicketController.submitTicket = async (req, res) => {
-    const client = await db.connect();
+    const client = db;
     try {
         //expected input :
         /*
@@ -106,20 +107,22 @@ TicketController.submitTicket = async (req, res) => {
             ven_banks,
             ven_files,
             is_draft,
+            role,
+            email,
         } = req.body;
-        let res_tnum, name_1, rest;
-        // console.log(req.body);
+        // return;
+        console.log(req.body);
         //change ticket cur_pos
         await client.query(TRANS.BEGIN);
         let promises = [];
-        if (!is_draft) {
-            promises.push(
-                Ticket.submitTicket(
-                    { ticket_id: ticket_id, remarks: remarks },
-                    client
-                )
-            );
-        }
+        // if (!is_draft) {
+        //     promises.push(
+        //         Ticket.submitTicket(
+        //             { ticket_id: ticket_id, remarks: remarks },
+        //             client
+        //         )
+        //     );
+        // }
         if (ven_detail != null) {
             promises.push(Vendor.setDetailVen(ven_detail, client));
         }
@@ -129,21 +132,46 @@ TicketController.submitTicket = async (req, res) => {
         if (ven_files.length != 0) {
             promises.push(Vendor.setFile(ven_files, client));
         }
-
         Promise.all(promises)
             .then(async result => {
-                // console.log(result);
-                // return;
-                [[res_tnum, name_1], ...rest] = result;
-                res.status(200).send({
-                    status: 200,
-                    message: !is_draft
-                        ? `${
-                              name_1 ? name_1 : ven_detail.name_1
-                          } Vendor with num ticket : ${res_tnum} has been requested`
-                        : `${ticket_id} Ticket draft has been saved`,
-                    data: req.body,
-                });
+                try {
+                    const ticket = await Ticket.submitTicket(
+                        { ticket_id: ticket_id, remarks: remarks },
+                        client
+                    );
+                    const targets = await Ticket.ticketTarget(ticket_id);
+                    const dataTrg = targets.data;
+                    const res_tnum = ticket.rows[0].ticket_id;
+                    if (!is_draft && role === "PROC") {
+                        await Emailer.toRequest(
+                            ven_detail.ticket_num,
+                            dataTrg.proc_fname,
+                            dataTrg.proc_email,
+                            [dataTrg.mgr_pr_email]
+                        );
+                    } else if (!is_draft && role === "MDM") {
+                        await Emailer.toApprove(
+                            ven_detail.ven_code,
+                            ven_detail.name_1,
+                            dataTrg.proc_email,
+                            [
+                                dataTrg.mgr_pr_email,
+                                dataTrg.mgr_md_email,
+                                dataTrg.mdm_email,
+                            ]
+                        );
+                    }
+                    await client.query(TRANS.COMMIT);
+                    res.status(200).send({
+                        status: 200,
+                        message: !is_draft
+                            ? `${ven_detail.name_1} Vendor with num ticket : ${res_tnum} has been requested`
+                            : `${ven_detail.ticket_num} Ticket draft has been saved`,
+                        data: req.body,
+                    });
+                } catch (err) {
+                    console.log(err);
+                }
             })
             .catch(async err => {
                 res.status(500).send({
@@ -153,7 +181,6 @@ TicketController.submitTicket = async (req, res) => {
                 await client.query(TRANS.ROLLBACK);
                 console.error(err.stack);
             });
-        await client.query(TRANS.COMMIT);
     } catch (err) {
         await client.query(TRANS.ROLLBACK);
         res.status(500).send({
@@ -190,9 +217,25 @@ TicketController.singleSubmit = async (req, res) => {
 TicketController.rejectTicket = async (req, res) => {
     const params = req.body;
     try {
-        const [ticket_id, reject_by] = await Ticket.rejectTicket(
-            params.ticket_id
+        const [ticket_id, reject_by, ven_name] = await Ticket.rejectTicket(
+            params.ticket_id,
+            params.remarks
         );
+        const targets = await Ticket.ticketTarget(params.ticket_id);
+        const dt_target = targets.data;
+        if (params.role === "MDM") {
+            await Emailer.toReject(
+                params.remarks,
+                ticket_id,
+                ven_name,
+                dt_target.proc_email,
+                [
+                    dt_target.mdm_email,
+                    dt_target.mgr_md_email,
+                    dt_target.mgr_pr_email,
+                ]
+            );
+        }
         res.status(200).send({
             status: 200,
             message: `Ticket Number : ${ticket_id} is rejected by ${reject_by}`,
