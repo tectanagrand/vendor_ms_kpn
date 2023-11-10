@@ -3,7 +3,7 @@ name : Deploy to Amazon ECS
 on :
   push :
     branches : 
-     - 'deploy_dev_ecs'
+     - deploy_dev_ecs
 
 env :
   AWS_REGION: MY_AWS_REGION                   # set this to your preferred AWS region, e.g. us-west-1
