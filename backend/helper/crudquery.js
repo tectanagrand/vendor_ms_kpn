@@ -14,7 +14,6 @@ const Crud = {
         const qinsertCol = insertCol.join(", ");
         const qvalFormat = valFormat.join(", ");
         let query = `INSERT INTO ${toTable}(${qinsertCol}) values(${qvalFormat}) `;
-        console.log(query);
         if (returning != null) {
             query += `RETURNING ${returning}`;
         } else {
@@ -27,6 +26,7 @@ const Crud = {
     updateItem: (toTable, val, where, returning = null) => {
         let value = [];
         let insertCol = [];
+        let whereCol = [];
         delete val[`${where.col}`];
         Object.keys(val).forEach((key, ix) => {
             insertCol.push(key + ` = $${ix + 1}`);
@@ -34,8 +34,12 @@ const Crud = {
         Object.values(val).forEach(v => {
             value.push(v);
         });
+        Object.keys(where).forEach(key => {
+            whereCol.push(key + `= '${where[key]}'`);
+        });
+        let whereScr = whereCol.join(", ");
         const qinsertCol = insertCol.join(", ");
-        let query = `UPDATE ${toTable} SET ${qinsertCol} WHERE ${where.col} = '${where.value}' `;
+        let query = `UPDATE ${toTable} SET ${qinsertCol} WHERE ${whereScr}`;
         console.log(query);
         if (returning != null) {
             query += `RETURNING ${returning}`;
