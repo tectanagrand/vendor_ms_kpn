@@ -3,4 +3,4 @@ package-lock.json
 package.json
 .prettierrc.json
 .eslintrc.js
-.github/workflow/aws.yml
+.github/workflows/aws.yml
