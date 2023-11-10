@@ -108,18 +108,16 @@ const Vendor = {
                 [q, value] = crud.updateItem(
                     "VENDOR",
                     detail,
-                    {
-                        col: "ven_id",
-                        value: detail.ven_id,
-                    },
+                    { ven_id: detail.ven_id },
                     "*"
                 );
             } else {
                 [q, value] = crud.insertItem("VENDOR", detail, "*");
+                console.log(q, value);
                 // return;
             }
             const submitTicket = await client.query(q, value);
-            return submitTicket;
+            return client;
         } catch (err) {
             console.log(err);
             throw err;
@@ -246,6 +244,9 @@ const Vendor = {
         let method;
         let q;
         let val;
+        if (banks.length === 0) {
+            return client;
+        }
         const promises = banks.map(async bank => {
             method = bank.method;
             delete bank.method;
@@ -257,8 +258,7 @@ const Vendor = {
 
                 case "update":
                     [q, val] = crud.updateItem("VEN_BANK", bank, {
-                        col: "bankv_id",
-                        value: bank.bankv_id,
+                        bankv_id: bank.bankv_id,
                     });
                     return client.query(q, val);
 
@@ -269,7 +269,7 @@ const Vendor = {
         });
         const promise = Promise.all(promises)
             .then(async result => {
-                return true;
+                return client;
             })
             .catch(async err => {
                 console.error(err.stack);
@@ -285,6 +285,9 @@ const Vendor = {
         let data;
         let ven_id;
         let cleanTemp = false;
+        if (files.length === 0) {
+            return client;
+        }
         const promises = files.map(async file => {
             method = file.method;
             delete file.method;
@@ -318,7 +321,12 @@ const Vendor = {
         const promise = Promise.all(promises)
             .then(async result => {
                 q = crud.deleteItem("TEMP_VEN_FILE_ATTH", "ven_id", ven_id);
-                client.query(q).then(() => true);
+                try {
+                    await client.query(q);
+                    return client;
+                } catch (error) {
+                    throw err;
+                }
             })
             .catch(err => {
                 console.log(err);
