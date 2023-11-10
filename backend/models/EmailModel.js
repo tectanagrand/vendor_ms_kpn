@@ -64,7 +64,7 @@ const Emailer = {
             throw error;
         }
     },
-    toReject: async (reason, ven_code, ven_name, target, cc) => {
+    toReject: async (reason, ven_name, target, cc) => {
         const transporter = tp;
         const cc_email = cc.join(",");
         try {
@@ -72,7 +72,7 @@ const Emailer = {
                 from: process.env.SMTP_USERNAME,
                 to: target,
                 cc: cc_email,
-                subject: `Vendor ${ven_code} - ${ven_name} Reject Notification`,
+                subject: `Vendor S${ven_name} Reject Notification`,
                 html: Email.reject(reason),
             };
             const send = await transporter.sendMail(setup);
