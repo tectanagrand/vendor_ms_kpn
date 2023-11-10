@@ -108,10 +108,8 @@ TicketController.submitTicket = async (req, res) => {
             ven_files,
             is_draft,
             role,
-            email,
         } = req.body;
         // return;
-        console.log(req.body);
         //change ticket cur_pos
         await client.query(TRANS.BEGIN);
         let promises = [];
@@ -184,8 +182,25 @@ TicketController.submitTicket = async (req, res) => {
     } catch (err) {
         await client.query(TRANS.ROLLBACK);
         res.status(500).send({
-            status: 500,
             message: err.message,
+        });
+    }
+};
+
+TicketController.submitVendor = async (req, res) => {
+    try {
+        const { ven_detail, is_draft } = req.body;
+        const submission = await Ticket.submitVendor(req.body);
+        res.status(200).send({
+            message: !is_draft
+                ? `${ven_detail.name_1} Vendor with num ticket : ${submission} has been requested`
+                : `${ven_detail.ticket_num} Ticket draft has been saved`,
+            data: req.body,
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send({
+            message: "Failed create ticket",
         });
     }
 };
