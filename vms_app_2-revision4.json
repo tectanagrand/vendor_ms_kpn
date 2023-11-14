@@ -1,9 +1,9 @@
 {
-    "taskDefinitionArn": "arn:aws:ecs:ap-southeast-1:306848304741:task-definition/vms_app_2:1",
+    "taskDefinitionArn": "arn:aws:ecs:ap-southeast-1:306848304741:task-definition/vms_app_2:4",
     "containerDefinitions": [
         {
             "name": "vms_2",
-            "image": "306848304741.dkr.ecr.ap-southeast-1.amazonaws.com/vms_2",
+            "image": "306848304741.dkr.ecr.ap-southeast-1.amazonaws.com/vms_2:latest",
             "cpu": 0,
             "portMappings": [
                 {
@@ -22,10 +22,8 @@
             ],
             "essential": true,
             "environment": [],
-            "environmentFiles": [],
             "mountPoints": [],
             "volumesFrom": [],
-            "ulimits": [],
             "logConfiguration": {
                 "logDriver": "awslogs",
                 "options": {
@@ -41,7 +39,7 @@
     "family": "vms_app_2",
     "taskRoleArn": "arn:aws:iam::306848304741:role/ecsTaskExecutionRole",
     "executionRoleArn": "arn:aws:iam::306848304741:role/ecsTaskExecutionRole",
-    "revision": 1,
+    "revision": 4,
     "volumes": [],
     "status": "ACTIVE",
     "requiresAttributes": [
@@ -64,9 +62,6 @@
             "name": "ecs.capability.execution-role-ecr-pull"
         },
         {
-            "name": "com.amazonaws.ecs.capability.docker-remote-api.1.18"
-        },
-        {
             "name": "com.amazonaws.ecs.capability.docker-remote-api.1.29"
         }
     ],
@@ -77,13 +72,13 @@
     "requiresCompatibilities": [
         "EC2"
     ],
-    "cpu": "256",
-    "memory": "256",
+    "cpu": "512",
+    "memory": "512",
     "runtimePlatform": {
         "cpuArchitecture": "X86_64",
         "operatingSystemFamily": "LINUX"
     },
-    "registeredAt": "2023-11-14T07:22:50.618Z",
+    "registeredAt": "2023-11-14T08:38:53.275Z",
     "registeredBy": "arn:aws:iam::306848304741:root",
     "tags": []
 }
