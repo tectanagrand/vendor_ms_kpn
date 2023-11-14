@@ -47,6 +47,11 @@ const UserController = {
             });
         }
     },
+    check: (req, res) => {
+        res.status(200).send({
+            message: "connection established",
+        });
+    },
 };
 
 module.exports = UserController;
