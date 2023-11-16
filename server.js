@@ -2,7 +2,7 @@ const express = require("express");
 const app = express();
 const dotenv = require("dotenv").config();
 const path = require("path");
-const routers = require("./routes");
+const routers = require("./backend/routes");
 const port = process.env.PORT;
 const cors = require("cors");
 

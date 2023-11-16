@@ -1,11 +1,22 @@
-version: "3"
+version: "3.9"
 
 services:
-    app:
+    express:
         build:
-            context: .
+            context: ./
             dockerfile: Dockerfile
         volumes:
-            - ./backend:/app/backend
+            - type: bind
+              source: .
+              target: /app
+
+            - type: volume
+              target: /app/node_modules
         ports:
             - "5000:5000"
+            - "9229:9229"
+        command:
+            - nodemon
+            - -L
+            - --inspect=0.0.0.0:9229
+            - server.js
