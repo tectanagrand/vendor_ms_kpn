@@ -40,8 +40,9 @@ const Reqstat = {
         }
     },
 
-    processReq: async (ticketid, session) => {
+    processReq: async (ticketid, session, action) => {
         try {
+            db.query(TRANS.BEGIN);
             const checkTicket = await db.query(
                 `select is_active, request from ticket_reqstat_ven where ticket_id = '${ticketid}'`
             );
@@ -63,12 +64,12 @@ const Reqstat = {
             }
             const updateDt = {
                 is_active: false,
-                respondent_id: session.id,
+                respondent_id: session,
             };
             const [q, val] = crud.updateItem(
                 "ticket_reqstat_ven",
                 updateDt,
-                { col: "ticket_id", value: ticketid },
+                { ticket_id: ticketid },
                 "ven_id"
             );
             const updateTick = await db.query(q, val);
@@ -79,13 +80,15 @@ const Reqstat = {
             //update vendor
             const [qven, valven] = crud.updateItem(
                 "vendor",
-                updateVen,
+                vendt,
                 { ven_id: ven_id },
                 "name_1"
             );
             const updateVen = await db.query(qven, valven);
+            db.query(TRANS.COMMIT);
             return { name: updateVen.rows[0].name_1 };
         } catch (error) {
+            db.query(TRANS.ROLLBACK);
             console.error(error);
             throw error;
         }
@@ -94,13 +97,19 @@ const Reqstat = {
     showAll: async () => {
         try {
             const q = `
-                select t.ticket_num, 
-                    t.remarks, 
-                    t.request, 
-                    usr.fullname, 
-                    usr.email 
-                    from ticket_reqstat_ven
+                select 
+                    t.ticket_id as "id",
+                    t.ticket_num as "Ticket Number", 
+                    TO_CHAR(t.date_ticket, 'mm/dd/yyyy') as "Date",
+                    usr.email as "Requestor",
+                    t.request as "Request", 
+                    v.ven_code as "Vendor Code",
+                    v.name_1 as "Vendor Name",
+                    t.remarks as "details" 
+                    from ticket_reqstat_ven t
                     left join mst_user usr on usr.user_id = t.requestor_id
+                    left join vendor v on t.ven_id = v.ven_id
+                    where t.is_active = true 
             `;
             const ticketdt = await db.query(q);
             return {

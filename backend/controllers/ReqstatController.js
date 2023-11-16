@@ -18,7 +18,12 @@ const ReqstatController = {
         try {
             const ticketid = req.body.ticketid;
             const session = req.body.session;
-            const processReq = await Reqstat.processReq(ticketid, session);
+            const action = req.body.action;
+            const processReq = await Reqstat.processReq(
+                ticketid,
+                session,
+                action
+            );
             res.status(200).send({
                 message: `${processReq.name} status change request has been processed`,
             });
