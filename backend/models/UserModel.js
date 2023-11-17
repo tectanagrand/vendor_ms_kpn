@@ -3,6 +3,7 @@ const uuid = require("uuidv4");
 const jwt = require("jsonwebtoken");
 const { hashPassword, validatePassword } = require("../middleware/hashpass.js");
 const TRANS = require("../config/transaction.js");
+const crud = require("../helper/crudquery.js");
 
 const User = {
     showAll: () => {
@@ -130,6 +131,86 @@ const User = {
         } catch (error) {
             console.log(error);
             throw err;
+        }
+    },
+
+    showSecurityGroup: async group_id => {
+        const secMtxq = `SELECT HEADER.MENU_ID AS "parent",
+                            HEADER.MENU_ID AS "id",
+                            HEADER.PAGE,
+                            FALSE AS "fcreate",
+                            FALSE AS "fread",
+                            FALSE AS "fupdate",
+                            FALSE AS "fdelete"
+                        FROM MST_PAGE HEADER
+                        LEFT JOIN MST_PAGE CHILD ON HEADER.PARENT_ID = CHILD.MENU_ID 
+                        UNION
+                        select 
+                            header.menu_id as "parent",
+                            acc.page_id as "id",
+                            pg.page as "page",
+                            fcreate as "fcreate" ,
+                            fread as "fcreate",
+                            fupdate as "fcreate",
+                            fdelete as "fcreate"	
+                        from mst_page_access acc 
+                        left join mst_page pg on acc.page_id = pg.menu_id
+                        left join mst_page header on header.parent_id = acc.page_id
+                        where user_group_id = '${group_id}'
+                        order by parent asc
+                        `;
+        const secMtx = await db.query(secMtxq);
+        return {
+            count: secMtx.rowCount,
+            data: secMtx.rows,
+        };
+    },
+
+    submitSecurityGroup: async (groupname, groupid, accessmtx) => {
+        try {
+            let group_id = "d780b198-133e-491f-b6b2-3ceb9459addc";
+            await db.query(TRANS.BEGIN);
+            if (group_id != "") {
+                await db.query(
+                    `delete from mst_page_access where user_group_id = '${group_id}' ;`
+                );
+                console.log("in");
+            }
+            if (group_id == "") {
+                group_id = uuid.uuid();
+            }
+            const promisesSubmit = accessmtx.map(item => {
+                const insertedItem = {
+                    user_group_id: group_id,
+                    user_group_name: groupname,
+                    page_id: item.id,
+                    fcreate: item.fcreate,
+                    fread: item.fread,
+                    fupdate: item.fupdate,
+                    fdelete: item.fdelete,
+                };
+                const [query, val] = crud.insertItem(
+                    "mst_page_access",
+                    insertedItem,
+                    "user_group_name"
+                );
+                console.log(query, val);
+                return db.query(query, val);
+            });
+
+            const insertion = Promise.all([
+                ...promisesSubmit,
+                db.query(TRANS.COMMIT),
+            ]);
+            return {
+                name: insertion[0].rows[0].user_group_name,
+            };
+        } catch (error) {
+            await db.query(TRANS.ROLLBACK);
+            console.error(error);
+            return {
+                message: error,
+            };
         }
     },
 };

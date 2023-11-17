@@ -52,6 +52,40 @@ const UserController = {
             data: "no",
         });
     },
+
+    showSecurityGroup: async (req, res) => {
+        const groupid = req.body.groupid;
+        try {
+            const pages = await User.showSecurityGroup(groupid);
+            res.status(200).send(pages);
+        } catch (error) {
+            res.status(500).send({
+                message: error.stack,
+            });
+        }
+    },
+
+    submitSecurityGroup: async (req, res) => {
+        const groupname = req.body.groupname;
+        const groupid = req.body.groupid;
+        const accessmtx = req.body.accessmtx;
+        try {
+            const submit = await User.submitSecurityGroup(
+                groupname,
+                groupid,
+                accessmtx
+            );
+            const submitted = submit.name;
+            res.status(200).send({
+                message: `${submitted} group has submitted`,
+            });
+        } catch (error) {
+            console.error(error.stack);
+            res.status(500).send({
+                message: error.stack,
+            });
+        }
+    },
 };
 
 module.exports = UserController;

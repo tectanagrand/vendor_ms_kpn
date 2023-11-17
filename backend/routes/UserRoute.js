@@ -6,6 +6,8 @@ router.get("/", controller.showAll);
 router.post("/add", controller.createUser);
 router.post("/login", controller.loginUser);
 router.get("/check", controller.check);
+router.post("/secmtx", controller.showSecurityGroup);
+router.post("/secmtx/submit", controller.submitSecurityGroup);
 // router.put("/:id/edit", controller.editUser);
 // router.get("/:id/edit", controller.getUserById);
 // router.delete("/:id", controller.deleteUserId);
