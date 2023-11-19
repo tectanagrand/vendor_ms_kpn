@@ -7,7 +7,7 @@ VendorController = {};
 
 VendorController.showAll = async (req, res) => {
     try {
-        const result = await Vendor.showAll(req.query);
+        const result = await Vendor.showAll(req.query.iduser);
         res.status(200).send(result);
     } catch (err) {
         res.status(500).send({

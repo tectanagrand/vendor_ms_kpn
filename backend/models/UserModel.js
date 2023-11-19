@@ -12,78 +12,145 @@ const User = {
     },
     createUser: async params => {
         const client = await db.connect();
-        let table = "";
-        let column = "";
-        let value;
-        let pass = await hashPassword(params.PASSWORD);
+        client.query(TRANS.BEGIN);
+        let pass = await hashPassword(params.password);
         const token = jwt.sign(
-            { username: params.USERNAME },
+            { username: params.username },
             process.env.TOKEN_KEY,
             { expiresIn: "1d" }
         );
-        try {
-            const date = new Date().toLocaleDateString();
-            const exp_date = date => {
-                let currentdate = new Date(date);
-                const today = new Date(date);
-                currentdate.setMonth(currentdate.getMonth() + 36);
-                currentdate.setDate(today.getDate());
-                let nextMonth = currentdate.toLocaleDateString();
-                return nextMonth;
-            };
-            switch (params.ROLE) {
-                case "USER":
-                    table = "mst_user";
-                    column = `("user_id", "mgr_id", "fullname", "username", "email", "role", "created_at", "updated_at", "is_active", 
-                "expired_date", "password", "department", "token")`;
-                    value = [
-                        uuid.uuid(),
-                        params.MGR_ID,
-                        params.FULLNAME,
-                        params.USERNAME,
-                        params.EMAIL,
-                        params.ROLE,
-                        date,
-                        date,
-                        1,
-                        exp_date(date),
-                        pass,
-                        params.DEPARTMENT,
-                        token,
-                    ];
-                    parse =
-                        "($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)";
-                    break;
-                case "MANAGER":
-                    table = "MST_MGR";
-                    column = `("MGR_ID", "FULLNAME", "USERNAME", "EMAIL", "PASSWORD", "ROLE", "CREATED_AT", "UPDATED_AT", "EXPIRED_DATE", "IS_ACTIVE")`;
-                    value = [
-                        uuid.uuid(),
-                        params.FULLNAME,
-                        params.USERNAME,
-                        params.EMAIL,
-                        pass,
-                        params.ROLE,
-                        date,
-                        date,
-                        exp_date(date),
-                        1,
-                    ];
+        const currentdate = new Date().toLocaleDateString();
+        const startDate = params.createddate;
+        const validDate = params.expireddate;
+        const user_id = uuid.uuid();
+        const fullname = params.fullname;
+        const username = params.username;
+        const email = params.email;
+        const userGroup = params.usergroup;
+        const mgr_id = params.mgr_id;
+        const role = params.role;
+        const userSubmit = {
+            fullname: fullname,
+            username: username,
+            email: email,
+            role: role,
+            password: pass,
+            created_at: startDate,
+            expired_date: validDate,
+            updated_at: currentdate,
+            is_active: true,
+            user_group: userGroup,
+            user_id: user_id,
+            mgr_id: mgr_id,
+            token: token,
+        };
+        const [query, val] = crud.insertItem(
+            "mst_user",
+            userSubmit,
+            "username"
+        );
 
-                    parse = "($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)";
-                    break;
-            }
-            const query = `INSERT INTO "${table}"${column} VALUES ${parse}`;
-            let result = await client.query(query, value);
-            // console.log("res");
-            // console.log(items);
-            await client.query("COMMIT");
-            return result;
-        } catch (err) {
-            console.log(err);
-            await client.query("ROLLBACK");
-            throw err;
-            // console.log("err");
+        console.log(query, val);
+        try {
+            const insertUser = await client.query(query, val);
+            await client.query(TRANS.COMMIT);
+            return { name: insertUser.rows[0].username };
+        } catch (error) {
+            await client.query(TRANS.ROLLBACK);
+            throw error;
+        }
+    },
+
+    showUserData: async idUser => {
+        const q = `select * from mst_user where user_id = '${idUser}'`;
+        try {
+            const showUserbyId = await db.query(q);
+            return {
+                count: showUserbyId.rowCount,
+                data: showUserbyId.rows,
+            };
+        } catch (error) {
+            console.error(error);
+            throw error;
+        }
+    },
+
+    createManager: async params => {
+        const client = await db.connect();
+        let pass = await hashPassword(params.password);
+        const token = jwt.sign(
+            { username: params.username },
+            process.env.TOKEN_KEY,
+            { expiresIn: "1d" }
+        );
+        const currentdate = new Date().toLocaleDateString();
+        const startDate = params.date;
+        const validDate = params.date;
+        const user_id = uuid.uuid();
+        const fullname = params.fullname;
+        const username = params.username;
+        const email = params.email;
+        const userGroup = params.usergroup;
+        const department = params.department;
+        const userSubmit = {
+            fullname: fullname,
+            username: username,
+            email: email,
+            role: role,
+            password: pass,
+            created_at: startDate,
+            expired_date: validDate,
+            updated_at: currentdate,
+            is_active: true,
+            department: department,
+            user_group: userGroup,
+            mgr_id: user_id,
+            token: token,
+        };
+        const [query, val] = crud.insertItem("mst_mgr", userSubmit, "username");
+        try {
+            const insertUserMgr = client.query(query, val);
+            return { name: insertUserMgr.rows[0].username };
+        } catch (error) {
+            return {
+                message: error,
+            };
+        }
+    },
+
+    checkUserExist: async (user_email, username) => {
+        const connect = await db.connect();
+        let status = true;
+        const messages = [];
+        const checkExistemaila = await connect.query(
+            `select user_id from mst_user where email = '${user_email}' `
+        );
+        const checkExistemailb = await connect.query(
+            `select user_id from mst_mgr where email = '${user_email}' `
+        );
+        const checkExistUnamea = await connect.query(
+            `select user_id from mst_user where username = '${username}' `
+        );
+        const checkExistUnameb = await connect.query(
+            `select user_id from mst_mgr where username = '${username}' `
+        );
+        if (checkExistemaila.rowCount > 0 || checkExistemailb.rowCount > 0) {
+            messages.push("Email already exist");
+            status = false;
+        }
+        if (checkExistUnamea.rowCount > 0 || checkExistUnameb.rowCount > 0) {
+            messages.push("Username already exist");
+            status = false;
+        }
+        if (status) {
+            return {
+                status: true,
+            };
+        } else {
+            return {
+                status: false,
+                message: messages,
+            };
         }
     },
     loginUser: async ({ username, password }) => {
@@ -134,6 +201,15 @@ const User = {
         }
     },
 
+    showExistSecGrp: async () => {
+        const q = `select distinct user_group_name, user_group_id from mst_page_access`;
+        const userGroups = await db.query(q);
+        return {
+            count: userGroups.rowCount,
+            data: userGroups.rows,
+        };
+    },
+
     showSecurityGroup: async group_id => {
         const secMtxq = `SELECT HEADER.MENU_ID AS "parent",
                             HEADER.MENU_ID AS "id",
@@ -166,12 +242,13 @@ const User = {
         };
     },
 
-    submitSecurityGroup: async (groupname, groupid, accessmtx) => {
+    submitSecurityGroup: async (groupname, accessmtx) => {
+        const connect = await db.connect();
         try {
             let group_id = "d780b198-133e-491f-b6b2-3ceb9459addc";
-            await db.query(TRANS.BEGIN);
+            await connect.query(TRANS.BEGIN);
             if (group_id != "") {
-                await db.query(
+                await connect.query(
                     `delete from mst_page_access where user_group_id = '${group_id}' ;`
                 );
                 console.log("in");
@@ -195,22 +272,48 @@ const User = {
                     "user_group_name"
                 );
                 console.log(query, val);
-                return db.query(query, val);
+                return connect.query(query, val);
             });
 
             const insertion = Promise.all([
                 ...promisesSubmit,
-                db.query(TRANS.COMMIT),
+                connect.query(TRANS.COMMIT),
             ]);
             return {
                 name: insertion[0].rows[0].user_group_name,
             };
         } catch (error) {
-            await db.query(TRANS.ROLLBACK);
+            await connect.query(TRANS.ROLLBACK);
             console.error(error);
+            throw error;
+        }
+    },
+
+    showRole: async () => {
+        try {
+            const q = `select id_role, role from mst_role`;
+            const roles = await db.query(q);
             return {
-                message: error,
+                count: roles.rowCount,
+                data: roles.rows,
             };
+        } catch (error) {
+            console.error(error);
+            throw error;
+        }
+    },
+
+    showManagers: async () => {
+        try {
+            const q = `select mgr_id, fullname from mst_mgr`;
+            const managers = await db.query(q);
+            return {
+                count: managers.rowCount,
+                data: managers.rows,
+            };
+        } catch (error) {
+            console.error(error);
+            throw error;
         }
     },
 };

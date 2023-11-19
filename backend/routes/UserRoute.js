@@ -3,11 +3,15 @@ const router = express.Router();
 const controller = require("../controllers/UserController");
 
 router.get("/", controller.showAll);
-router.post("/add", controller.createUser);
 router.post("/login", controller.loginUser);
 router.get("/check", controller.check);
+router.get("/lssecmtx", controller.showExistSecGrp);
+router.get("/roles", controller.showRole);
+router.get("/mgrs", controller.showManagers);
+router.get("/show", controller.showUserData);
 router.post("/secmtx", controller.showSecurityGroup);
 router.post("/secmtx/submit", controller.submitSecurityGroup);
+router.post("/submit", controller.createNewUser);
 // router.put("/:id/edit", controller.editUser);
 // router.get("/:id/edit", controller.getUserById);
 // router.delete("/:id", controller.deleteUserId);
