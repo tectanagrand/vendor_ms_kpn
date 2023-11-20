@@ -40,7 +40,6 @@ const Crud = {
         let whereScr = whereCol.join(", ");
         const qinsertCol = insertCol.join(", ");
         let query = `UPDATE ${toTable} SET ${qinsertCol} WHERE ${whereScr}`;
-        console.log(query);
         if (returning != null) {
             query += `RETURNING ${returning}`;
         } else {
