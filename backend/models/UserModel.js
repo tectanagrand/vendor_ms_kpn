@@ -6,14 +6,37 @@ const TRANS = require("../config/transaction.js");
 const crud = require("../helper/crudquery.js");
 
 const User = {
-    showAll: () => {
-        const row = db.query(`SELECT * FROM mst_user`);
-        return row;
+    showAll: async () => {
+        try {
+            const row = await db.query(`
+            SELECT us.user_id as id, us.fullname, us.username, us.email, sec.user_group_name, us.role, 
+                TO_CHAR(us.created_at, 'mm-dd-yyyy') as created_at, 
+                TO_CHAR(us.expired_date, 'mm-dd-yyyy') as expired_date
+                FROM mst_user us
+                LEFT JOIN (SELECT DISTINCT user_group_name, user_group_id from mst_page_access) sec on us.user_group = sec.user_group_id`);
+            return {
+                count: row.rowCount,
+                data: row.rows,
+            };
+        } catch (error) {
+            console.error(error);
+        }
     },
     createUser: async params => {
+        const uidExist = params.user_id;
+        let pass;
+        let query, val;
+        let submitState = "";
+        if (uidExist != "") {
+            submitState = "update";
+        } else {
+            submitState = "insert";
+        }
         const client = await db.connect();
         client.query(TRANS.BEGIN);
-        let pass = await hashPassword(params.password);
+        if (params.hasOwnProperty("password")) {
+            pass = await hashPassword(params.password);
+        }
         const token = jwt.sign(
             { username: params.username },
             process.env.TOKEN_KEY,
@@ -22,19 +45,18 @@ const User = {
         const currentdate = new Date().toLocaleDateString();
         const startDate = params.createddate;
         const validDate = params.expireddate;
-        const user_id = uuid.uuid();
+        const user_id = uidExist != "" ? uidExist : uuid.uuid();
         const fullname = params.fullname;
         const username = params.username;
         const email = params.email;
         const userGroup = params.usergroup;
         const mgr_id = params.mgr_id;
         const role = params.role;
-        const userSubmit = {
+        let userSubmit = {
             fullname: fullname,
             username: username,
             email: email,
             role: role,
-            password: pass,
             created_at: startDate,
             expired_date: validDate,
             updated_at: currentdate,
@@ -44,13 +66,22 @@ const User = {
             mgr_id: mgr_id,
             token: token,
         };
-        const [query, val] = crud.insertItem(
-            "mst_user",
-            userSubmit,
-            "username"
-        );
+        if (params.hasOwnProperty("password")) {
+            userSubmit.password = pass;
+        }
+        if (submitState == "insert") {
+            [query, val] = crud.insertItem("mst_user", userSubmit, "username");
+        } else {
+            [query, val] = crud.updateItem(
+                "mst_user",
+                userSubmit,
+                {
+                    user_id: uidExist,
+                },
+                "username"
+            );
+        }
 
-        console.log(query, val);
         try {
             const insertUser = await client.query(query, val);
             await client.query(TRANS.COMMIT);
@@ -62,12 +93,14 @@ const User = {
     },
 
     showUserData: async idUser => {
-        const q = `select * from mst_user where user_id = '${idUser}'`;
+        const q = `select fullname, username, password, role, user_group as usergroup, 
+                    user_id, mgr_id, created_at as datecreated, expired_date as expireddate
+                    ,email
+                    from mst_user where user_id = '${idUser}'`;
         try {
             const showUserbyId = await db.query(q);
             return {
-                count: showUserbyId.rowCount,
-                data: showUserbyId.rows,
+                data: showUserbyId.rows[0],
             };
         } catch (error) {
             console.error(error);
@@ -162,6 +195,29 @@ const User = {
             if (userData.rows.length === 0) {
                 throw new Error("User not found");
             }
+            const userGroup = userData.rows[0].user_group;
+            const getAuthentication = await db.query(`
+            select 
+                pg.page, 
+                acs.fcreate, 
+                acs.fread, 
+                acs.fupdate, 
+                acs.fdelete
+            from mst_page_access acs
+            left join mst_page pg on acs.page_id = pg.menu_id
+            where user_group_id = '${userGroup}'
+            `);
+            let authPerm = {};
+            getAuthentication.rows.map(item => {
+                console.log(item.page);
+                authPerm[item.page] = {
+                    create: item.fcreate,
+                    read: item.fread,
+                    update: item.fupdate,
+                    delete: item.fdelete,
+                };
+            });
+
             const hashed = userData.rows[0].password;
             const valid = validatePassword({ password, hashed });
             if (valid === false) {
@@ -194,15 +250,19 @@ const User = {
                 email: resdata.email,
                 role: resdata.department,
                 token: newtoken,
+                permission: authPerm,
             };
         } catch (error) {
-            console.log(error);
             throw err;
         }
     },
 
     showExistSecGrp: async () => {
-        const q = `select distinct user_group_name, user_group_id from mst_page_access`;
+        const q = `select distinct 
+                    user_group_name, 
+                    user_group_id, 
+                    TO_CHAR(created_at, 'mm/dd/yyyy') as createddate
+                    from mst_page_access`;
         const userGroups = await db.query(q);
         return {
             count: userGroups.rowCount,
@@ -211,47 +271,63 @@ const User = {
     },
 
     showSecurityGroup: async group_id => {
-        const secMtxq = `SELECT HEADER.MENU_ID AS "parent",
-                            HEADER.MENU_ID AS "id",
-                            HEADER.PAGE,
-                            FALSE AS "fcreate",
-                            FALSE AS "fread",
-                            FALSE AS "fupdate",
-                            FALSE AS "fdelete"
-                        FROM MST_PAGE HEADER
-                        LEFT JOIN MST_PAGE CHILD ON HEADER.PARENT_ID = CHILD.MENU_ID 
-                        UNION
-                        select 
-                            header.menu_id as "parent",
-                            acc.page_id as "id",
-                            pg.page as "page",
-                            fcreate as "fcreate" ,
-                            fread as "fcreate",
-                            fupdate as "fcreate",
-                            fdelete as "fcreate"	
-                        from mst_page_access acc 
-                        left join mst_page pg on acc.page_id = pg.menu_id
-                        left join mst_page header on header.parent_id = acc.page_id
-                        where user_group_id = '${group_id}'
-                        order by parent asc
+        let secName = "";
+        if (group_id !== "") {
+            const secNameq = `
+                            SELECT 
+                                distinct user_group_name
+                            from
+                                mst_page_access where user_group_id = '${group_id}' ;
+            `;
+            const getname = await db.query(secNameq);
+            secName = getname.rows[0].user_group_name;
+        }
+        const secMtxq = `SELECT 
+                            PG.MENU_ID AS "id",
+                            PG.PAGE,
+                            case
+                                when acs.fcreate then acs.fcreate
+                                else false 
+                            end
+                            as "fcreate",
+                            case
+                                when acs.fread then acs.fread
+                                else false 
+                            end
+                            as "fread",
+                            case
+                                when acs.fupdate then acs.fupdate
+                                else false 
+                            end
+                            as "fupdate",
+                            case
+                                when acs.fdelete then acs.fdelete
+                                else false
+                            end
+                            as "fdelete"
+                            FROM MST_PAGE PG
+                            LEFT JOIN 
+                            MST_PAGE_ACCESS 
+                            ACS ON ACS.PAGE_ID = PG.MENU_ID AND ACS.user_group_id = '${group_id}'
+                        order by PG.parent_id asc, is_parent asc
                         `;
         const secMtx = await db.query(secMtxq);
         return {
+            name: secName,
             count: secMtx.rowCount,
             data: secMtx.rows,
         };
     },
 
-    submitSecurityGroup: async (groupname, accessmtx) => {
+    submitSecurityGroup: async (groupname, groupid, accessmtx) => {
         const connect = await db.connect();
         try {
-            let group_id = "d780b198-133e-491f-b6b2-3ceb9459addc";
+            let group_id = groupid;
             await connect.query(TRANS.BEGIN);
             if (group_id != "") {
                 await connect.query(
                     `delete from mst_page_access where user_group_id = '${group_id}' ;`
                 );
-                console.log("in");
             }
             if (group_id == "") {
                 group_id = uuid.uuid();
@@ -271,11 +347,10 @@ const User = {
                     insertedItem,
                     "user_group_name"
                 );
-                console.log(query, val);
                 return connect.query(query, val);
             });
 
-            const insertion = Promise.all([
+            const insertion = await Promise.all([
                 ...promisesSubmit,
                 connect.query(TRANS.COMMIT),
             ]);
