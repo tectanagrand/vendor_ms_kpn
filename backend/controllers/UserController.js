@@ -2,10 +2,10 @@ const User = require("../models/UserModel");
 const UserController = {
     showAll: async (req, res) => {
         try {
-            let row = await User.showAll();
-            let count = { status: 200, count: row.rowCount, data: row.rows };
-            res.status(200).send(count);
+            let data = await User.showAll();
+            res.status(200).send(data);
         } catch (err) {
+            console.error(err);
             res.status(500).send({
                 message: "Server Error",
             });
@@ -17,6 +17,7 @@ const UserController = {
                 username: req.body.username,
                 password: req.body.password,
             });
+            console.log(logData);
             res.status(200).send({
                 ...logData,
             });
@@ -100,16 +101,19 @@ const UserController = {
 
     createNewUser: async (req, res) => {
         const Dt = {
+            user_id: req.body.user_id,
             username: req.body.username,
             fullname: req.body.fullname,
             email: req.body.email,
             mgr_id: req.body.mgr_id,
-            password: req.body.password,
             createddate: req.body.createddate,
             expireddate: req.body.expireddate,
             role: req.body.role,
             usergroup: req.body.usergroup,
         };
+        if (req.body.hasOwnProperty("password")) {
+            Dt.password = req.body.password;
+        }
         try {
             let submitDt;
             if (Dt.mgr_id === "") {
@@ -118,7 +122,7 @@ const UserController = {
                 submitDt = await User.createUser(Dt);
             }
             res.status(200).send({
-                message: `success created user ${submitDt.name}`,
+                message: `success created ${submitDt.name}`,
             });
         } catch (error) {
             console.error(error);
