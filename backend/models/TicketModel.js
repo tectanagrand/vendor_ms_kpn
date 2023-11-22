@@ -37,7 +37,7 @@ const Ticket = {
         try {
             let formhd = await db.query(
                 `SELECT T.ticket_id as ticket_id, T.cur_pos, T.remarks, t.valid_until, t.ven_id as ticket_ven_id, V.*, 
-                PROC.email as email_proc, PROC.department as dep_proc, MDM.email as email_mdm, MDM.department as dep_mdm, VHD.header 
+                PROC.email as email_proc, PROC.role as dep_proc, MDM.email as email_mdm, MDM.role as dep_mdm, VHD.header 
                                 FROM TICKET T
                                 LEFT JOIN VENDOR V ON V.VEN_ID = T.VEN_ID
                                 LEFT JOIN MST_USER PROC ON PROC.USER_ID = T.PROC_ID
@@ -82,8 +82,14 @@ const Ticket = {
         const token = uuid.uuid();
         // console.log(ticketid.rows);
         const latestnum = ticketid.rows[0].nextval;
+        const headerTicket = params.to_who === "VENDOR" ? "VEN" : "PRC";
+        const ticketState = params.to_who === "VENDOR" ? "INIT" : "CREA";
         const ticketNumber =
-            "VMS-" + year + month + String(latestnum).padStart(4, "0");
+            headerTicket +
+            "-" +
+            year +
+            month +
+            String(latestnum).padStart(4, "0");
 
         try {
             // insert into ticket
@@ -97,6 +103,7 @@ const Ticket = {
                 cur_pos: params.to_who,
                 is_active: true,
                 token: token,
+                ticket_state: ticketState,
             };
             const [q, val] = crud.insertItem("TICKET", ticket, "*");
             const result = await client.query(q, val);
@@ -112,8 +119,8 @@ const Ticket = {
     async getTicketById(ticket_num) {
         try {
             const client = db;
-            const q = `SELECT T.ticket_id as ticket_id, T.cur_pos, T.remarks, T.ven_id as ticket_ven_id, V.*, 
-            PROC.email as email_proc, PROC.department as dep_proc, MDM.email as email_mdm, MDM.department as dep_mdm, VHD.header 
+            const q = `SELECT T.ticket_id as ticket_num, T.token as ticket_id, T.cur_pos, T.ticket_state, T.remarks, T.ven_id as ticket_ven_id, V.*, 
+            PROC.email as email_proc, PROC.role as dep_proc, MDM.email as email_mdm, MDM.role as dep_mdm, VHD.header 
                             FROM TICKET T
                             LEFT JOIN VENDOR V ON V.VEN_ID = T.VEN_ID
                             LEFT JOIN MST_USER PROC ON PROC.USER_ID = T.PROC_ID
@@ -132,39 +139,48 @@ const Ticket = {
     async submitTicket(item, client) {
         try {
             const ticketq =
-                await client.query(`SELECT tic.ticket_id, tic.cur_pos, proc.department as proc, mdm.department as mdm, v.is_tender, v.name_1  from ticket tic
+                await client.query(`SELECT tic.ticket_id, tic.cur_pos, tic.ticket_state, proc.department as proc, mdm.department as mdm, v.is_tender, v.name_1  from ticket tic
                         left join (select user_id, department from mst_user) proc on proc.user_id = tic.proc_id
                         left join (select user_id, department from mst_user) mdm on mdm.user_id = tic.mdm_id
                         left join vendor v on tic.ven_id = v.ven_id 
                         where tic.token = '${item.ticket_id}'`);
             const ticket = ticketq.rows[0];
-            const session = ticket.cur_pos;
+            const session = ticket.ticket_state;
             const proc = ticket.proc;
             const mdm = ticket.mdm;
             const name_1 = ticket.name_1;
             let cur_pos;
             switch (session) {
-                case "VENDOR":
+                case "INIT":
                     cur_pos = "PROC";
+                    state = "CREA";
                     break;
-                case "PROC":
+                case "CREA":
                     if (ticket.is_tender) {
                         cur_pos = "MGR";
                     } else {
                         cur_pos = "MDM";
                     }
+                    state = "FINA";
                     break;
-                case "MDM":
+                case "FINA":
+                    state = "END";
                     cur_pos = "END";
             }
             const q = `UPDATE ticket
                                 set cur_pos = $1,
                                 remarks = $2,
+                                ticket_state = $3,
                                 reject_by = null,
                                 updated_at = DEFAULT
-                                where ticket_id = $3
+                                where ticket_id = $4
                                 returning ticket_id`;
-            return client.query(q, [cur_pos, item.remarks, ticket.ticket_id]);
+            return client.query(q, [
+                cur_pos,
+                item.remarks,
+                state,
+                ticket.ticket_id,
+            ]);
         } catch (err) {
             console.error(err);
             throw err;
@@ -270,7 +286,6 @@ const Ticket = {
             const client1 = await Vendor.setDetailVen(ven_detail, client);
             const client2 = await Vendor.setBank(ven_banks, client1);
             const client3 = await Vendor.setFile(ven_files, client2);
-            console.log(client3);
             const ticket = await this.submitTicket(
                 { ticket_id: ticket_id, remarks: remarks },
                 client3

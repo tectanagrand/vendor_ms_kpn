@@ -3,7 +3,9 @@ const db = require("../config/connection");
 const Master = {
     async getCurrency() {
         try {
-            const countries = await db.query("SELECT * FROM mst_currency");
+            const countries = await db.query(
+                "SELECT distinct code FROM mst_currency"
+            );
             return {
                 count: countries.rowCount,
                 data: countries.rows,
