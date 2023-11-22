@@ -4,6 +4,8 @@ const controller = require("../controllers/UserController");
 
 router.get("/", controller.showAll);
 router.post("/login", controller.loginUser);
+router.get("/refresh", controller.refreshToken);
+router.post("/authorization", controller.getAuthorization);
 router.get("/check", controller.check);
 router.get("/lssecmtx", controller.showExistSecGrp);
 router.get("/roles", controller.showRole);

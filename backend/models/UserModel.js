@@ -188,7 +188,6 @@ const User = {
     },
     loginUser: async ({ username, password }) => {
         try {
-            let newtoken = "";
             const userData = await db.query(
                 `SELECT * FROM MST_USER WHERE username = '${username}'`
             );
@@ -196,20 +195,38 @@ const User = {
                 throw new Error("User not found");
             }
             const userGroup = userData.rows[0].user_group;
-            const getAuthentication = await db.query(`
-            select 
-                pg.page, 
-                acs.fcreate, 
-                acs.fread, 
-                acs.fupdate, 
-                acs.fdelete
-            from mst_page_access acs
-            left join mst_page pg on acs.page_id = pg.menu_id
-            where user_group_id = '${userGroup}'
+            const getAuthorization = await db.query(`
+            SELECT 
+                            PG.MENU_ID AS "id",
+                            PG.PAGE,
+                            case
+                                when acs.fcreate then acs.fcreate
+                                else false 
+                            end
+                            as "fcreate",
+                            case
+                                when acs.fread then acs.fread
+                                else false 
+                            end
+                            as "fread",
+                            case
+                                when acs.fupdate then acs.fupdate
+                                else false 
+                            end
+                            as "fupdate",
+                            case
+                                when acs.fdelete then acs.fdelete
+                                else false
+                            end
+                            as "fdelete"
+                            FROM MST_PAGE PG
+                            LEFT JOIN 
+                            MST_PAGE_ACCESS 
+                            ACS ON ACS.PAGE_ID = PG.MENU_ID AND ACS.user_group_id = '${userGroup}'
+                        order by PG.parent_id asc, is_parent asc
             `);
             let authPerm = {};
-            getAuthentication.rows.map(item => {
-                console.log(item.page);
+            getAuthorization.rows.map(item => {
                 authPerm[item.page] = {
                     create: item.fcreate,
                     read: item.fread,
@@ -224,19 +241,28 @@ const User = {
                 throw new Error("Password false");
             }
             const resdata = userData.rows[0];
-            newtoken = jwt.sign(
+            accessToken = jwt.sign(
                 {
                     id: resdata.user_id,
                     username: resdata.username,
                     email: resdata.email,
                 },
                 process.env.TOKEN_KEY,
-                { expiresIn: "1d" }
+                { expiresIn: "5m" }
+            );
+            refreshToken = jwt.sign(
+                {
+                    id: resdata.user_id,
+                },
+                process.env.TOKEN_KEY,
+                {
+                    expiresIn: "12h",
+                }
             );
             try {
                 await db.query(TRANS.BEGIN);
                 await db.query(
-                    `UPDATE MST_USER SET token = '${newtoken}' where user_id ='${resdata.user_id}'`
+                    `UPDATE MST_USER SET token = '${refreshToken}' where user_id ='${resdata.user_id}'`
                 );
                 await db.query(TRANS.COMMIT);
             } catch (error) {
@@ -246,14 +272,65 @@ const User = {
             return {
                 fullname: resdata.fullname,
                 username: resdata.username,
-                id: resdata.user_id,
+                user_id: resdata.user_id,
                 email: resdata.email,
-                role: resdata.department,
-                token: newtoken,
+                role: resdata.role,
+                accessToken: accessToken,
+                refreshToken: refreshToken,
                 permission: authPerm,
+                groupid: userGroup,
             };
         } catch (error) {
+            console.error(error);
             throw err;
+        }
+    },
+
+    getAuthorization: async userGroup => {
+        try {
+            const getAuthorization = await db.query(`
+            SELECT 
+                            PG.MENU_ID AS "id",
+                            PG.PAGE,
+                            case
+                                when acs.fcreate then acs.fcreate
+                                else false 
+                            end
+                            as "fcreate",
+                            case
+                                when acs.fread then acs.fread
+                                else false 
+                            end
+                            as "fread",
+                            case
+                                when acs.fupdate then acs.fupdate
+                                else false 
+                            end
+                            as "fupdate",
+                            case
+                                when acs.fdelete then acs.fdelete
+                                else false
+                            end
+                            as "fdelete"
+                            FROM MST_PAGE PG
+                            LEFT JOIN 
+                            MST_PAGE_ACCESS 
+                            ACS ON ACS.PAGE_ID = PG.MENU_ID AND ACS.user_group_id = '${userGroup}'
+                        order by PG.parent_id asc, is_parent asc
+            `);
+            let authPerm = {};
+            getAuthorization.rows.map(item => {
+                authPerm[item.page] = {
+                    create: item.fcreate,
+                    read: item.fread,
+                    update: item.fupdate,
+                    delete: item.fdelete,
+                };
+            });
+            return authPerm;
+        } catch (error) {
+            console.error(error);
+            throw error;
         }
     },
 
@@ -361,6 +438,8 @@ const User = {
             await connect.query(TRANS.ROLLBACK);
             console.error(error);
             throw error;
+        } finally {
+            connect.release();
         }
     },
 

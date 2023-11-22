@@ -17,16 +17,47 @@ const UserController = {
                 username: req.body.username,
                 password: req.body.password,
             });
-            console.log(logData);
+            res.cookie("jwt", logData.refreshToken, {
+                httpOnly: true,
+                secure: true,
+                sameSite: "None",
+                maxAge: 7 * 24 * 60 * 60 * 1000,
+            });
             res.status(200).send({
                 ...logData,
             });
         } catch (err) {
+            console.error(err);
             res.status(500).send({
                 message: err,
             });
         }
     },
+
+    getAuthorization: async (req, res) => {
+        try {
+            const group_id = req.body.group_id;
+            const dataAuth = await User.getAuthorization(group_id);
+            res.status(200).send(dataAuth);
+        } catch (error) {
+            console.error(error);
+            res.status(500).send(error);
+        }
+    },
+
+    refreshToken: (req, res) => {
+        const cookies = req.cookies;
+        if (!cookies?.jwt)
+            return res.status(401).send({
+                message: "Unauthorized",
+            });
+
+        const refreshToken = cookies.jwt;
+        res.status(200).send({
+            refreshToken: refreshToken,
+        });
+    },
+
     check: (req, res) => {
         res.status(200).send({
             data: "no",
