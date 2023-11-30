@@ -41,12 +41,10 @@ const TokenManager = {
     },
 
     authSession: async (req, res, next) => {
-        let token = req.headers.authorization?.split(" ")[1];
+        let headers = req.headers.Authorization || req.headers.authorization;
+        let token = headers?.split(" ")[1];
         let decode;
-        if (
-            req.headers.authorization === undefined ||
-            req.headers.authorization === null
-        ) {
+        if (!(req.headers.authorization || req.headers.Authorization)) {
             res.status(401).send({
                 message: "Access Denied",
             });
@@ -68,9 +66,13 @@ const TokenManager = {
                 req.useridSess = decode.id;
                 next();
             } catch (err) {
-                if (err.response.status === 401) {
+                if (err?.response?.status === 401) {
                     res.status(401).send({
                         message: err.response.data.message,
+                    });
+                } else if (err.name == "TokenExpiredError") {
+                    res.status(403).send({
+                        message: err.message,
                     });
                 } else {
                     res.status(500).send({
