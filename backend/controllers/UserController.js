@@ -1,4 +1,7 @@
 const User = require("../models/UserModel");
+const jwt = require("jsonwebtoken");
+const db = require("../config/connection");
+
 const UserController = {
     showAll: async (req, res) => {
         try {
@@ -17,12 +20,12 @@ const UserController = {
                 username: req.body.username,
                 password: req.body.password,
             });
-            res.cookie("jwt", logData.refreshToken, {
-                httpOnly: true,
-                secure: true,
-                sameSite: "None",
-                maxAge: 7 * 24 * 60 * 60 * 1000,
-            });
+            // res.cookie("jwt", logData.refreshToken, {
+            //     httpOnly: true,
+            //     secure: false,
+            //     sameSite: false,
+            //     maxAge: 7 * 24 * 60 * 60 * 1000,
+            // });
             res.status(200).send({
                 ...logData,
             });
@@ -45,17 +48,39 @@ const UserController = {
         }
     },
 
-    refreshToken: (req, res) => {
+    refreshToken: async (req, res) => {
         const cookies = req.cookies;
-        if (!cookies?.jwt)
+        console.log(cookies);
+        if (!cookies?.accessToken) {
             return res.status(401).send({
                 message: "Unauthorized",
             });
-
-        const refreshToken = cookies.jwt;
-        res.status(200).send({
-            refreshToken: refreshToken,
-        });
+        }
+        try {
+            const getrefToken = await db.query(
+                `select token from mst_user where user_id = '${cookies.user_id}'`
+            );
+            const refToken = getrefToken.rows[0].token;
+            const verif = jwt.verify(refToken, process.env.TOKEN_KEY);
+            const newAct = jwt.sign(
+                {
+                    id: cookies.user_id,
+                    username: cookies.username,
+                    email: cookies.email,
+                },
+                process.env.TOKEN_KEY,
+                {
+                    expiresIn: "1m",
+                }
+            );
+            res.status(200).send({
+                accessToken: newAct,
+            });
+        } catch (error) {
+            res.status(401).send({
+                message: "Login Expired",
+            });
+        }
     },
 
     check: (req, res) => {

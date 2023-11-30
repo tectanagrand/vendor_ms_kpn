@@ -236,7 +236,7 @@ const User = {
             });
 
             const hashed = userData.rows[0].password;
-            const valid = validatePassword({ password, hashed });
+            const valid = await validatePassword({ password, hashed });
             if (valid === false) {
                 throw new Error("Password false");
             }
@@ -248,7 +248,7 @@ const User = {
                     email: resdata.email,
                 },
                 process.env.TOKEN_KEY,
-                { expiresIn: "5m" }
+                { expiresIn: "10s" }
             );
             refreshToken = jwt.sign(
                 {
@@ -281,8 +281,8 @@ const User = {
                 groupid: userGroup,
             };
         } catch (error) {
-            console.error(error);
-            throw err;
+            console.error(error.message);
+            throw error.message;
         }
     },
 
