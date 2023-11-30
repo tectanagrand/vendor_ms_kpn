@@ -1,5 +1,6 @@
 const Master = require("../models/MasterModel");
 const path = require("path");
+const db = require("../config/connection");
 
 const MasterController = {
     getCountry: async (req, res) => {
@@ -81,12 +82,35 @@ const MasterController = {
     downloadFile: async (req, res) => {
         try {
             const filename = req.params.filename;
-            console.log(`${path.resolve()}\\backend\\public\\${filename}`);
             res.download(`${path.resolve()}\\backend\\public\\${filename}`);
         } catch (err) {
-            console.log(err);
             res.status(500).send({
                 message: "Error retrieve file",
+            });
+        }
+    },
+
+    genQrcode: async (req, res) => {
+        try {
+            const qrcode = await Master.genQrAuth();
+            res.status(200).send(qrcode);
+        } catch (error) {
+            console.log(error);
+            res.status(500).send(error);
+        }
+    },
+
+    getPayterm: async (req, res) => {
+        try {
+            const payTerm = await db.query(`SELECT * FROM MST_PAY_TERM`);
+            res.status(200).send({
+                count: payTerm.rowCount,
+                data: payTerm.rows,
+            });
+        } catch (error) {
+            console.error(error.message);
+            res.status(500).send({
+                message: error.message,
             });
         }
     },
