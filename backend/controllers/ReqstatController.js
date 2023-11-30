@@ -35,7 +35,7 @@ const ReqstatController = {
     },
     showAll: async (req, res) => {
         try {
-            const data = await Reqstat.showAll();
+            const data = await Reqstat.showAll(req.query);
             res.status(200).send(data);
         } catch (error) {
             res.status(500).send({
