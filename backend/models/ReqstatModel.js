@@ -41,11 +41,16 @@ const Reqstat = {
     },
 
     processReq: async (ticketid, session, action) => {
+        const client = await db.connect();
         try {
-            db.query(TRANS.BEGIN);
-            const checkTicket = await db.query(
-                `select is_active, request from ticket_reqstat_ven where ticket_id = '${ticketid}'`
+            await client.query(TRANS.BEGIN);
+            const checkTicket = await client.query(
+                `select t.is_active, t.request, v.name_1 
+                    from ticket_reqstat_ven t
+                    left join vendor v on t.ven_id = v.ven_id
+                where t.ticket_id = '${ticketid}'`
             );
+            const name = checkTicket.rows[0].name_1;
             const requestType = parseInt(checkTicket.rows[0].request);
             let is_active;
             switch (requestType) {
@@ -65,6 +70,7 @@ const Reqstat = {
             const updateDt = {
                 is_active: false,
                 respondent_id: session,
+                status: action,
             };
             const [q, val] = crud.updateItem(
                 "ticket_reqstat_ven",
@@ -72,29 +78,34 @@ const Reqstat = {
                 { ticket_id: ticketid },
                 "ven_id"
             );
-            const updateTick = await db.query(q, val);
-            const ven_id = updateTick.rows[0].ven_id;
-            const vendt = {
-                is_active: is_active,
-            };
-            //update vendor
-            const [qven, valven] = crud.updateItem(
-                "vendor",
-                vendt,
-                { ven_id: ven_id },
-                "name_1"
-            );
-            const updateVen = await db.query(qven, valven);
-            db.query(TRANS.COMMIT);
-            return { name: updateVen.rows[0].name_1 };
+            const updateTick = await client.query(q, val);
+            if (action === "accept") {
+                const ven_id = updateTick.rows[0].ven_id;
+                const vendt = {
+                    is_active: is_active,
+                };
+                //update vendor
+                const [qven, valven] = crud.updateItem(
+                    "vendor",
+                    vendt,
+                    { ven_id: ven_id },
+                    "name_1"
+                );
+                const updateVen = await client.query(qven, valven);
+            }
+            await client.query(TRANS.COMMIT);
+            return { name: name };
         } catch (error) {
-            db.query(TRANS.ROLLBACK);
+            await client.query(TRANS.ROLLBACK);
             console.error(error);
             throw error;
+        } finally {
+            client.release();
         }
     },
 
-    showAll: async () => {
+    showAll: async query => {
+        const { is_active } = query;
         try {
             const q = `
                 select 
@@ -102,14 +113,19 @@ const Reqstat = {
                     t.ticket_num as "Ticket Number", 
                     TO_CHAR(t.date_ticket, 'mm/dd/yyyy') as "Date",
                     usr.email as "Requestor",
-                    t.request as "Request", 
+                    case
+                        when t.request = 0 then 'Deactivation'
+                        when t.request = 1 then 'Reactivation'
+                        else 'none'
+                    end
+                    as "RequestDesc",
                     v.ven_code as "Vendor Code",
                     v.name_1 as "Vendor Name",
                     t.remarks as "details" 
                     from ticket_reqstat_ven t
                     left join mst_user usr on usr.user_id = t.requestor_id
                     left join vendor v on t.ven_id = v.ven_id
-                    where t.is_active = true 
+                    where t.is_active = ${is_active} 
             `;
             const ticketdt = await db.query(q);
             return {
