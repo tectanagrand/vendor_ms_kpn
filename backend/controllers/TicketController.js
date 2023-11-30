@@ -3,6 +3,8 @@ const Ticket = require("../models/TicketModel");
 const Vendor = require("../models/VendorModel");
 const Emailer = require("../models/EmailModel");
 const db = require("../config/connection");
+const fa = require("speakeasy");
+const path = require("path");
 
 const TicketController = {};
 
@@ -40,7 +42,8 @@ TicketController.headerTicket = async (req, res) => {
 
 TicketController.showAll = async (req, res) => {
     try {
-        const row = await Ticket.showAll();
+        const state = req.query;
+        const row = await Ticket.showAll(state);
         res.status(200).send({
             status: 200,
             data: row,
@@ -262,4 +265,66 @@ TicketController.rejectTicket = async (req, res) => {
         });
     }
 };
+
+TicketController.processMgr = async (req, res) => {
+    const ticket_id = req.query.ticket_id;
+    const action = req.query.action;
+    try {
+        const updateTicket = await Ticket.processMgr(ticket_id, action);
+        // res.status(200).send({
+        //     message: `${updateTicket.name} with ticket number ${
+        //         updateTicket.ticket_num
+        //     } is ${action === "accept" ? "approved" : "rejected"} `,
+        // });
+        if (action === "accept") {
+            res.render("response", {
+                ven_name: updateTicket.name,
+                ven_type: updateTicket.type,
+                company: updateTicket.company,
+                reason: "has approved by you",
+            });
+        } else {
+            res.rendet("reject", {
+                ven_name: updateTicket.name,
+                ven_type: updateTicket.type,
+                company: updateTicket.company,
+                ticket_id: req.query.ticket_id,
+            });
+        }
+    } catch (error) {
+        res.render("notvalid");
+    }
+};
+
+TicketController.deleteTicket = async (req, res) => {
+    const ticket_id = req.params.ticket_id;
+    const client = await db.connect();
+    await client.query(TRANS.BEGIN);
+    const check = await client.query(
+        `select ticket_id from ticket where token = '${ticket_id}'`
+    );
+    if (check.rowCount == 0) {
+        res.status(203).send({
+            message: "ticket not exist",
+        });
+    }
+    try {
+        const deleteTicket = await client.query(
+            `delete from ticket where token = '${ticket_id}' returning ticket_id`
+        );
+        const deletedTicket = deleteTicket.rows[0].ticket_id;
+        await client.query(TRANS.COMMIT);
+        res.status(200).send({
+            data: deletedTicket,
+        });
+    } catch (error) {
+        console.log(error.message);
+        res.status(500).send({
+            message: error.message,
+        });
+    } finally {
+        client.release();
+    }
+};
+
 module.exports = TicketController;
