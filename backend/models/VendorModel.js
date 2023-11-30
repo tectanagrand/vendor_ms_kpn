@@ -9,11 +9,14 @@ const Vendor = {
     async showAll({ isactive, limit, start }) {
         try {
             const client = db;
-            let q = `SELECT VEN_ID as id, NAME_1 as VEN_NAME, VEN_CODE, ACT_REMARK, IS_ACTIVE
-                        FROM VENDOR V WHERE is_active is not null`;
+            let q = `SELECT V.VEN_ID as id, V.NAME_1 as VEN_NAME, V.VEN_CODE, V.ACT_REMARK, V.IS_ACTIVE,
+                        T.REMARKS, T.TICKET_ID
+                        FROM VENDOR V 
+                        LEFT JOIN TICKET_REQSTAT_VEN T ON T.VEN_ID = V.VEN_ID AND T.IS_ACTIVE = true
+                        WHERE V.is_active is not null`;
 
             if (isactive != "") {
-                q += ` and is_active = ${isactive}`;
+                q += ` and V.is_active = ${isactive}`;
             }
             const result = await client.query(q);
             return {
@@ -86,7 +89,7 @@ const Vendor = {
         return promise;
     },
 
-    async setDetailVen(detail, client) {
+    async setDetailVen(detail, client, is_draft, ticket_state) {
         /*Flow :
     - file temporary already stored in temp_ven_file_atth, delete after move
     - bank could be multiple, map through bank object
@@ -105,6 +108,9 @@ const Vendor = {
             detail.updated_at = today;
             detail.created_at = today;
             if (isExist.rowCount != 0) {
+                if (is_draft === false && ticket_state === "FINA") {
+                    detail.is_active = true;
+                }
                 [q, value] = crud.updateItem(
                     "VENDOR",
                     detail,
@@ -113,7 +119,6 @@ const Vendor = {
                 );
             } else {
                 [q, value] = crud.insertItem("VENDOR", detail, "*");
-                console.log(q, value);
                 // return;
             }
             const submitTicket = await client.query(q, value);
@@ -227,7 +232,11 @@ const Vendor = {
         try {
             const client = db;
             const items = await client.query(
-                `SELECT bankv_id as id, bank_id, bank_acc, acc_hold, acc_name FROM VEN_BANK WHERE VEN_ID = '${ven_id}'`
+                `SELECT v.bankv_id as id, v.bank_id, v.bank_acc, v.acc_hold, v.acc_name,
+                b.bank_name 
+                FROM VEN_BANK V
+                LEFT JOIN MST_BANK B ON v.bank_id = b.bank_id 
+                WHERE VEN_ID = '${ven_id}'`
             );
             // console.log(items);
             let result = {
