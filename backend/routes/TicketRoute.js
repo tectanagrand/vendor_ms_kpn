@@ -12,5 +12,7 @@ router.post("/newform/submit", controller.submitVendor);
 router.post("/form/v1/submit", controller.singleSubmit);
 router.get("/", AuthToken.authSession, controller.showAll);
 router.patch("/reject", AuthToken.authSession, controller.rejectTicket);
+router.delete("/:ticket_id", controller.deleteTicket);
+router.get("/mgrappr", controller.processMgr);
 
 module.exports = router;
