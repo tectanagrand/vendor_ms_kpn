@@ -1,5 +1,6 @@
 const mailer = require("nodemailer");
 const Email = require("../helper/generateemail");
+const db = require("../config/connection");
 
 const tp = mailer.createTransport({
     service: process.env.SMTP_SERVICE,
@@ -12,14 +13,18 @@ const tp = mailer.createTransport({
 });
 
 const Emailer = {
-    toManager: async (ven_name, ven_type, comp, reason) => {
+    toManager: async (ven_name, ven_type, comp, ticket_id) => {
+        const getData = await db.query(
+            `select name, code from mst_company where comp_id = '${comp}'`
+        );
+        const company = getData.rows[0].code + " - " + getData.rows[0].name;
         const transporter = tp;
         try {
             const setup = {
                 from: process.env.SMTP_USERNAME,
                 to: "rtektano@gmail.com",
                 subject: `${ven_name} - ${comp} - Request Approval Vendor`,
-                html: Email.manager(ven_name, ven_type, comp, reason),
+                html: Email.manager(ven_name, ven_type, company, ticket_id),
             };
             const send = await transporter.sendMail(setup);
             return send;
