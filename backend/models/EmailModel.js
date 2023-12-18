@@ -27,7 +27,7 @@ const Emailer = {
             const setup = {
                 from: process.env.SMTP_USERNAME,
                 to: "rtektano@gmail.com",
-                subject: `${ven_name} - ${comp} - Request Approval Vendor`,
+                subject: `${ven_name} - ${company} - Request Approval Vendor`,
                 html: Email.manager(
                     ven_name,
                     ven_type,
