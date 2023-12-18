@@ -7,12 +7,14 @@ const Vendor = require("../models/VendorModel");
 const Emailer = require("../models/EmailModel");
 
 const Ticket = {
-    async showAll({ is_active }) {
+    async showAll({ is_active, ticket_state }) {
+        const client = await db.connect();
         try {
-            const client = db;
             let where = "";
-            if (is_active !== "") {
-                where = `WHERE T.is_active = ${is_active}`;
+            if (is_active === "true") {
+                where = `WHERE T.is_active = ${is_active} AND ticket_state in (${ticket_state}) `;
+            } else {
+                where = `WHERE T.is_active = ${is_active} `;
             }
             let q = `SELECT T.*,
             V.NAME_1,
@@ -25,8 +27,7 @@ const Ticket = {
         FROM TICKET T
         LEFT JOIN VENDOR V ON V.VEN_ID = T.VEN_ID
         LEFT JOIN MST_USER UR ON UR.USER_ID = T.PROC_ID ${where}
-        ORDER BY T.TICKET_ID DESC`;
-
+        ORDER BY T.CREATED_AT DESC, T.TICKET_ID DESC`;
             const items = await client.query(q);
             return {
                 count: items.rowCount,
@@ -35,6 +36,8 @@ const Ticket = {
         } catch (err) {
             console.error(err);
             throw err;
+        } finally {
+            client.release();
         }
     },
     async headerTicket({ tnum: ticket_num }) {
@@ -94,17 +97,17 @@ const Ticket = {
             year +
             month +
             String(latestnum).padStart(4, "0");
-
+        const client = await db.connect();
         try {
             // insert into ticket
-            const client = db;
             await client.query("BEGIN");
             const ticket = {
                 ticket_id: ticketNumber,
                 ven_id: ven_id,
                 proc_id: params.user_id,
-                valid_until: f_until,
+                valid_until: until,
                 cur_pos: params.to_who,
+                t_type: params.to_who,
                 is_active: true,
                 token: token,
                 ticket_state: ticketState,
@@ -112,18 +115,23 @@ const Ticket = {
             const [q, val] = crud.insertItem("TICKET", ticket, "*");
             const result = await client.query(q, val);
             await client.query("COMMIT");
-            return result.rows[0];
+            return {
+                link: `frm/newform/${result.rows[0].token}`,
+                token: result.rows[0].token,
+            };
         } catch (err) {
             console.error(err);
             await client.query("ROLLBACK");
             throw err;
+        } finally {
+            client.release();
         }
     },
 
     async getTicketById(ticket_num) {
         try {
             const client = db;
-            const q = `SELECT T.ticket_id as ticket_num, T.token as ticket_id, T.cur_pos, T.ticket_state, T.remarks, T.ven_id as ticket_ven_id, 
+            const q = `SELECT T.ticket_id as ticket_num, T.token as ticket_id, T.cur_pos, T.ticket_state, T.remarks, T.ven_id as ticket_ven_id, T.t_type as t_type,
             T.reject_by as reject_by, t.is_active as ticket_stat, V.*, 
             PROC.email as email_proc, PROC.role as dep_proc, MDM.email as email_mdm, MDM.role as dep_mdm, VHD.header 
                             FROM TICKET T
@@ -180,14 +188,16 @@ const Ticket = {
                                 ticket_state = $3,
                                 is_active = $4,
                                 reject_by = null,
+                                mdm_id = $5,
                                 updated_at = DEFAULT
-                                where ticket_id = $5
+                                where ticket_id = $6
                                 returning ticket_id`;
             return client.query(q, [
                 cur_pos,
                 item.remarks,
                 state,
                 is_active,
+                item.mdm_id,
                 ticket.ticket_id,
             ]);
         } catch (err) {
@@ -340,6 +350,7 @@ const Ticket = {
         remarks,
         ticket_state,
         is_draft,
+        mdm_id,
         role,
     }) {
         const client = await db.connect();
@@ -352,18 +363,17 @@ const Ticket = {
                 ticket_state
             );
             const client2 = await Vendor.setBank(ven_banks, client);
-            const client3 = await Vendor.setFile(ven_files, client);
-            console.log(is_draft);
             if (is_draft === false) {
+                const client3 = await Vendor.setFile(ven_files, client);
                 const ticket = await this.submitTicket(
-                    { ticket_id: ticket_id, remarks: remarks },
+                    { ticket_id: ticket_id, remarks: remarks, mdm_id: mdm_id },
                     client
                 );
             }
             const targets = await this.ticketTarget(ticket_id);
             const dataTrg = targets.data;
             const res_tnum = ven_detail.ticket_num;
-            if (!is_draft && role === "PROC") {
+            if (!is_draft && ticket_state === "CREA") {
                 await Emailer.toRequest(
                     ven_detail.ticket_num,
                     dataTrg.proc_fname,
@@ -375,10 +385,11 @@ const Ticket = {
                         ven_detail.name_1,
                         ven_detail.ven_type,
                         ven_detail.company,
-                        ticket_id
+                        ticket_id,
+                        ven_detail.description
                     );
                 }
-            } else if (!is_draft && role === "MDM") {
+            } else if (!is_draft && ticket_state === "FINA") {
                 await Emailer.toApprove(
                     ven_detail.ven_code,
                     ven_detail.name_1,
@@ -428,6 +439,16 @@ const Ticket = {
                     ticket_state: "FINA",
                     updated_at: date,
                 };
+                const where = {
+                    token: ticket_id,
+                };
+                const [query, val] = crud.updateItem(
+                    "ticket",
+                    itemup,
+                    where,
+                    "ticket_id"
+                );
+                const updateTicket = await client.query(query, val);
             } else if (action === "reject") {
                 itemup = {
                     is_active: false,
@@ -436,20 +457,11 @@ const Ticket = {
                     remarks: "Rejected By Manager",
                 };
             }
-            const where = {
-                token: ticket_id,
-            };
-            const [query, val] = crud.updateItem(
-                "ticket",
-                itemup,
-                where,
-                "ticket_id"
-            );
-            const updateTicket = await client.query(query, val);
             await client.query(TRANS.COMMIT);
             return {
+                action: action,
                 ven_id: checkTicket.rows[0].ven_id,
-                ticket_num: updateTicket.rows[0].ticket_id,
+                ticket_num: checkTicket.rows[0].ticket_id,
                 name: checkTicket.rows[0].name_1,
                 type: checkTicket.rows[0].ven_type,
                 company: `${checkTicket.rows[0].code} - ${checkTicket.rows[0].name}`,
