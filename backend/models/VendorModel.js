@@ -2,6 +2,7 @@ const db = require("../config/connection");
 const TRANS = require("../config/transaction");
 const uuid = require("uuidv4");
 const crud = require("../helper/crudquery");
+const os = require("os");
 const path = require("path");
 const fs = require("fs");
 
@@ -133,11 +134,11 @@ const Vendor = {
         const { fields, uploaded_files } = params;
         let data = [];
         // return;
-        const client = db;
-        await db.query("BEGIN");
+        const client = await db.connect();
+        await client.query("BEGIN");
         try {
             const qInsert = `insert into temp_ven_file_atth(file_id, ven_id, file_name, file_type, created_by, desc_file)
-    values($1, $2, $3, $4, $5, $6) returning ven_id, file_id, file_name, desc_file, 'temp_ven_file_atth' as source, 'insert' as method`;
+    values($1, $2, $3, $4, $5, $6) returning ven_id, file_id, file_name, desc_file, file_type, 'temp_ven_file_atth' as source, 'insert' as method`;
             // const { fields, upFile } = await uploadFile(params);
             // console.log(result);
 
@@ -153,15 +154,17 @@ const Vendor = {
                 return client.query(qInsert, values);
             });
             const result = await Promise.all(promise);
-            await db.query("COMMIT");
+            await client.query("COMMIT");
             result.map(item => {
                 data.push(item.rows[0]);
             });
             return data;
         } catch (err) {
-            await db.query("ROLLBACK");
+            await client.query("ROLLBACK");
             console.error(err.stack);
             throw err;
+        } finally {
+            client.release();
         }
     },
 
@@ -174,11 +177,19 @@ const Vendor = {
                     "DELETE FROM temp_ven_file_atth where file_id = $1 returning file_name ;";
                 const result = await client.query(q, [id]);
                 const file_name = result.rows[0].file_name;
-                await fs.promises.unlink(
-                    path.join(path.resolve(), "backend\\public") +
-                        "\\" +
-                        file_name
-                );
+                if (os.platform() == "linux") {
+                    await fs.promises.unlink(
+                        path.join(path.resolve(), "backend/public") +
+                            "/" +
+                            file_name
+                    );
+                } else {
+                    await fs.promises.unlink(
+                        path.join(path.resolve(), "backend\\public") +
+                            "\\" +
+                            file_name
+                    );
+                }
                 await db.query("COMMIT");
                 return result.rows[0];
             } catch (err) {
@@ -215,9 +226,9 @@ const Vendor = {
         try {
             const client = db;
             const items =
-                await client.query(`select file_id, file_name, desc_file, created_at, 'temp_ven_file_atth' as source from temp_ven_file_atth 
+                await client.query(`select file_id, file_name, desc_file, file_type, created_at, 'temp_ven_file_atth' as source from temp_ven_file_atth 
                 where ven_id = '${ven_id}' 
-            union select file_id, file_name, desc_file, created_at, 'ven_file_atth' as source from ven_file_atth where ven_id = '${ven_id}'`);
+            union select file_id, file_name, desc_file, file_type, created_at, 'ven_file_atth' as source from ven_file_atth where ven_id = '${ven_id}'`);
             // console.log(items);
             let result = {
                 count: items.rowCount,
@@ -232,10 +243,10 @@ const Vendor = {
         try {
             const client = db;
             const items = await client.query(
-                `SELECT v.bankv_id as id, v.bank_id, v.bank_acc, v.acc_hold, v.acc_name,
-                b.bank_name 
+                `SELECT v.bankv_id as id, v.bank_id, v.bank_acc, v.acc_hold, v.acc_name, b.bank_key,
+                b.bank_key|| '-' || b.bank_name as bank_name, v.bank_curr, v.country, b.source
                 FROM VEN_BANK V
-                LEFT JOIN MST_BANK B ON v.bank_id = b.bank_id 
+                LEFT JOIN MST_BANK_SAP B ON v.bank_id = b.bank_key
                 WHERE VEN_ID = '${ven_id}'`
             );
             // console.log(items);
@@ -309,16 +320,26 @@ const Vendor = {
                     data = await client.query(
                         `SELECT file_id, ven_id, file_name, file_type, created_at, created_by, desc_file FROM TEMP_VEN_FILE_ATTH WHERE file_id = '${file.file_id}'`
                     );
-
+                    if (data.rowCount === 0) {
+                        break;
+                    }
                     [q, val] = crud.insertItem("VEN_FILE_ATTH", data.rows[0]);
                     return client.query(q, val);
 
                 case "delete":
-                    await fs.promises.unlink(
-                        path.join(path.resolve(), "backend\\public") +
-                            "\\" +
-                            file.file_name
-                    );
+                    if (os.platform === "win32") {
+                        await fs.promises.unlink(
+                            path.join(path.resolve(), "backend\\public") +
+                                "\\" +
+                                file.file_name
+                        );
+                    } else {
+                        await fs.promises.unlink(
+                            path.join(path.resolve(), "backend/public") +
+                                "/" +
+                                file.file_name
+                        );
+                    }
                     q = crud.deleteItem(
                         "VEN_FILE_ATTH",
                         "file_id",
