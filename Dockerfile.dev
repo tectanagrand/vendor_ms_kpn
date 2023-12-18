@@ -1,0 +1,29 @@
+FROM node:18-alpine
+
+WORKDIR /app
+
+ENV PGHOST=13.250.100.205
+ENV PGUSER=postgres
+ENV PGDATABASE=vendor_ms
+ENV PGPASSWORD=postgres
+ENV PGPORT=5432
+ENV PORT=5000
+ENV TOKEN_KEY=timemoveslow
+ENV SMTP_USERNAME=vms.kpn@kpndomain.com
+ENV SMTP_PASSWORD=Des@#2023
+ENV SMTP_SERVICE=kpndomain
+ENV SMTP_PORT=587
+ENV SMTP_HOST=mail.kpndomain.com
+ENV APP_URL=http://webdispatcher-alb-1887837950.ap-southeast-1.elb.amazonaws.com/
+
+COPY package.json ./
+
+COPY package-lock.json ./
+
+RUN npm install 
+
+COPY . .
+
+EXPOSE 5000
+
+CMD ["npm", "run", "start"]
