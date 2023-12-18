@@ -30,7 +30,6 @@ const UserController = {
                 ...logData,
             });
         } catch (err) {
-            console.error(err);
             res.status(500).send({
                 message: err,
             });
@@ -50,7 +49,6 @@ const UserController = {
 
     refreshToken: async (req, res) => {
         const cookies = req.cookies;
-        console.log(cookies);
         if (!cookies?.accessToken) {
             return res.status(401).send({
                 message: "Unauthorized",
@@ -70,7 +68,7 @@ const UserController = {
                 },
                 process.env.TOKEN_KEY,
                 {
-                    expiresIn: "1m",
+                    expiresIn: "30s",
                 }
             );
             res.status(200).send({
@@ -177,6 +175,7 @@ const UserController = {
             } else {
                 submitDt = await User.createUser(Dt);
             }
+            console.log(submitDt);
             res.status(200).send({
                 message: `success created ${submitDt.name}`,
             });
