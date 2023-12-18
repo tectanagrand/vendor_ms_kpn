@@ -89,6 +89,8 @@ const User = {
         } catch (error) {
             await client.query(TRANS.ROLLBACK);
             throw error;
+        } finally {
+            client.release;
         }
     },
 
@@ -125,6 +127,7 @@ const User = {
         const email = params.email;
         const userGroup = params.usergroup;
         const department = params.department;
+        const role = params.role;
         const userSubmit = {
             fullname: fullname,
             username: username,
@@ -142,12 +145,12 @@ const User = {
         };
         const [query, val] = crud.insertItem("mst_mgr", userSubmit, "username");
         try {
-            const insertUserMgr = client.query(query, val);
+            const insertUserMgr = await client.query(query, val);
             return { name: insertUserMgr.rows[0].username };
         } catch (error) {
-            return {
-                message: error,
-            };
+            throw error.message;
+        } finally {
+            client.release;
         }
     },
 
@@ -248,7 +251,7 @@ const User = {
                     email: resdata.email,
                 },
                 process.env.TOKEN_KEY,
-                { expiresIn: "10s" }
+                { expiresIn: "30s" }
             );
             refreshToken = jwt.sign(
                 {
@@ -256,7 +259,7 @@ const User = {
                 },
                 process.env.TOKEN_KEY,
                 {
-                    expiresIn: "12h",
+                    expiresIn: "6h",
                 }
             );
             try {
