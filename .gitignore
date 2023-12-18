@@ -6,4 +6,5 @@ backend/public
 .env-prod
 .env-dev1
 ssl
+Dockerfile.prod
 
