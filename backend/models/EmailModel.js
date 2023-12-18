@@ -3,17 +3,21 @@ const Email = require("../helper/generateemail");
 const db = require("../config/connection");
 
 const tp = mailer.createTransport({
-    service: process.env.SMTP_SERVICE,
+    host: process.env.SMTP_HOST,
     secure: false,
+    secureConnection: false,
     port: process.env.SMTP_PORT,
+    tls: {
+        rejectUnAuthorized: true,
+    },
     auth: {
-        user: process.env.SMTP_USERNAME,
-        pass: process.env.SMTP_PASSWORD,
+        user: `${process.env.SMTP_USERNAME}`,
+        pass: `${process.env.SMTP_PASSWORD}`,
     },
 });
 
 const Emailer = {
-    toManager: async (ven_name, ven_type, comp, ticket_id) => {
+    toManager: async (ven_name, ven_type, comp, ticket_id, description) => {
         const getData = await db.query(
             `select name, code from mst_company where comp_id = '${comp}'`
         );
@@ -24,7 +28,13 @@ const Emailer = {
                 from: process.env.SMTP_USERNAME,
                 to: "rtektano@gmail.com",
                 subject: `${ven_name} - ${comp} - Request Approval Vendor`,
-                html: Email.manager(ven_name, ven_type, company, ticket_id),
+                html: Email.manager(
+                    ven_name,
+                    ven_type,
+                    company,
+                    ticket_id,
+                    description
+                ),
             };
             const send = await transporter.sendMail(setup);
             return send;
@@ -77,7 +87,7 @@ const Emailer = {
                 from: process.env.SMTP_USERNAME,
                 to: target,
                 cc: cc_email,
-                subject: `Vendor S${ven_name} Reject Notification`,
+                subject: `Vendor ${ven_name} Reject Notification`,
                 html: Email.reject(reason),
             };
             const send = await transporter.sendMail(setup);
