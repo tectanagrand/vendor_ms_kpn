@@ -1,5 +1,5 @@
 const Email = {
-    manager: (ven_name, ven_type, comp, ticket_id) => {
+    manager: (ven_name, ven_type, comp, ticket_id, description) => {
         return `
         <!doctype html>
 <html lang="en">
@@ -457,13 +457,7 @@ const Email = {
                                             border: 1px solid black;
                                         "
                                     >
-                                        Lorem Ipsum is simply dummy text of the
-                                        printing and typesetting industry. Lorem
-                                        Ipsum has been the industry's standard
-                                        dummy text ever since the 1500s, when an
-                                        unknown printer took a galley of type
-                                        and scrambled it to make a type specimen
-                                        book.
+                                        ${description}
                                     </div>
                                 </td>
                             </tr>
