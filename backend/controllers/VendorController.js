@@ -2,6 +2,7 @@ const Vendor = require("../models/VendorModel");
 const formidable = require("formidable");
 const fs = require("fs");
 const path = require("path");
+const os = require("os");
 
 VendorController = {};
 
@@ -64,39 +65,72 @@ VendorController.setVenDetail = async (req, res) => {
 VendorController.setTempFile = async (req, res) => {
     try {
         // console.log(req);
+        const extensions = ["pdf", "doc", "docx", "img", "png", "jpg", "jpeg"];
         const form = new formidable.IncomingForm();
+        form.options.multiples = true;
+        form.options.maxFileSize = 3 * 1024 * 1024;
         [fields, items] = await form.parse(req);
         let files = items.file_atth;
-        // console.log(fields);
-        // res.status(200).send({
-        //     status: 200,
-        //     data: { fields, items },
-        // });
         let uploaded_files = [];
         // console.log(items);
-        files.map(async file => {
-            const date = Date.now().toString();
-            let name = file.originalFilename.split(".");
-            console.log(name);
-            let newName = name[0] + date + "." + name[1];
-            let oldPath = file.filepath;
-            let newPath =
-                path.join(path.resolve(), "backend\\public") + "\\" + newName;
-            uploaded_files.push(newName);
-            let rawData = fs.readFileSync(oldPath);
-            await fs.promises.writeFile(newPath, rawData);
-        });
+        for (const file of files) {
+            let newPath = "";
+            try {
+                const date = Date.now().toString();
+                let name = file.originalFilename.split(".");
+                if (!extensions.includes(name[name.length - 1].toLowerCase())) {
+                    throw new Error("File Format invalid");
+                }
+                let newName =
+                    name.slice(0, -1).join(".") +
+                    date +
+                    "." +
+                    name[name.length - 1];
+                let oldPath = file.filepath;
+                if (os.platform() === "win32") {
+                    newPath =
+                        path.join(path.resolve(), "backend\\public") +
+                        "\\" +
+                        newName;
+                } else {
+                    newPath =
+                        path.join(path.resolve(), "backend/public") +
+                        "/" +
+                        newName;
+                }
+                uploaded_files.push(newName);
+                let rawData = fs.readFileSync(oldPath);
+                await fs.promises.writeFile(newPath, rawData);
+            } catch (error) {
+                console.log(error);
+                if (error.message === "File Format invalid") {
+                    return res.status(400).send({
+                        message:
+                            "Invalid file format. Please upload files with valid extensions.",
+                    });
+                } else {
+                    throw error;
+                }
+            }
+        }
         const result = await Vendor.setTemp({ fields, uploaded_files });
         res.status(200).send({
             status: 200,
             data: result,
         });
     } catch (err) {
-        console.error(err);
-        res.status(500).send({
-            status: 500,
-            message: err.stack,
-        });
+        console.log(err);
+        if (err.code === 1016) {
+            res.status(500).send({
+                status: 500,
+                message: "File size (~3mb) exceeded",
+            });
+        } else {
+            res.status(500).send({
+                status: 500,
+                message: err.message,
+            });
+        }
     }
 };
 
