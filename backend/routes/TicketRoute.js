@@ -14,5 +14,8 @@ router.get("/", AuthToken.authSession, controller.showAll);
 router.patch("/reject", AuthToken.authSession, controller.rejectTicket);
 router.delete("/:ticket_id", controller.deleteTicket);
 router.get("/mgrappr", controller.processMgr);
+router.get("/mgrtest", controller.testmgr);
+router.post("/rejectmgr", controller.rejectformmgr);
+router.post("/checkvalid", controller.checkValidTicket);
 
 module.exports = router;
