@@ -3,6 +3,7 @@ const Ticket = require("../models/TicketModel");
 const Vendor = require("../models/VendorModel");
 const Emailer = require("../models/EmailModel");
 const db = require("../config/connection");
+const crud = require("../helper/crudquery");
 const fa = require("speakeasy");
 const path = require("path");
 
@@ -49,6 +50,7 @@ TicketController.showAll = async (req, res) => {
             data: row,
         });
     } catch (err) {
+        console.log(err);
         res.status(500).send({
             status: 500,
             message: "Failed to fetch data",
@@ -284,11 +286,13 @@ TicketController.processMgr = async (req, res) => {
                 reason: "has approved by you",
             });
         } else {
-            res.rendet("reject", {
+            res.render("rejectform", {
                 ven_name: updateTicket.name,
                 ven_type: updateTicket.type,
                 company: updateTicket.company,
                 ticket_id: req.query.ticket_id,
+                reason: "has rejected by you",
+                ticket_id: ticket_id,
             });
         }
     } catch (error) {
@@ -324,6 +328,77 @@ TicketController.deleteTicket = async (req, res) => {
         });
     } finally {
         client.release();
+    }
+};
+
+TicketController.testmgr = (req, res) => {
+    res.render("rejectform", {
+        ven_name: "jess",
+        ven_type: "jess",
+        company: "jess",
+        ven_id: "122331",
+        reason: "undefined",
+    });
+};
+
+TicketController.rejectformmgr = async (req, res) => {
+    const { ticket_id, reason } = req.body;
+    const date = new Date().toLocaleDateString();
+    const client = await db.connect();
+    try {
+        await client.query(TRANS.BEGIN);
+        const itemup = {
+            is_active: false,
+            reject_by: "MGR",
+            updated_at: date,
+            remarks: reason,
+        };
+        const where = {
+            token: ticket_id,
+        };
+        const [query, val] = crud.updateItem(
+            "ticket",
+            itemup,
+            where,
+            "ticket_id"
+        );
+        const rejectTicket = await client.query(query, val);
+        await client.query(TRANS.COMMIT);
+        res.status(200).send({
+            message: "Ticket has been rejected",
+        });
+    } catch (error) {
+        console.log(error);
+        await client.query(TRANS.ROLLBACK);
+        res.status(500).send({
+            message: "error updating",
+        });
+    }
+};
+
+TicketController.checkValidTicket = async (req, res) => {
+    const { ticket_id } = req.body;
+    const client = await db.connect();
+    try {
+        const getTime = await client.query(
+            `select valid_until, ticket_id from ticket where token = '${ticket_id}'`
+        );
+        const timeValid = new Date(getTime.rows[0].valid_until);
+        const today = new Date();
+        if (timeValid < today) {
+            res.status(403).send({
+                message: `${getTime.rows[0].ticket_id} is closed`,
+            });
+        } else {
+            res.status(200).send({
+                message: "ticket is valid",
+            });
+        }
+    } catch (error) {
+        res.status(500).send({
+            message: "something went wrong",
+            error: error.message,
+        });
     }
 };
 
