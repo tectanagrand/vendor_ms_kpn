@@ -9,7 +9,6 @@ services:
             - type: bind
               source: .
               target: /app
-
             - type: volume
               target: /app/node_modules
         ports:
