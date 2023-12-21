@@ -1,5 +1,6 @@
 const Vendor = require("../models/VendorModel");
 const formidable = require("formidable");
+const db = require("../config/connection");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
@@ -168,6 +169,27 @@ VendorController.getHeaderCode = async (req, res) => {
         });
     } catch (err) {
         res.status(500).send(err);
+    }
+};
+
+VendorController.checkNameisExist = async (req, res) => {
+    try {
+        const q = req.query.name;
+        const checkName = await db.query(
+            `select * from vendor where LOWER(name_1) like LOWER('%${q}%')`
+        );
+        const counts = checkName.rowCount;
+        if (counts > 0) {
+            throw new Error("Company already exist");
+        } else {
+            res.status(200).send({
+                message: "Company name available",
+            });
+        }
+    } catch (err) {
+        res.status(500).send({
+            message: err.message,
+        });
     }
 };
 
