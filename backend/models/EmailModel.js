@@ -4,11 +4,11 @@ const db = require("../config/connection");
 
 const tp = mailer.createTransport({
     host: process.env.SMTP_HOST,
-    secure: false,
-    secureConnection: false,
-    port: process.env.SMTP_PORT,
+    secure: true,
+    port: 465,
     tls: {
-        rejectUnAuthorized: true,
+        ciphers: "SSLv3",
+        rejectUnauthorized: false,
     },
     auth: {
         user: `${process.env.SMTP_USERNAME}`,
@@ -26,7 +26,7 @@ const Emailer = {
         try {
             const setup = {
                 from: process.env.SMTP_USERNAME,
-                to: "rtektano@gmail.com",
+                to: "rafael.tektano@kpn-corp.com",
                 subject: `${ven_name} - ${company} - Request Approval Vendor`,
                 html: Email.manager(
                     ven_name,
