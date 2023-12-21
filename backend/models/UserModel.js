@@ -190,15 +190,16 @@ const User = {
         }
     },
     loginUser: async ({ username, password }) => {
+        const client = await db.connect();
         try {
-            const userData = await db.query(
+            const userData = await client.query(
                 `SELECT * FROM MST_USER WHERE username = '${username}'`
             );
             if (userData.rows.length === 0) {
                 throw new Error("User not found");
             }
             const userGroup = userData.rows[0].user_group;
-            const getAuthorization = await db.query(`
+            const getAuthorization = await client.query(`
             SELECT 
                             PG.MENU_ID AS "id",
                             PG.PAGE,
@@ -262,15 +263,17 @@ const User = {
                     expiresIn: "6h",
                 }
             );
+            await client.query(TRANS.BEGIN);
             try {
-                await db.query(TRANS.BEGIN);
-                await db.query(
+                await client.query(
                     `UPDATE MST_USER SET token = '${refreshToken}' where user_id ='${resdata.user_id}'`
                 );
-                await db.query(TRANS.COMMIT);
+                await client.query(TRANS.COMMIT);
             } catch (error) {
-                await db.query(TRANS.ROLLBACK);
+                await client.query(TRANS.ROLLBACK);
                 throw error;
+            } finally {
+                client.release();
             }
             return {
                 fullname: resdata.fullname,
