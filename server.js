@@ -4,6 +4,7 @@ const app = express();
 const dotenv = require("dotenv").config();
 const os = require("os");
 const https = require("https");
+const http = require("http");
 const path = require("path");
 const routers = require("./backend/routes");
 const port = process.env.PORT;
@@ -15,6 +16,7 @@ const whitelist = [
     "http://172.30.60.50:3000",
     "http://172.29.0.1:3000",
     "http://localhost:3000",
+    "https://localhost:3000",
 ];
 const servOption = {
     cert: fs.readFileSync("./ssl/certificate.crt"),
@@ -56,6 +58,11 @@ app.use(routers);
 app.use(express.static(path.join(__dirname, "public/build")));
 app.get("/*$", (req, res) => {
     res.sendFile(path.join(__dirname, "public/build", "index.html"));
+});
+
+process.on("uncaughtException", err => {
+    console.error(err, "Uncaught Exception thrown");
+    process.exit(1);
 });
 
 const server = https.createServer(servOption, app).listen(port, () => {
