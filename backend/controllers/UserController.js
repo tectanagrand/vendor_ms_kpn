@@ -26,6 +26,7 @@ const UserController = {
             //     sameSite: false,
             //     maxAge: 7 * 24 * 60 * 60 * 1000,
             // });
+            // console.log(logData);
             res.status(200).send({
                 ...logData,
             });
