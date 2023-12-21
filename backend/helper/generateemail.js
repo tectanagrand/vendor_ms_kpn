@@ -415,7 +415,7 @@ const Email = {
                                 </td>
                                 <td style="padding: 0.1em 2.5em">
                                     <a
-                                        href="http://127.0.0.1:5000/api/ticket/mgrappr?ticket_id=${ticket_id}&action=accept"
+                                        href="${process.env.APP_URL}/api/ticket/mgrappr?ticket_id=${ticket_id}&action=accept"
                                     >
                                         <button
                                             class="btn btn-primary"
@@ -430,7 +430,7 @@ const Email = {
                                         </button>
                                     </a>
                                     <a
-                                        href="http://127.0.0.1:5000/api/ticket/mgrappr?ticket_id=${ticket_id}&action=reject"
+                                        href="${process.env.APP_URL}/api/ticket/mgrappr?ticket_id=${ticket_id}&action=reject"
                                     >
                                         <button
                                             class="btn btn-primary"
