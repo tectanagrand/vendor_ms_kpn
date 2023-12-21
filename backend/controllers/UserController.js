@@ -56,9 +56,13 @@ const UserController = {
             });
         }
         try {
-            const getrefToken = await db.query(
-                `select token from mst_user where user_id = '${cookies.user_id}'`
-            );
+            let refToken_q = "";
+            if (cookies.role !== "MGR") {
+                refToken_q = `select token from mst_user where user_id = '${cookies.user_id}'`;
+            } else {
+                refToken_q = `select token from mst_mgr where mgr_id = '${cookies.user_id}'`;
+            }
+            const getrefToken = await db.query(refToken_q);
             const refToken = getrefToken.rows[0].token;
             const verif = jwt.verify(refToken, process.env.TOKEN_KEY);
             const newAct = jwt.sign(

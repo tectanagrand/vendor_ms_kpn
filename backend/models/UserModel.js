@@ -193,7 +193,25 @@ const User = {
         const client = await db.connect();
         try {
             const userData = await client.query(
-                `SELECT * FROM MST_USER WHERE username = '${username}'`
+                `SELECT * FROM 
+                (SELECT USERNAME,
+                    PASSWORD,
+                    FULLNAME,
+                    ROLE,
+                    USER_GROUP,
+                    USER_ID,
+                    EMAIL
+                FROM MST_USER
+                UNION
+                SELECT USERNAME,
+                    PASSWORD,
+                    FULLNAME,
+                    ROLE,
+                    USER_GROUP,
+                    MGR_ID AS USER_ID,
+                    EMAIL
+                FROM MST_MGR) AS user_vms
+                where USERNAME = '${username}'`
             );
             if (userData.rows.length === 0) {
                 throw new Error("User not found");
@@ -265,9 +283,13 @@ const User = {
             );
             await client.query(TRANS.BEGIN);
             try {
-                await client.query(
-                    `UPDATE MST_USER SET token = '${refreshToken}' where user_id ='${resdata.user_id}'`
-                );
+                let qUpRef = "";
+                if (resdata.role === "MGR") {
+                    qUpRef = `UPDATE MST_MGR set token = '${refreshToken}' where mgr_id = '${resdata.user_id}'`;
+                } else {
+                    qUpRef = `UPDATE MST_USER SET token = '${refreshToken}' where user_id ='${resdata.user_id}'`;
+                }
+                await client.query(qUpRef);
                 await client.query(TRANS.COMMIT);
             } catch (error) {
                 await client.query(TRANS.ROLLBACK);
