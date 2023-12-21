@@ -192,7 +192,7 @@ const Ticket = {
                                 updated_at = DEFAULT
                                 where ticket_id = $6
                                 returning ticket_id`;
-            return client.query(q, [
+            const result = await client.query(q, [
                 cur_pos,
                 item.remarks,
                 state,
@@ -200,6 +200,7 @@ const Ticket = {
                 item.mdm_id,
                 ticket.ticket_id,
             ]);
+            return result;
         } catch (err) {
             console.error(err);
             throw err;
