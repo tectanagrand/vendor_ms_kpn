@@ -8,5 +8,6 @@ route.post("/uploadtemp", controller.setTempFile);
 route.get("/file/:id", controller.getFile);
 route.get("/bank/:id", controller.getBank);
 route.delete("/file", controller.deleteTempId);
+route.get("/checkven", controller.checkNameisExist);
 
 module.exports = route;
