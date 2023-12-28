@@ -173,9 +173,10 @@ VendorController.getHeaderCode = async (req, res) => {
 };
 
 VendorController.checkNameisExist = async (req, res) => {
+    const client = await db.connect();
     try {
         const q = req.query.name;
-        const checkName = await db.query(
+        const checkName = await client.query(
             `select * from vendor where LOWER(name_1) like LOWER('%${q}%')`
         );
         const counts = checkName.rowCount;
@@ -190,6 +191,8 @@ VendorController.checkNameisExist = async (req, res) => {
         res.status(500).send({
             message: err.message,
         });
+    } finally {
+        client.release();
     }
 };
 

@@ -18,7 +18,8 @@ const tp = mailer.createTransport({
 
 const Emailer = {
     toManager: async (ven_name, ven_type, comp, ticket_id, description) => {
-        const getData = await db.query(
+        const client = await db.connect();
+        const getData = await client.query(
             `select name, code from mst_company where comp_id = '${comp}'`
         );
         const company = getData.rows[0].code + " - " + getData.rows[0].name;
@@ -41,6 +42,8 @@ const Emailer = {
         } catch (error) {
             console.log(error);
             throw error;
+        } finally {
+            client.release();
         }
     },
     toRequest: async (ticket_num, requestor, target, cc) => {

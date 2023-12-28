@@ -74,7 +74,7 @@ TicketController.getTicketById = async (req, res) => {
 };
 
 TicketController.submitTicket = async (req, res) => {
-    const client = db;
+    const client = await db.connect();
     try {
         //expected input :
         /*
@@ -189,6 +189,8 @@ TicketController.submitTicket = async (req, res) => {
         res.status(500).send({
             message: err.message,
         });
+    } finally {
+        client.release();
     }
 };
 
@@ -230,7 +232,7 @@ TicketController.singleSubmit = async (req, res) => {
             message: `Error submission`,
         });
     } finally {
-        await client.end();
+        client.release();
     }
 };
 
@@ -373,6 +375,8 @@ TicketController.rejectformmgr = async (req, res) => {
         res.status(500).send({
             message: "error updating",
         });
+    } finally {
+        client.release();
     }
 };
 
@@ -399,6 +403,8 @@ TicketController.checkValidTicket = async (req, res) => {
             message: "something went wrong",
             error: error.message,
         });
+    } finally {
+        client.release();
     }
 };
 

@@ -114,8 +114,9 @@ const MasterController = {
     },
 
     getPayterm: async (req, res) => {
+        const client = await db.connect();
         try {
-            const payTerm = await db.query(`SELECT * FROM MST_PAY_TERM`);
+            const payTerm = await client.query(`SELECT * FROM MST_PAY_TERM`);
             res.status(200).send({
                 count: payTerm.rowCount,
                 data: payTerm.rows,
@@ -125,12 +126,15 @@ const MasterController = {
             res.status(500).send({
                 message: error.message,
             });
+        } finally {
+            client.release();
         }
     },
     getBankSAP: async (req, res) => {
+        const client = await db.connect();
         try {
             const country = req.query.country === "" ? "ID" : req.query.country;
-            const payTerm = await db.query(
+            const payTerm = await client.query(
                 `SELECT * FROM MST_BANK_SAP WHERE country='${country}'`
             );
             res.status(200).send({
@@ -142,6 +146,8 @@ const MasterController = {
             res.status(500).send({
                 message: error.message,
             });
+        } finally {
+            client.release();
         }
     },
     getBankSSR: async (req, res) => {
@@ -177,6 +183,8 @@ const MasterController = {
             await client.query(TRANS.ROLLBACK);
             res.status(500).send({ message: error.message });
             console.log(error);
+        } finally {
+            client.release();
         }
     },
 };

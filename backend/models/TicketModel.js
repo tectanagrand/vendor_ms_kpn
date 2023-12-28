@@ -41,8 +41,9 @@ const Ticket = {
         }
     },
     async headerTicket({ tnum: ticket_num }) {
+        const client = await db.connect();
         try {
-            let formhd = await db.query(
+            let formhd = await client.query(
                 `SELECT T.ticket_id as ticket_id, T.cur_pos, T.remarks, t.valid_until, t.ven_id as ticket_ven_id, V.*, 
                 PROC.email as email_proc, PROC.role as dep_proc, MDM.email as email_mdm, MDM.role as dep_mdm, VHD.header 
                                 FROM TICKET T
@@ -74,31 +75,35 @@ const Ticket = {
         } catch (err) {
             console.error(err);
             throw err;
+        } finally {
+            client.release();
         }
     },
     async openNew(params) {
-        const today = new Date();
-        const until = new Date();
-        const year = today.getFullYear().toString().substr(-2);
-        const month = ("0" + (today.getMonth() + 1).toString()).substr(-2);
-        const f_today = today.toLocaleDateString();
-        until.setDate(today.getDate() + 3);
-        const f_until = until.toLocaleDateString();
-        const ticketid = await db.query("SELECT nextval('ticket_id_seq')");
-        const ven_id = uuid.uuid();
-        const token = uuid.uuid();
-        // console.log(ticketid.rows);
-        const latestnum = ticketid.rows[0].nextval;
-        const headerTicket = params.to_who === "VENDOR" ? "VEN" : "PRC";
-        const ticketState = params.to_who === "VENDOR" ? "INIT" : "CREA";
-        const ticketNumber =
-            headerTicket +
-            "-" +
-            year +
-            month +
-            String(latestnum).padStart(4, "0");
         const client = await db.connect();
         try {
+            const today = new Date();
+            const until = new Date();
+            const year = today.getFullYear().toString().substr(-2);
+            const month = ("0" + (today.getMonth() + 1).toString()).substr(-2);
+            const f_today = today.toLocaleDateString();
+            until.setDate(today.getDate() + 3);
+            const f_until = until.toLocaleDateString();
+            const ticketid = await client.query(
+                "SELECT nextval('ticket_id_seq')"
+            );
+            const ven_id = uuid.uuid();
+            const token = uuid.uuid();
+            // console.log(ticketid.rows);
+            const latestnum = ticketid.rows[0].nextval;
+            const headerTicket = params.to_who === "VENDOR" ? "VEN" : "PRC";
+            const ticketState = params.to_who === "VENDOR" ? "INIT" : "CREA";
+            const ticketNumber =
+                headerTicket +
+                "-" +
+                year +
+                month +
+                String(latestnum).padStart(4, "0");
             // insert into ticket
             await client.query("BEGIN");
             const ticket = {
@@ -129,8 +134,8 @@ const Ticket = {
     },
 
     async getTicketById(ticket_num) {
+        const client = await db.connect();
         try {
-            const client = db;
             const q = `SELECT T.ticket_id as ticket_num, T.token as ticket_id, T.cur_pos, T.ticket_state, T.remarks, T.ven_id as ticket_ven_id, T.t_type as t_type,
             T.reject_by as reject_by, t.is_active as ticket_stat, V.*, 
             PROC.email as email_proc, PROC.role as dep_proc, MDM.email as email_mdm, MDM.role as dep_mdm, VHD.header 
@@ -146,6 +151,8 @@ const Ticket = {
         } catch (err) {
             console.error(err.stack);
             throw err;
+        } finally {
+            client.release();
         }
     },
 
@@ -265,6 +272,7 @@ const Ticket = {
     },
 
     async ticketTarget(ticket_id) {
+        const client = await db.connect();
         try {
             const getTargetsq = `
             select 
@@ -281,7 +289,7 @@ const Ticket = {
                 left join mst_mgr mgr_md on mgr_md.mgr_id = mdm.mgr_id
                 where t.token = '${ticket_id}'
             `;
-            const item = await db.query(getTargetsq);
+            const item = await client.query(getTargetsq);
             return {
                 count: item.rowCount,
                 data: item.rows[0],
@@ -289,57 +297,8 @@ const Ticket = {
         } catch (error) {
             console.error(error);
             throw error;
-        }
-    },
-
-    async submitVendorLeg({
-        ven_detail,
-        ven_banks,
-        ven_files,
-        ticket_id,
-        remarks,
-        is_draft,
-        role,
-    }) {
-        //set vendor detail
-        const client = db;
-        try {
-            await client.query(TRANS.BEGIN);
-            const client1 = await Vendor.setDetailVen(ven_detail, client);
-            const client2 = await Vendor.setBank(ven_banks, client1);
-            const client3 = await Vendor.setFile(ven_files, client2);
-            const ticket = await this.submitTicket(
-                { ticket_id: ticket_id, remarks: remarks },
-                client3
-            );
-            const targets = await this.ticketTarget(ticket_id);
-            const dataTrg = targets.data;
-            const res_tnum = ticket.rows[0].ticket_id;
-            if (!is_draft && role === "PROC") {
-                await Emailer.toRequest(
-                    ven_detail.ticket_num,
-                    dataTrg.proc_fname,
-                    dataTrg.proc_email,
-                    [dataTrg.mgr_pr_email]
-                );
-            } else if (!is_draft && role === "MDM") {
-                await Emailer.toApprove(
-                    ven_detail.ven_code,
-                    ven_detail.name_1,
-                    dataTrg.proc_email,
-                    [
-                        dataTrg.mgr_pr_email,
-                        dataTrg.mgr_md_email,
-                        dataTrg.mdm_email,
-                    ]
-                );
-            }
-            await client.query(TRANS.COMMIT);
-            return res_tnum;
-        } catch (error) {
-            await client.query(TRANS.ROLLBACK);
-            console.error(error);
-            throw error;
+        } finally {
+            client.release();
         }
     },
 
