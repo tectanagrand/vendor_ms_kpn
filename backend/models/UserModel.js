@@ -7,8 +7,9 @@ const crud = require("../helper/crudquery.js");
 
 const User = {
     showAll: async () => {
+        const client = await db.connect();
         try {
-            const row = await db.query(`
+            const row = await client.query(`
             SELECT us.user_id as id, us.fullname, us.username, us.email, sec.user_group_name, us.role, 
                 TO_CHAR(us.created_at, 'mm-dd-yyyy') as created_at, 
                 TO_CHAR(us.expired_date, 'mm-dd-yyyy') as expired_date
@@ -20,6 +21,8 @@ const User = {
             };
         } catch (error) {
             console.error(error);
+        } finally {
+            client.release();
         }
     },
     createUser: async params => {
@@ -90,23 +93,26 @@ const User = {
             await client.query(TRANS.ROLLBACK);
             throw error;
         } finally {
-            client.release;
+            client.release();
         }
     },
 
     showUserData: async idUser => {
+        const client = await db.connect();
         const q = `select fullname, username, password, role, user_group as usergroup, 
                     user_id, mgr_id, created_at as datecreated, expired_date as expireddate
                     ,email
                     from mst_user where user_id = '${idUser}'`;
         try {
-            const showUserbyId = await db.query(q);
+            const showUserbyId = await client.query(q);
             return {
                 data: showUserbyId.rows[0],
             };
         } catch (error) {
             console.error(error);
             throw error;
+        } finally {
+            client.release();
         }
     },
 
@@ -150,43 +156,58 @@ const User = {
         } catch (error) {
             throw error.message;
         } finally {
-            client.release;
+            client.release();
         }
     },
 
     checkUserExist: async (user_email, username) => {
         const connect = await db.connect();
-        let status = true;
-        const messages = [];
-        const checkExistemaila = await connect.query(
-            `select user_id from mst_user where email = '${user_email}' `
-        );
-        const checkExistemailb = await connect.query(
-            `select user_id from mst_mgr where email = '${user_email}' `
-        );
-        const checkExistUnamea = await connect.query(
-            `select user_id from mst_user where username = '${username}' `
-        );
-        const checkExistUnameb = await connect.query(
-            `select user_id from mst_mgr where username = '${username}' `
-        );
-        if (checkExistemaila.rowCount > 0 || checkExistemailb.rowCount > 0) {
-            messages.push("Email already exist");
-            status = false;
-        }
-        if (checkExistUnamea.rowCount > 0 || checkExistUnameb.rowCount > 0) {
-            messages.push("Username already exist");
-            status = false;
-        }
-        if (status) {
-            return {
-                status: true,
-            };
-        } else {
+        try {
+            let status = true;
+            const messages = [];
+            const checkExistemaila = await connect.query(
+                `select user_id from mst_user where email = '${user_email}' `
+            );
+            const checkExistemailb = await connect.query(
+                `select user_id from mst_mgr where email = '${user_email}' `
+            );
+            const checkExistUnamea = await connect.query(
+                `select user_id from mst_user where username = '${username}' `
+            );
+            const checkExistUnameb = await connect.query(
+                `select user_id from mst_mgr where username = '${username}' `
+            );
+            if (
+                checkExistemaila.rowCount > 0 ||
+                checkExistemailb.rowCount > 0
+            ) {
+                messages.push("Email already exist");
+                status = false;
+            }
+            if (
+                checkExistUnamea.rowCount > 0 ||
+                checkExistUnameb.rowCount > 0
+            ) {
+                messages.push("Username already exist");
+                status = false;
+            }
+            if (status) {
+                return {
+                    status: true,
+                };
+            } else {
+                return {
+                    status: false,
+                    message: messages,
+                };
+            }
+        } catch (error) {
             return {
                 status: false,
-                message: messages,
+                error: error.message,
             };
+        } finally {
+            connect.release();
         }
     },
     loginUser: async ({ username, password }) => {
@@ -315,8 +336,9 @@ const User = {
     },
 
     getAuthorization: async userGroup => {
+        const client = await db.connect();
         try {
-            const getAuthorization = await db.query(`
+            const getAuthorization = await client.query(`
             SELECT 
                             PG.MENU_ID AS "id",
                             PG.PAGE,
@@ -359,69 +381,85 @@ const User = {
         } catch (error) {
             console.error(error);
             throw error;
+        } finally {
+            client.release();
         }
     },
 
     showExistSecGrp: async () => {
-        const q = `select distinct 
-                    user_group_name, 
-                    user_group_id, 
-                    TO_CHAR(created_at, 'mm/dd/yyyy') as createddate
-                    from mst_page_access`;
-        const userGroups = await db.query(q);
-        return {
-            count: userGroups.rowCount,
-            data: userGroups.rows,
-        };
+        const client = await db.connect();
+        try {
+            const q = `select distinct 
+                        user_group_name, 
+                        user_group_id, 
+                        TO_CHAR(created_at, 'mm/dd/yyyy') as createddate
+                        from mst_page_access`;
+            const userGroups = await client.query(q);
+            return {
+                count: userGroups.rowCount,
+                data: userGroups.rows,
+            };
+        } catch (error) {
+            throw error;
+        } finally {
+            client.release;
+        }
     },
 
     showSecurityGroup: async group_id => {
-        let secName = "";
-        if (group_id !== "") {
-            const secNameq = `
-                            SELECT 
-                                distinct user_group_name
-                            from
-                                mst_page_access where user_group_id = '${group_id}' ;
-            `;
-            const getname = await db.query(secNameq);
-            secName = getname.rows[0].user_group_name;
+        const client = await db.connect();
+        try {
+            let secName = "";
+            if (group_id !== "") {
+                const secNameq = `
+                                SELECT 
+                                    distinct user_group_name
+                                from
+                                    mst_page_access where user_group_id = '${group_id}' ;
+                `;
+                const getname = await client.query(secNameq);
+                secName = getname.rows[0].user_group_name;
+            }
+            const secMtxq = `SELECT 
+                                PG.MENU_ID AS "id",
+                                PG.PAGE,
+                                case
+                                    when acs.fcreate then acs.fcreate
+                                    else false 
+                                end
+                                as "fcreate",
+                                case
+                                    when acs.fread then acs.fread
+                                    else false 
+                                end
+                                as "fread",
+                                case
+                                    when acs.fupdate then acs.fupdate
+                                    else false 
+                                end
+                                as "fupdate",
+                                case
+                                    when acs.fdelete then acs.fdelete
+                                    else false
+                                end
+                                as "fdelete"
+                                FROM MST_PAGE PG
+                                LEFT JOIN 
+                                MST_PAGE_ACCESS 
+                                ACS ON ACS.PAGE_ID = PG.MENU_ID AND ACS.user_group_id = '${group_id}'
+                            order by PG.parent_id asc, is_parent asc
+                            `;
+            const secMtx = await client.query(secMtxq);
+            return {
+                name: secName,
+                count: secMtx.rowCount,
+                data: secMtx.rows,
+            };
+        } catch (error) {
+            throw error;
+        } finally {
+            client.release();
         }
-        const secMtxq = `SELECT 
-                            PG.MENU_ID AS "id",
-                            PG.PAGE,
-                            case
-                                when acs.fcreate then acs.fcreate
-                                else false 
-                            end
-                            as "fcreate",
-                            case
-                                when acs.fread then acs.fread
-                                else false 
-                            end
-                            as "fread",
-                            case
-                                when acs.fupdate then acs.fupdate
-                                else false 
-                            end
-                            as "fupdate",
-                            case
-                                when acs.fdelete then acs.fdelete
-                                else false
-                            end
-                            as "fdelete"
-                            FROM MST_PAGE PG
-                            LEFT JOIN 
-                            MST_PAGE_ACCESS 
-                            ACS ON ACS.PAGE_ID = PG.MENU_ID AND ACS.user_group_id = '${group_id}'
-                        order by PG.parent_id asc, is_parent asc
-                        `;
-        const secMtx = await db.query(secMtxq);
-        return {
-            name: secName,
-            count: secMtx.rowCount,
-            data: secMtx.rows,
-        };
     },
 
     submitSecurityGroup: async (groupname, groupid, accessmtx) => {
@@ -472,9 +510,10 @@ const User = {
     },
 
     showRole: async () => {
+        const client = await db.connect();
         try {
             const q = `select id_role, role from mst_role`;
-            const roles = await db.query(q);
+            const roles = await client.query(q);
             return {
                 count: roles.rowCount,
                 data: roles.rows,
@@ -482,13 +521,16 @@ const User = {
         } catch (error) {
             console.error(error);
             throw error;
+        } finally {
+            client.release();
         }
     },
 
     showManagers: async () => {
+        const client = await db.connect();
         try {
             const q = `select mgr_id, fullname from mst_mgr`;
-            const managers = await db.query(q);
+            const managers = await client.query(q);
             return {
                 count: managers.rowCount,
                 data: managers.rows,
@@ -496,6 +538,8 @@ const User = {
         } catch (error) {
             console.error(error);
             throw error;
+        } finally {
+            client.release();
         }
     },
 };

@@ -1,6 +1,9 @@
 const User = require("../models/UserModel");
 const jwt = require("jsonwebtoken");
 const db = require("../config/connection");
+const TRANS = require("../config/transaction");
+const crud = require("../helper/crudquery");
+const { hashPassword } = require("../middleware/hashpass");
 
 const UserController = {
     showAll: async (req, res) => {
@@ -49,6 +52,7 @@ const UserController = {
     },
 
     refreshToken: async (req, res) => {
+        const client = await db.connect();
         const cookies = req.cookies;
         if (!cookies?.accessToken) {
             return res.status(401).send({
@@ -62,7 +66,7 @@ const UserController = {
             } else {
                 refToken_q = `select token from mst_mgr where mgr_id = '${cookies.user_id}'`;
             }
-            const getrefToken = await db.query(refToken_q);
+            const getrefToken = await client.query(refToken_q);
             const refToken = getrefToken.rows[0].token;
             const verif = jwt.verify(refToken, process.env.TOKEN_KEY);
             const newAct = jwt.sign(
@@ -83,6 +87,8 @@ const UserController = {
             res.status(401).send({
                 message: "Login Expired",
             });
+        } finally {
+            client.release();
         }
     },
 
@@ -200,6 +206,59 @@ const UserController = {
             res.status(500).send({
                 message: "failed to fetch data",
             });
+        }
+    },
+
+    otpresetPassword: async (req, res) => {
+        const client = await db.connect();
+        try {
+            const user_id = req.cookies.user_id;
+            const resetPwd = req.body.newpwd;
+            if (resetPwd === undefined || resetPwd === "") {
+                throw new Error("Please provide new password");
+            }
+            if (user_id === "" || user_id === undefined) {
+                throw new Error("User is missing");
+            }
+            let pass = "";
+
+            await client.query(TRANS.BEGIN);
+            const checkExist = await client.query(
+                `select inserted from otp_transaction where user_id = '${user_id}'`
+            );
+            if (checkExist.rowCount === 0) {
+                throw new Error("OTP not requested");
+            }
+            const isOtpValidated = checkExist.rows[0]?.inserted;
+            if (isOtpValidated) {
+                pass = await hashPassword(resetPwd);
+            } else {
+                throw new Error("OTP not validated");
+            }
+            const items = {
+                password: pass,
+            };
+            const [que, val] = crud.updateItem(
+                "mst_user",
+                items,
+                { user_id: user_id },
+                "username"
+            );
+            const resetPass = await client.query(que, val);
+            const otpdelete = await client.query(
+                `delete from otp_transaction where user_id = '${user_id}'`
+            );
+            await client.query(TRANS.COMMIT);
+            res.status(200).send({
+                message: `${resetPass.rows[0].username} password have been reseted`,
+            });
+        } catch (error) {
+            console.log(error);
+            res.status(500).send({
+                message: error.message,
+            });
+        } finally {
+            client.release();
         }
     },
 };
