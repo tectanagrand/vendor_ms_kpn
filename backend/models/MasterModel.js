@@ -6,8 +6,9 @@ const crud = require("../helper/crudquery");
 
 const Master = {
     async getCurrency() {
+        const client = await db.connect();
         try {
-            const countries = await db.query(
+            const countries = await client.query(
                 "SELECT distinct code FROM mst_currency"
             );
             return {
@@ -17,11 +18,14 @@ const Master = {
         } catch (err) {
             console.error(err);
             throw err;
+        } finally {
+            client.release();
         }
     },
     async getCountry() {
+        const client = await db.connect();
         try {
-            const countries = await db.query(
+            const countries = await client.query(
                 "SELECT * FROM mst_country order by country_name"
             );
             return {
@@ -31,16 +35,19 @@ const Master = {
         } catch (err) {
             console.error(err);
             throw err;
+        } finally {
+            client.release();
         }
     },
 
     async getCities(idCountry) {
+        const client = await db.connect();
         try {
             const where = `country_id = '${idCountry}'`;
             let q = "SELECT DISTINCT city, code, country_id FROM mst_cities";
             q = q + " where " + where;
             q += " order by city asc";
-            const cities = await db.query(q);
+            const cities = await client.query(q);
             return {
                 count: cities.rowCount,
                 data: cities.rows,
@@ -48,12 +55,15 @@ const Master = {
         } catch (error) {
             console.error(error);
             throw error;
+        } finally {
+            client.release();
         }
     },
 
     async getBank(ven_id) {
+        const client = await db.connect();
         try {
-            const items = await db.query(
+            const items = await client.query(
                 `SELECT * FROM MST_BANK ORDER BY BANK_NAME`
             );
             // console.log(items);
@@ -65,12 +75,15 @@ const Master = {
         } catch (err) {
             console.error(err);
             throw err;
+        } finally {
+            client.release();
         }
     },
 
     async getCompany() {
+        const client = await db.connect();
         try {
-            const items = await db.query(
+            const items = await client.query(
                 `SELECT * FROM MST_COMPANY ORDER BY code`
             );
             // console.log(items);
@@ -82,6 +95,8 @@ const Master = {
         } catch (err) {
             console.error(err);
             throw err;
+        } finally {
+            client.release();
         }
     },
 
@@ -94,6 +109,7 @@ const Master = {
     },
 
     async getssrBank({ page, maxPage, que }) {
+        const client = await db.connect();
         let qtext = "";
         if (que != null && que != "") {
             qtext = ` where lower(b.bank_code) like '%${que}%' or lower(b.bank_key) like '%${que}%' or lower(b.bank_name) like '%${que}%'`;
@@ -103,8 +119,8 @@ const Master = {
         } 
         `;
         try {
-            const data = await db.query(q);
-            const allRows = await db.query(
+            const data = await client.query(q);
+            const allRows = await client.query(
                 `select count(*) as rowscount from mst_bank_sap b ${qtext}`
             );
             return {
@@ -114,6 +130,8 @@ const Master = {
             };
         } catch (error) {
             throw error;
+        } finally {
+            client.release();
         }
     },
 

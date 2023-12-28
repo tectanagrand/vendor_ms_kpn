@@ -8,8 +8,8 @@ const fs = require("fs");
 
 const Vendor = {
     async showAll({ isactive, limit, start }) {
+        const client = await db.connect();
         try {
-            const client = db;
             let q = `SELECT V.VEN_ID as id, V.NAME_1 as VEN_NAME, V.VEN_CODE, V.ACT_REMARK, V.IS_ACTIVE,
                         T.REMARKS, T.TICKET_ID
                         FROM VENDOR V 
@@ -27,6 +27,8 @@ const Vendor = {
         } catch (err) {
             console.error(err);
             throw err;
+        } finally {
+            client.release();
         }
     },
 
@@ -76,7 +78,7 @@ const Vendor = {
                         file.created_by,
                         file.desc_file,
                     ];
-                    const insertFile = client.query(qInsert, values);
+                    const insertFile = await client.query(qInsert, values);
                     const cleanTemp = await client.query(
                         `delete from temp_ven_file_atth where ven_id = '${ven_id}'`
                     );
@@ -169,10 +171,10 @@ const Vendor = {
     },
 
     async deleteTemp({ id, ven_id }) {
+        const client = await db.connect();
+        await client.query("BEGIN");
         if (id !== "") {
             try {
-                const client = db;
-                await db.query("BEGIN");
                 const q =
                     "DELETE FROM temp_ven_file_atth where file_id = $1 returning file_name ;";
                 const result = await client.query(q, [id]);
@@ -190,15 +192,16 @@ const Vendor = {
                             file_name
                     );
                 }
-                await db.query("COMMIT");
+                await client.query("COMMIT");
                 return result.rows[0];
             } catch (err) {
+                client.query(TRANS.ROLLBACK);
                 throw err;
+            } finally {
+                client.release();
             }
         } else {
             try {
-                const client = db;
-                await db.query("BEGIN");
                 const q =
                     "DELETE FROM temp_ven_file_atth where ven_id = $1 returning file_name ;";
                 const result = await client.query(q, [ven_id]);
@@ -214,17 +217,20 @@ const Vendor = {
                         throw error;
                     }
                 });
-                await db.query("COMMIT");
+                await client.query("COMMIT");
                 return result.rows;
             } catch (err) {
+                client.query(TRANS.ROLLBACK);
                 throw err;
+            } finally {
+                client.release();
             }
         }
     },
 
     async getFiles(ven_id) {
+        const client = await db.connect();
         try {
-            const client = db;
             const items =
                 await client.query(`select file_id, file_name, desc_file, file_type, created_at, 'temp_ven_file_atth' as source from temp_ven_file_atth 
                 where ven_id = '${ven_id}' 
@@ -237,11 +243,13 @@ const Vendor = {
             return result;
         } catch (err) {
             throw err;
+        } finally {
+            client.release();
         }
     },
     async getBank(ven_id) {
+        const client = await db.connect();
         try {
-            const client = db;
             const items = await client.query(
                 `SELECT v.bankv_id as id, v.bank_id, v.bank_acc, v.acc_hold, v.acc_name, b.bank_key,
                 b.bank_key|| '-' || b.bank_name as bank_name, v.bank_curr, v.country, b.source
@@ -258,6 +266,8 @@ const Vendor = {
         } catch (err) {
             console.error(err);
             throw err;
+        } finally {
+            client.release();
         }
     },
     async setBank(banks, client) {
@@ -366,13 +376,16 @@ const Vendor = {
     },
 
     async getHeaderCode({ local_ovs, ven_acc, ven_type, ven_group }) {
+        const client = await db.connect();
         const promise = new Promise(async (resolve, reject) => {
             const q = `SELECT HEADER FROM VEN_CODE_HD WHERE local_ovs='${local_ovs}' and ven_acc='${ven_acc}' and ven_type='${ven_type}' and ven_group='${ven_group}'`;
             try {
-                const headercode = await db.query(q);
+                const headercode = await client.query(q);
                 resolve({ status: true, header: headercode.rows[0] });
             } catch (err) {
                 reject({ status: false, message: "Header not found" });
+            } finally {
+                client.release();
             }
         });
         return promise;

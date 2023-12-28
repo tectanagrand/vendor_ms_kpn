@@ -2,9 +2,10 @@ const jwt = require("jsonwebtoken");
 const db = require("../config/connection");
 
 const getTicketToken = async token => {
+    const client = await db.connect();
     try {
         const q = `SELECT * FROM TICKET WHERE TOKEN = '${token}'`;
-        const ticket = await db.query(q);
+        const ticket = await client.query(q);
         if (ticket.rows[0] == null) {
             throw new Error("ticket not found");
         }
@@ -12,6 +13,8 @@ const getTicketToken = async token => {
         return jwttoken;
     } catch (err) {
         throw err;
+    } finally {
+        client.release();
     }
 };
 

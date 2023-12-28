@@ -7,7 +7,8 @@ const TRANS = require("../config/transaction");
 
 const Reqstat = {
     request: async reqForm => {
-        db.query(TRANS.BEGIN);
+        const client = await db.connect();
+        await client.query(TRANS.BEGIN);
         try {
             const type = reqForm.type;
             const tnum = await tgen.createTnum(
@@ -30,13 +31,15 @@ const Reqstat = {
                 dataInput,
                 "ticket_num"
             );
-            const createTicket = await db.query(q, value);
-            db.query(TRANS.COMMIT);
+            const createTicket = await client.query(q, value);
+            await client.query(TRANS.COMMIT);
             return { ticket_num: createTicket.rows[0].ticket_num };
         } catch (error) {
-            db.query(TRANS.ROLLBACK);
+            await client.query(TRANS.ROLLBACK);
             console.error(error);
             throw error;
+        } finally {
+            client.release();
         }
     },
 
@@ -106,6 +109,7 @@ const Reqstat = {
 
     showAll: async query => {
         const { is_active } = query;
+        const client = await db.connect();
         try {
             const q = `
                 select 
@@ -127,7 +131,7 @@ const Reqstat = {
                     left join vendor v on t.ven_id = v.ven_id
                     where t.is_active = ${is_active} 
             `;
-            const ticketdt = await db.query(q);
+            const ticketdt = await client.query(q);
             return {
                 count: ticketdt.rowCount,
                 data: ticketdt.rows,
@@ -135,6 +139,8 @@ const Reqstat = {
         } catch (error) {
             console.error(error);
             throw error;
+        } finally {
+            client.release();
         }
     },
 };
