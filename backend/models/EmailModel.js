@@ -20,14 +20,23 @@ const Emailer = {
     toManager: async (ven_name, ven_type, comp, ticket_id, description) => {
         const client = await db.connect();
         const getData = await client.query(
-            `select name, code from mst_company where comp_id = '${comp}'`
+            `select name, code, group_comp from mst_company where comp_id = '${comp}'`
         );
         const company = getData.rows[0].code + " - " + getData.rows[0].name;
+        const group = getData.rows[0].group_comp;
+        let email_target;
+        if (group === "UPSTREAM") {
+            email_target = `rafael.tektano@kpn-corp.com`;
+        } else if (group === "DOWNSTREAM") {
+            email_target = `rtektano@gmail.com`;
+        } else {
+            email_target = `afif.julhendrik@kpn-corp.com`;
+        }
         const transporter = tp;
         try {
             const setup = {
                 from: process.env.SMTP_USERNAME,
-                to: "rafael.tektano@kpn-corp.com",
+                to: email_target,
                 subject: `${ven_name} - ${company} - Request Approval Vendor`,
                 html: Email.manager(
                     ven_name,
