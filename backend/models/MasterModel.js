@@ -136,6 +136,7 @@ const Master = {
     },
 
     async createNewBank({
+        swiftcode,
         bankcode,
         bankkey,
         bankname,
@@ -152,6 +153,7 @@ const Master = {
         await client.query(TRANS.BEGIN);
         try {
             const insertedval = {
+                swift_code: swiftcode,
                 bank_code: bankcode,
                 bank_key: bankkey,
                 bank_name: bankname,
@@ -173,21 +175,23 @@ const Master = {
                 [query, val] = crud.insertItem(
                     "mst_bank_sap",
                     insertedval,
-                    "bank_name"
+                    "id"
                 );
             } else {
                 [query, val] = crud.updateItem(
                     "mst_bank_sap",
                     { ...insertedval, source: null },
                     { bank_code: bankcode, bank_key: bankkey },
-                    "bank_name"
+                    "id"
                 );
             }
             const processQuery = await client.query(query, val);
             await client.query(TRANS.COMMIT);
             return {
+                swiftcode: swiftcode,
                 bankkey: bankkey,
-                name: processQuery.rows[0].bank_name,
+                name: bankname,
+                id: processQuery.rows[0].id,
             };
         } catch (error) {
             console.log(error);

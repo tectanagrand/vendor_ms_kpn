@@ -175,7 +175,7 @@ const MasterController = {
         try {
             await client.query(TRANS.BEGIN);
             const deleteBank = await client.query(
-                `delete from mst_bank_sap where bank_code = '${req.body.bankcode}' and bank_key = '${req.body.bankkey}' returning bank_name`
+                `delete from mst_bank_sap where id = ${req.body.id} returning bank_name`
             );
             res.status(200).send({ name: deleteBank.rows[0].bank_name });
             await client.query(TRANS.COMMIT);
