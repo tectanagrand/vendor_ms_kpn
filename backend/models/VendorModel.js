@@ -251,10 +251,10 @@ const Vendor = {
         const client = await db.connect();
         try {
             const items = await client.query(
-                `SELECT v.bankv_id as id, v.bank_id, v.bank_acc, v.acc_hold, v.acc_name, b.bank_key,
-                b.bank_key|| '-' || b.bank_name as bank_name, v.bank_curr, v.country, b.source
+                `SELECT distinct v.bankv_id as id, v.bank_id, v.bank_acc, v.acc_hold, v.acc_name, 
+                b.id as bank_id, b.bank_name, b.bank_code, b.bank_key, b.swift_code, v.bank_curr, v.country, b.source
                 FROM VEN_BANK V
-                LEFT JOIN MST_BANK_SAP B ON v.bank_id = b.bank_key
+                LEFT JOIN MST_BANK_SAP B ON v.bank_id = b.id::varchar
                 WHERE VEN_ID = '${ven_id}'`
             );
             // console.log(items);
@@ -306,6 +306,44 @@ const Vendor = {
                 throw err;
             });
         return promise;
+    },
+
+    async setBankRfctr(banks, client) {
+        let promises = [];
+        let method;
+        let q, val;
+        try {
+            for (let bank of banks) {
+                method = bank.method;
+                delete bank.method;
+                switch (method) {
+                    case "insert":
+                        bank.bankv_id = uuid.uuid();
+                        [q, val] = crud.insertItem("VEN_BANK", bank);
+                        promises.push(client.query(q, val));
+                        break;
+                    case "update":
+                        [q, val] = crud.updateItem("VEN_BANK", bank, {
+                            bankv_id: bank.bankv_id,
+                        });
+                        promises.push(client.query(q, val));
+                        break;
+                    case "delete":
+                        q = crud.deleteItem(
+                            "VEN_BANK",
+                            "bankv_id",
+                            bank.bankv_id
+                        );
+                        promises.push(client.query(q));
+                        break;
+                }
+            }
+            const returnPromise = await Promise.all(promises);
+            return returnPromise;
+        } catch (error) {
+            console.error(error.stack);
+            throw error;
+        }
     },
 
     async setFile(files, client) {
@@ -373,6 +411,72 @@ const Vendor = {
                 throw err;
             });
         return promise;
+    },
+
+    async setFileRfctr(files, client) {
+        let method;
+        let q;
+        let val;
+        let data;
+        let ven_id;
+        let cleanTemp = false;
+        let promises = [];
+        if (files.length === 0) {
+            return client;
+        }
+        try {
+            for (let file of files) {
+                method = file.method;
+                delete file.method;
+                switch (method) {
+                    case "insert":
+                        if (!cleanTemp) {
+                            cleanTemp = true;
+                            ven_id = file.ven_id;
+                        }
+                        data = await client.query(
+                            `SELECT file_id, ven_id, file_name, file_type, created_at, created_by, desc_file FROM TEMP_VEN_FILE_ATTH WHERE file_id = '${file.file_id}'`
+                        );
+                        if (data.rowCount === 0) {
+                            break;
+                        }
+                        [q, val] = crud.insertItem(
+                            "VEN_FILE_ATTH",
+                            data.rows[0]
+                        );
+                        promises.push(client.query(q, val));
+                        break;
+                    case "delete":
+                        if (os.platform === "win32") {
+                            await fs.promises.unlink(
+                                path.join(path.resolve(), "backend\\public") +
+                                    "\\" +
+                                    file.file_name
+                            );
+                        } else {
+                            await fs.promises.unlink(
+                                path.join(path.resolve(), "backend/public") +
+                                    "/" +
+                                    file.file_name
+                            );
+                        }
+                        q = crud.deleteItem(
+                            "VEN_FILE_ATTH",
+                            "file_id",
+                            file.file_id
+                        );
+                        promises.push(client.query(q));
+                        break;
+                }
+            }
+            const promise = await Promise.all(promises);
+            q = crud.deleteItem("TEMP_VEN_FILE_ATTH", "ven_id", ven_id);
+            const deleteTemp = await client.query(q);
+            return promise;
+        } catch (error) {
+            console.log(error);
+            throw error;
+        }
     },
 
     async getHeaderCode({ local_ovs, ven_acc, ven_type, ven_group }) {

@@ -322,9 +322,9 @@ const Ticket = {
                 is_draft,
                 ticket_state
             );
-            const client2 = await Vendor.setBank(ven_banks, client);
+            const client2 = await Vendor.setBankRfctr(ven_banks, client);
             if (is_draft === false) {
-                const client3 = await Vendor.setFile(ven_files, client);
+                const client3 = await Vendor.setFileRfctr(ven_files, client);
                 const ticket = await this.submitTicket(
                     { ticket_id: ticket_id, remarks: remarks, mdm_id: mdm_id },
                     client
