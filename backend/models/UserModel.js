@@ -12,9 +12,17 @@ const User = {
             const row = await client.query(`
             SELECT us.user_id as id, us.fullname, us.username, us.email, sec.user_group_name, us.role, 
                 TO_CHAR(us.created_at, 'mm-dd-yyyy') as created_at, 
-                TO_CHAR(us.expired_date, 'mm-dd-yyyy') as expired_date
+                TO_CHAR(us.expired_date, 'mm-dd-yyyy') as expired_date,
+                us.is_active
                 FROM mst_user us
-                LEFT JOIN (SELECT DISTINCT user_group_name, user_group_id from mst_page_access) sec on us.user_group = sec.user_group_id`);
+                LEFT JOIN (SELECT DISTINCT user_group_name, user_group_id from mst_page_access) sec on us.user_group = sec.user_group_id
+UNION
+SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name, us.role, 
+                TO_CHAR(us.created_at, 'mm-dd-yyyy') as created_at, 
+                TO_CHAR(us.expired_date, 'mm-dd-yyyy') as expired_date,
+                us.is_active
+                FROM mst_mgr us
+				LEFT JOIN (SELECT DISTINCT user_group_name, user_group_id from mst_page_access) sec on us.user_group = sec.user_group_id`);
             return {
                 count: row.rowCount,
                 data: row.rows,
@@ -99,10 +107,29 @@ const User = {
 
     showUserData: async idUser => {
         const client = await db.connect();
-        const q = `select fullname, username, password, role, user_group as usergroup, 
-                    user_id, mgr_id, created_at as datecreated, expired_date as expireddate
-                    ,email
-                    from mst_user where user_id = '${idUser}'`;
+        const q = `SELECT * FROM (SELECT FULLNAME,
+            USERNAME,
+            PASSWORD,
+            ROLE,
+            USER_GROUP AS USERGROUP,
+            USER_ID,
+            MGR_ID,
+            CREATED_AT AS DATECREATED,
+            EXPIRED_DATE AS EXPIREDDATE ,
+            EMAIL
+        FROM MST_USER
+        UNION
+        SELECT FULLNAME,
+            USERNAME,
+            PASSWORD,
+            ROLE,
+            USER_GROUP AS USERGROUP,
+            MGR_ID AS USER_ID,
+            '' AS MGR_ID,
+            CREATED_AT AS DATECREATED,
+            EXPIRED_DATE AS EXPIREDDATE ,
+            EMAIL
+        FROM MST_MGR) AS userdata where user_id = '${idUser}'`;
         try {
             const showUserbyId = await client.query(q);
             return {
@@ -118,15 +145,25 @@ const User = {
 
     createManager: async params => {
         const client = await db.connect();
-        let pass = await hashPassword(params.password);
+        const uidExist = params.user_id;
+        let pass = "";
+        let query, val;
+        if (uidExist != "") {
+            submitState = "update";
+        } else {
+            submitState = "insert";
+        }
+        if (params.hasOwnProperty("password")) {
+            pass = await hashPassword(params.password);
+        }
         const token = jwt.sign(
             { username: params.username },
             process.env.TOKEN_KEY,
             { expiresIn: "1d" }
         );
         const currentdate = new Date().toLocaleDateString();
-        const startDate = params.date;
-        const validDate = params.date;
+        const startDate = params.createddate;
+        const validDate = params.expireddate;
         const user_id = uuid.uuid();
         const fullname = params.fullname;
         const username = params.username;
@@ -139,7 +176,6 @@ const User = {
             username: username,
             email: email,
             role: role,
-            password: pass,
             created_at: startDate,
             expired_date: validDate,
             updated_at: currentdate,
@@ -149,7 +185,21 @@ const User = {
             mgr_id: user_id,
             token: token,
         };
-        const [query, val] = crud.insertItem("mst_mgr", userSubmit, "username");
+        if (params.hasOwnProperty("password")) {
+            userSubmit.password = pass;
+        }
+        if (submitState == "insert") {
+            [query, val] = crud.insertItem("mst_mgr", userSubmit, "username");
+        } else {
+            [query, val] = crud.updateItem(
+                "mst_mgr",
+                userSubmit,
+                {
+                    mgr_id: uidExist,
+                },
+                "username"
+            );
+        }
         try {
             const insertUserMgr = await client.query(query, val);
             return { name: insertUserMgr.rows[0].username };
@@ -221,7 +271,8 @@ const User = {
                     ROLE,
                     USER_GROUP,
                     USER_ID,
-                    EMAIL
+                    EMAIL,
+                    IS_ACTIVE
                 FROM MST_USER
                 UNION
                 SELECT USERNAME,
@@ -230,7 +281,8 @@ const User = {
                     ROLE,
                     USER_GROUP,
                     MGR_ID AS USER_ID,
-                    EMAIL
+                    EMAIL,
+                    IS_ACTIVE
                 FROM MST_MGR) AS user_vms
                 where USERNAME = '${username}'`
             );
@@ -277,7 +329,9 @@ const User = {
                     delete: item.fdelete,
                 };
             });
-
+            if (!userData.rows[0].is_active) {
+                throw new Error("User is inactive");
+            }
             const hashed = userData.rows[0].password;
             const valid = await validatePassword({ password, hashed });
             if (valid === false) {
@@ -303,21 +357,14 @@ const User = {
                 }
             );
             await client.query(TRANS.BEGIN);
-            try {
-                let qUpRef = "";
-                if (resdata.role === "MGR") {
-                    qUpRef = `UPDATE MST_MGR set token = '${refreshToken}' where mgr_id = '${resdata.user_id}'`;
-                } else {
-                    qUpRef = `UPDATE MST_USER SET token = '${refreshToken}' where user_id ='${resdata.user_id}'`;
-                }
-                await client.query(qUpRef);
-                await client.query(TRANS.COMMIT);
-            } catch (error) {
-                await client.query(TRANS.ROLLBACK);
-                throw error;
-            } finally {
-                client.release();
+            let qUpRef = "";
+            if (resdata.role === "MGR") {
+                qUpRef = `UPDATE MST_MGR set token = '${refreshToken}' where mgr_id = '${resdata.user_id}'`;
+            } else {
+                qUpRef = `UPDATE MST_USER SET token = '${refreshToken}' where user_id ='${resdata.user_id}'`;
             }
+            await client.query(qUpRef);
+            await client.query(TRANS.COMMIT);
             return {
                 fullname: resdata.fullname,
                 username: resdata.username,
@@ -330,8 +377,11 @@ const User = {
                 groupid: userGroup,
             };
         } catch (error) {
+            await client.query(TRANS.ROLLBACK);
             console.error(error.message);
             throw error.message;
+        } finally {
+            client.release();
         }
     },
 
@@ -402,7 +452,7 @@ const User = {
         } catch (error) {
             throw error;
         } finally {
-            client.release;
+            client.release();
         }
     },
 
