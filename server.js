@@ -11,6 +11,7 @@ const port = process.env.PORT;
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const fs = require("fs");
+const db = require("./backend/config/connection");
 
 const whitelist = [
     "http://172.30.60.50:3000",
@@ -65,9 +66,14 @@ process.on("uncaughtException", err => {
     process.exit(1);
 });
 
+// setInterval(() => {
+//     console.log("client:" + db.totalCount);
+// }, 1000);
+
 const server = https.createServer(servOption, app).listen(port, () => {
     console.log(`App running on ${port}`);
 });
+
 // app.listen(port, "0.0.0.0", () => {
 //     console.log(`App running on ${port}`);
 // });
