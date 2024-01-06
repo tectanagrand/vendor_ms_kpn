@@ -261,6 +261,44 @@ const UserController = {
             client.release();
         }
     },
+
+    updateStatUser: async (req, res) => {
+        const id = req.body.id;
+        const role = req.body.role;
+        const is_active = req.body.is_active;
+        const client = await db.connect();
+        let query, val;
+        try {
+            await client.query(TRANS.BEGIN);
+            if (role === "MGR") {
+                [query, val] = crud.updateItem(
+                    "mst_mgr",
+                    { is_active: is_active },
+                    { mgr_id: id },
+                    "username"
+                );
+            } else {
+                [query, val] = crud.updateItem(
+                    "mst_user",
+                    { is_active: is_active },
+                    { user_id: id },
+                    "username"
+                );
+            }
+            const setStat = await client.query(query, val);
+            await client.query(TRANS.COMMIT);
+            res.status(200).send({
+                message: `${setStat.rows[0].username} is updated`,
+            });
+        } catch (error) {
+            console.error(error);
+            res.status(500).send({
+                message: error.message,
+            });
+        } finally {
+            client.release();
+        }
+    },
 };
 
 module.exports = UserController;
