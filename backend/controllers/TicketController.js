@@ -307,8 +307,9 @@ TicketController.deleteTicket = async (req, res) => {
     const client = await db.connect();
     await client.query(TRANS.BEGIN);
     const check = await client.query(
-        `select ticket_id from ticket where token = '${ticket_id}'`
+        `select ticket_id, ven_id from ticket where token = '${ticket_id}'`
     );
+    const ven_id = check.rows[0].ven_id;
     if (check.rowCount == 0) {
         res.status(203).send({
             message: "ticket not exist",
@@ -319,11 +320,20 @@ TicketController.deleteTicket = async (req, res) => {
             `delete from ticket where token = '${ticket_id}' returning ticket_id`
         );
         const deletedTicket = deleteTicket.rows[0].ticket_id;
+        const checkVen = await client.query(
+            `select ven_id from vendor where ven_id = '${ven_id}'`
+        );
+        if (checkVen.rowCount > 0) {
+            const deleteVendor = await client.query(
+                `delete from vendor where ven_id = '${ven_id}' returning ven_id`
+            );
+        }
         await client.query(TRANS.COMMIT);
         res.status(200).send({
             data: deletedTicket,
         });
     } catch (error) {
+        await client.query(TRANS.ROLLBACK);
         console.log(error.message);
         res.status(500).send({
             message: error.message,
