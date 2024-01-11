@@ -24,13 +24,17 @@ const Emailer = {
         );
         const company = getData.rows[0].code + " - " + getData.rows[0].name;
         const group = getData.rows[0].group_comp;
+        let targetCeo = "";
         let email_target;
         if (group === "UPSTREAM") {
-            email_target = `rafael.tektano@kpn-corp.com`;
+            email_target = `cenny.cuang@kpnplantation.com`;
+            targetCeo = "Mrs. Cenny";
         } else if (group === "DOWNSTREAM") {
             email_target = `rtektano@gmail.com`;
+            targetCeo = "Mr. or Mrs.";
         } else {
             email_target = `afif.julhendrik@kpn-corp.com`;
+            targetCeo = "Mr. or Mrs.";
         }
         const transporter = tp;
         try {
@@ -39,6 +43,7 @@ const Emailer = {
                 to: email_target,
                 subject: `${ven_name} - ${company} - Request Approval Vendor`,
                 html: Email.manager(
+                    targetCeo,
                     ven_name,
                     ven_type,
                     company,
@@ -101,6 +106,28 @@ const Emailer = {
                 cc: cc_email,
                 subject: `Vendor ${ven_name} Reject Notification`,
                 html: Email.reject(reason),
+            };
+            const send = await transporter.sendMail(setup);
+            return send;
+        } catch (error) {
+            console.log(error);
+            throw error;
+        }
+    },
+    RejectMgrToProc: async (ven_name, ven_type, company, reason, targets) => {
+        const transporter = tp;
+        const emailTargets = targets.join(",");
+        try {
+            const setup = {
+                from: process.env.SMTP_USERNAME,
+                to: emailTargets,
+                subject: `Vendor ${ven_name} CEO Rejection Notification`,
+                html: Email.notifRejectMgrToProc(
+                    ven_name,
+                    ven_type,
+                    company,
+                    reason
+                ),
             };
             const send = await transporter.sendMail(setup);
             return send;
