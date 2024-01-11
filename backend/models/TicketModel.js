@@ -16,7 +16,14 @@ const Ticket = {
             } else {
                 where = `WHERE T.is_active = ${is_active} `;
             }
-            let q = `SELECT T.*,
+            let q = `SELECT T.token,
+            T.is_active, 
+            T.ticket_id, 
+            T.created_at,
+            case when T.cur_pos = 'MGR' then 'CEO'
+            else T.cur_pos
+            end as cur_pos,
+            T.ticket_state,
             V.NAME_1,
             V.VEN_CODE,
             UR.EMAIL,
@@ -324,7 +331,11 @@ const Ticket = {
             );
             const client2 = await Vendor.setBankRfctr(ven_banks, client);
             if (is_draft === false) {
-                const client3 = await Vendor.setFileRfctr(ven_files, client);
+                const client3 = await Vendor.setFileRfctr(
+                    ven_detail.ven_id,
+                    ven_files,
+                    client
+                );
                 const ticket = await this.submitTicket(
                     { ticket_id: ticket_id, remarks: remarks, mdm_id: mdm_id },
                     client
