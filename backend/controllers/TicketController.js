@@ -359,6 +359,19 @@ TicketController.rejectformmgr = async (req, res) => {
     const client = await db.connect();
     try {
         await client.query(TRANS.BEGIN);
+        const checkTicket = await client.query(`
+                select t.ticket_id, t.is_active, t.cur_pos,
+                v.name_1, v.ven_type, v.ven_id, c.name, c.code,
+                usr.email as email_user, mgr.email as email_mgr
+                from ticket t
+                left join vendor v on v.ven_id = t.ven_id
+                left join mst_company c on c.comp_id = v.company
+                left join mst_user usr on t.proc_id = usr.user_id 
+                left join mst_mgr mgr on usr.mgr_id = mgr.mgr_id
+                where t.token = '${ticket_id}'
+        `);
+        const ticketItem = checkTicket.rows[0];
+        const emailTargets = [ticketItem.email_user, ticketItem.email_mgr];
         const itemup = {
             is_active: false,
             reject_by: "MGR",
@@ -376,9 +389,22 @@ TicketController.rejectformmgr = async (req, res) => {
         );
         const rejectTicket = await client.query(query, val);
         await client.query(TRANS.COMMIT);
-        res.status(200).send({
-            message: "Ticket has been rejected",
+        await Emailer.RejectMgrToProc(
+            ticketItem.name_1,
+            ticketItem.ven_type,
+            `${ticketItem.code} - ${ticketItem.name}`,
+            reason,
+            emailTargets
+        );
+        res.render("response", {
+            ven_name: ticketItem.name_1,
+            ven_type: ticketItem.ven_type,
+            company: `${ticketItem.code} - ${ticketItem.name}`,
+            reason: "has rejected by you",
         });
+        // res.status(200).send({
+        //     message: "Ticket has been rejected",
+        // });
     } catch (error) {
         console.log(error);
         await client.query(TRANS.ROLLBACK);
