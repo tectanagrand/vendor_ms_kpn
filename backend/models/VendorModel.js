@@ -134,6 +134,7 @@ const Vendor = {
 
     async setTemp(params) {
         const { fields, uploaded_files } = params;
+        let promises = [];
         let data = [];
         // return;
         const client = await db.connect();
@@ -144,7 +145,18 @@ const Vendor = {
             // const { fields, upFile } = await uploadFile(params);
             // console.log(result);
 
-            const promise = uploaded_files.map(async file => {
+            // const promise = uploaded_files.map(async file => {
+            //     let values = [
+            //         uuid.uuid(),
+            //         fields.ven_id[0],
+            //         file,
+            //         fields.file_type[0],
+            //         fields.created_by[0],
+            //         fields.desc_file[0],
+            //     ];
+            //     return client.query(qInsert, values);
+            // });
+            for (const file of uploaded_files) {
                 let values = [
                     uuid.uuid(),
                     fields.ven_id[0],
@@ -153,9 +165,9 @@ const Vendor = {
                     fields.created_by[0],
                     fields.desc_file[0],
                 ];
-                return client.query(qInsert, values);
-            });
-            const result = await Promise.all(promise);
+                promises.push(client.query(qInsert, values));
+            }
+            const result = await Promise.all(promises);
             await client.query("COMMIT");
             result.map(item => {
                 data.push(item.rows[0]);
@@ -252,7 +264,7 @@ const Vendor = {
         try {
             const items = await client.query(
                 `SELECT distinct v.bankv_id as id, v.bank_id, v.bank_acc, v.acc_hold, v.acc_name, 
-                b.id as bank_id, b.bank_name, b.bank_code, b.bank_key, b.swift_code, v.bank_curr, v.country, b.source
+                b.id as bank_id, b.bank_name, b.bank_code, b.bank_key, v.bank_curr, v.country, b.source
                 FROM VEN_BANK V
                 LEFT JOIN MST_BANK_SAP B ON v.bank_id = b.id::varchar
                 WHERE VEN_ID = '${ven_id}'`
@@ -413,7 +425,7 @@ const Vendor = {
         return promise;
     },
 
-    async setFileRfctr(files, client) {
+    async setFileRfctr(vendor_id, files, client) {
         let method;
         let q;
         let val;
@@ -421,11 +433,33 @@ const Vendor = {
         let ven_id;
         let cleanTemp = false;
         let promises = [];
+        let files_id = [];
+        let restfile = "";
+        for (let file of files) {
+            files_id.push(`'${file.file_id}'`);
+        }
+        if (files.length > 0) {
+            restfile = `and file_id not in (${files_id.join(", ")})`;
+        }
+        getTempFiles = await client.query(
+            `select 
+                file_id, 
+                ven_id, 
+                file_name, 
+                file_type, 
+                created_at, 
+                created_by, 
+                desc_file,
+                'insert' as method 
+                from temp_ven_file_atth where ven_id = '${vendor_id}' ${restfile}`
+        );
+        tempFiles = getTempFiles.rows;
+        let file_toUp = [...files, ...tempFiles];
         if (files.length === 0) {
             return client;
         }
         try {
-            for (let file of files) {
+            for (let file of file_toUp) {
                 method = file.method;
                 delete file.method;
                 switch (method) {
