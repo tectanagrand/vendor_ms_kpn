@@ -137,7 +137,6 @@ const Master = {
 
     async createNewBank({
         swiftcode,
-        bankcode,
         bankkey,
         bankname,
         address1,
@@ -147,14 +146,14 @@ const Master = {
         country,
         source,
         type,
+        id,
     }) {
         let query, val;
         const client = await db.connect();
         await client.query(TRANS.BEGIN);
         try {
             const insertedval = {
-                swift_code: swiftcode,
-                bank_code: bankcode,
+                bank_code: swiftcode,
                 bank_key: bankkey,
                 bank_name: bankname,
                 address_1: address1,
@@ -165,7 +164,7 @@ const Master = {
                 source: source,
             };
             if (type === "insert") {
-                const checkexist = `select * from mst_bank_sap where bank_code = '${bankcode}' or bank_key = '${bankkey}'`;
+                const checkexist = `select * from mst_bank_sap where bank_code = '${swiftcode}' `;
                 const existBank = await client.query(checkexist);
                 if (existBank.rowCount > 0) {
                     throw new Error(
@@ -181,7 +180,7 @@ const Master = {
                 [query, val] = crud.updateItem(
                     "mst_bank_sap",
                     { ...insertedval, source: null },
-                    { bank_code: bankcode, bank_key: bankkey },
+                    { id: id },
                     "id"
                 );
             }
