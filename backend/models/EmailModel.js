@@ -1,6 +1,7 @@
 const mailer = require("nodemailer");
 const Email = require("../helper/generateemail");
 const db = require("../config/connection");
+const os = require("os");
 
 const tp = mailer.createTransport({
     host: process.env.SMTP_HOST,
@@ -27,13 +28,13 @@ const Emailer = {
         let targetCeo = "";
         let email_target;
         if (group === "UPSTREAM") {
-            email_target = `cenny.cuang@kpnplantation.com`;
+            email_target = process.env.CEO_UPSTREAM;
             targetCeo = "Mrs. Cenny";
         } else if (group === "DOWNSTREAM") {
-            email_target = `rtektano@gmail.com`;
+            email_target = process.env.CEO_DOWNSTREAM;
             targetCeo = "Mr. or Mrs.";
         } else {
-            email_target = `afif.julhendrik@kpn-corp.com`;
+            email_target = process.env.CEO_UPSTREAM;
             targetCeo = "Mr. or Mrs.";
         }
         const transporter = tp;
@@ -127,6 +128,43 @@ const Emailer = {
                     ven_type,
                     company,
                     reason
+                ),
+            };
+            const send = await transporter.sendMail(setup);
+            return send;
+        } catch (error) {
+            console.log(error);
+            throw error;
+        }
+    },
+    toMDM: async (ven_name, ticket_token, ticket_num, title, local_ovs) => {
+        try {
+            const transporter = tp;
+            const getmdm_emails = await db.query(
+                `select email from mst_user where role = 'MDM'`
+            );
+            const getmgr_mdm = await db.query(`SELECT EMAIL
+                                            FROM MST_MGR
+                                            WHERE MGR_ID IN
+                                                    (SELECT DISTINCT MGR_ID
+                                                        FROM MST_USER
+                                                        WHERE ROLE = 'MDM')`);
+            const mdmEmail = getmdm_emails.rows.map(item => item.email);
+            const mgrmdmEmail = getmgr_mdm.rows.map(item => item.email);
+            const weburl = `${process.env.APP_URL}/dashboard/form/${ticket_token}`;
+            const setup = {
+                from: process.env.SMTP_USERNAME,
+                // to: /*"rafael.tektano@kpn-corp.com"*/ mdmEmail.join(","),
+                // cc: /*"rafael.tektano@kpn-corp.com"*/ mgrmdmEmail.join(","),
+                to: "rafael.tektano@kpn-corp.com",
+                cc: "rafael.tektano@kpn-corp.com",
+                subject: `Vendor ${ven_name} Ticket Request ${ticket_num} `,
+                html: Email.toMdm(
+                    ticket_num,
+                    title,
+                    local_ovs,
+                    ven_name,
+                    weburl
                 ),
             };
             const send = await transporter.sendMail(setup);

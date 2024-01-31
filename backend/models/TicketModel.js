@@ -27,10 +27,15 @@ const Ticket = {
             V.NAME_1,
             V.VEN_CODE,
             UR.EMAIL,
+            T.VALID_UNTIL,
             CASE WHEN T.REJECT_BY IS NOT NULL THEN 'REJECT'
             WHEN T.CUR_POS = 'END' THEN 'ACCEPTED'
             ELSE 'ON PROCESS' END
-            AS STATUS_TICKET
+            AS STATUS_TICKET,
+            CASE 
+				WHEN T.VALID_UNTIL < NOW() THEN true
+				ELSE false 
+			END AS IS_EXPIRED
         FROM TICKET T
         LEFT JOIN VENDOR V ON V.VEN_ID = T.VEN_ID
         LEFT JOIN MST_USER UR ON UR.USER_ID = T.PROC_ID ${where}
@@ -262,6 +267,9 @@ const Ticket = {
                                 updated_at = DEFAULT
                                 where token = '${ticket.ticket_id}'
                                 returning ticket_id`;
+            if (session === "CREA") {
+                await this.extendTicket(ticket.ticket_id, 3);
+            }
             const upTick = await client.query(q);
             await Emailer.toReject(remarks, ticket.name_1, dataTrg.proc_email, [
                 dataTrg.mgr_pr_email,
@@ -350,6 +358,13 @@ const Ticket = {
                     dataTrg.proc_fname,
                     dataTrg.proc_email,
                     [dataTrg.mgr_pr_email]
+                );
+                await Emailer.toMDM(
+                    ven_detail.name_1,
+                    ticket_id,
+                    ven_detail.ticket_num,
+                    ven_detail.title,
+                    ven_detail.local_ovs
                 );
                 if (ven_detail.is_tender === true) {
                     await Emailer.toManager(
@@ -440,6 +455,36 @@ const Ticket = {
         } catch (error) {
             await client.query(TRANS.ROLLBACK);
             console.error(error);
+            throw error;
+        } finally {
+            client.release();
+        }
+    },
+
+    async extendTicket(ticket_id, days) {
+        const client = await db.connect();
+        try {
+            await client.query(TRANS.BEGIN);
+            const today = new Date();
+            let until = new Date();
+            until.setDate(today.getDate() + days);
+            const dateTicket = {
+                valid_until: until,
+            };
+            const [q, val] = crud.updateItem(
+                "TICKET",
+                dateTicket,
+                { token: ticket_id },
+                "ticket_id"
+            );
+            const updateTicket = await client.query(q, val);
+            await client.query(TRANS.COMMIT);
+            return {
+                ticket_num: updateTicket.rows[0].ticket_id,
+            };
+        } catch (error) {
+            console.error(error);
+            await client.query(TRANS.ROLLBACK);
             throw error;
         } finally {
             client.release();

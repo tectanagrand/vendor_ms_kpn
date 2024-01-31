@@ -41,6 +41,20 @@ const EmailController = {
             res.status(500).send(err);
         }
     },
+    sendToMDM: async (req, res) => {
+        try {
+            const send = await Emailer.toMDM(
+                "111",
+                "8916c362-894d-48ee-8023-b1c430489b86",
+                "111",
+                "XXXX",
+                "LOCAL"
+            );
+            res.status(200).send(send);
+        } catch (error) {
+            res.status(500).send(error);
+        }
+    },
 };
 
 module.exports = EmailController;
