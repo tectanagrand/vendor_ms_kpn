@@ -378,7 +378,7 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
             };
         } catch (error) {
             await client.query(TRANS.ROLLBACK);
-            console.error(error.message);
+            console.error(error);
             throw error.message;
         } finally {
             client.release();
