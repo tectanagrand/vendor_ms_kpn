@@ -3,8 +3,11 @@ frontend/node_modules
 backend/public
 .env
 .env-dev
+.env.development
+.env.production
 .env-prod
 .env-dev1
 ssl
 Dockerfile.prod
+Dockerfilebk.prod
 
