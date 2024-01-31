@@ -16,4 +16,11 @@ router.use("/api/email", Email);
 router.use("/api/reqstat", Reqstat);
 router.use("/api/otp", Otp);
 
+//check env var
+router.use("/api/env", (req, res) => {
+    res.status(200).send({
+        env: process.env,
+    });
+});
+
 module.exports = router;
