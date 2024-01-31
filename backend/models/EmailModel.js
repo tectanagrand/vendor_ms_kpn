@@ -154,10 +154,10 @@ const Emailer = {
             const weburl = `${process.env.APP_URL}/dashboard/form/${ticket_token}`;
             const setup = {
                 from: process.env.SMTP_USERNAME,
-                // to: /*"rafael.tektano@kpn-corp.com"*/ mdmEmail.join(","),
-                // cc: /*"rafael.tektano@kpn-corp.com"*/ mgrmdmEmail.join(","),
-                to: "rafael.tektano@kpn-corp.com",
-                cc: "rafael.tektano@kpn-corp.com",
+                to: /*"rafael.tektano@kpn-corp.com"*/ mdmEmail.join(","),
+                cc: /*"rafael.tektano@kpn-corp.com"*/ mgrmdmEmail.join(","),
+                // to: "rafael.tektano@kpn-corp.com",
+                // cc: "rafael.tektano@kpn-corp.com",
                 subject: `Vendor ${ven_name} Ticket Request ${ticket_num} `,
                 html: Email.toMdm(
                     ticket_num,
