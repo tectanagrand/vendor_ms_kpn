@@ -529,6 +529,56 @@ const Vendor = {
         return promise;
     },
 
+    async getInfoVendor(props) {
+        const vendorId = props.id;
+        const q = `SELECT VEN_CODE,
+                            NAME_1,
+                            TITLE,
+                            CASE
+                                WHEN LOCAL_OVS = 'OVS' THEN 'OVERSEAS'
+                                WHEN LOCAL_OVS = 'LOCAL' THEN 'LOCAL'
+                                ELSE ''
+                            END AS LOCAL_OVS,
+                            STREET,
+                            UPPER(CT.COUNTRY_NAME) as country_name,
+                            CITY,
+                            TELF1,
+                            EMAIL,
+                            C.CODE || ' - ' || C.NAME AS COMPANY,
+                            PURCH_ORG,
+                            CASE
+                                            WHEN VEN_GROUP = '3RD_PARTY' THEN '3RD PARTY'
+                                            WHEN VEN_GROUP = 'INTERCO' THEN 'INTERCO'
+                                            WHEN VEN_GROUP = 'RELATED' THEN 'RELATED'
+                                            WHEN VEN_GROUP = 'BANK' THEN 'BANK'
+                                            WHEN VEN_GROUP = 'SHAREHOLDERS' THEN 'SHAREHOLDERS'
+                                            WHEN VEN_GROUP = 'EMPLOYEE' THEN 'EMPLOYEE'
+                                            WHEN VEN_GROUP = 'INTERDIVISION' THEN 'INTERDIVISION'
+                                            ELSE ''
+                            END AS VEN_GROUP,
+                            CASE
+                                            WHEN VEN_ACC = 'TRADE' THEN 'TRADE'
+                                            WHEN VEN_ACC = 'NON_TRADE' THEN 'NON TRADE'
+                                            ELSE ''
+                            END AS VEN_ACC,
+                            VEN_TYPE,
+                            COALESCE(LIMIT_VENDOR,
+                                0) AS LIMIT_VENDOR,
+                            LIM_CURR
+                        FROM VENDOR V
+                        LEFT JOIN MST_COMPANY C ON C.COMP_ID = V.COMPANY
+                        LEFT JOIN MST_COUNTRY CT ON CT.COUNTRY_CODE = V.COUNTRY
+                        WHERE VEN_ID = $1`;
+        try {
+            const query = await db.query(q, [vendorId]);
+            const infoVen = query.rows[0];
+            return infoVen;
+        } catch (error) {
+            console.log(error);
+            throw error;
+        }
+    },
+
     /*
      There will be :
      - setter : setDetailVen, setBankVen, setFileVen, setTempFileVen
