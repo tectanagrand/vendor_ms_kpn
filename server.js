@@ -1,7 +1,9 @@
 const express = require("express");
 const header = require("./backend/middleware/header");
 const app = express();
-const dotenv = require("dotenv").config();
+const dotenv = require("dotenv").config({
+    path: `./.env.${process.env.NODE_ENV}`,
+});
 const os = require("os");
 const https = require("https");
 const http = require("http");
