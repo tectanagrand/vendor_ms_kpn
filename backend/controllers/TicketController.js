@@ -444,4 +444,19 @@ TicketController.checkValidTicket = async (req, res) => {
     }
 };
 
+TicketController.extendOneDay = async (req, res) => {
+    try {
+        const ticket_id = req.body.ticket_id;
+        const updateExpiry = await Ticket.extendTicket(ticket_id, 1);
+        res.status(200).send({
+            ticket_num: updateExpiry.ticket_num,
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({
+            message: error.message,
+        });
+    }
+};
+
 module.exports = TicketController;
