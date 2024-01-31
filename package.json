@@ -5,8 +5,9 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "server_dev": "nodemon server.js",
-    "server": "node server.js"
+    "server_dev": "set NODE_ENV=development&& nodemon server.js",
+    "server_prod": "set NODE_ENV=production&& nodemon server.js",
+    "server": "set NODE_ENV=development&& node server.js"
   },
   "keywords": [],
   "author": "",
@@ -23,6 +24,7 @@
     "jsonwebtoken": "^9.0.2",
     "nodemailer": "^6.9.7",
     "otp-generator": "^4.0.1",
+    "pdfkit": "^0.14.0",
     "pg": "^8.11.3",
     "qrcode": "^1.5.3",
     "speakeasy": "^2.0.0",
