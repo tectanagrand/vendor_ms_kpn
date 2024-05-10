@@ -189,11 +189,7 @@ const Ticket = {
                     state = "CREA";
                     break;
                 case "CREA":
-                    if (ticket.is_tender) {
-                        cur_pos = "MGR";
-                    } else {
-                        cur_pos = "MDM";
-                    }
+                    cur_pos = "MDM";
                     state = "FINA";
                     break;
                 case "FINA":
@@ -352,12 +348,39 @@ const Ticket = {
             const targets = await this.ticketTarget(ticket_id);
             const dataTrg = targets.data;
             const res_tnum = ven_detail.ticket_num;
+            let cc_emailCREA = [dataTrg.mgr_pr_email];
             if (!is_draft && ticket_state === "CREA") {
+                const { rows: companyData } = await client.query(
+                    `select name, code, group_comp from mst_company where comp_id = '${ven_detail.company}'`
+                );
+                let { group_comp } = companyData[0];
+                let queryEmail = `SELECT email, first_name from mst_email WHERE id_user in ($1, $2) ORDER BY ID_USER ASC`;
+                if (ven_detail.is_tender) {
+                    if (group_comp === "DOWNSTREAM") {
+                        const { rows: dataEmail } = await client.query(
+                            queryEmail,
+                            ["CEODOWN", "PACEODOWN"]
+                        );
+                        cc_emailCREA.push(dataEmail[1].email);
+                        cc_emailCREA.push(dataEmail[0].email);
+                    } else if (group_comp === "UPSTREAM") {
+                        const { rows: dataEmail } = await client.query(
+                            queryEmail,
+                            ["CEOUP", "PACEOUP"]
+                        );
+                        cc_emailCREA.push(dataEmail[1].email);
+                        cc_emailCREA.push(dataEmail[0].email);
+                    }
+                }
                 await Emailer.toRequest(
                     ven_detail.ticket_num,
                     dataTrg.proc_fname,
+                    ven_detail.name_1,
+                    ven_detail.ven_group,
+                    ven_detail.ven_acc,
+                    ven_detail.company,
                     dataTrg.proc_email,
-                    [dataTrg.mgr_pr_email]
+                    cc_emailCREA
                 );
                 await Emailer.toMDM(
                     ven_detail.name_1,
@@ -366,15 +389,15 @@ const Ticket = {
                     ven_detail.title,
                     ven_detail.local_ovs
                 );
-                if (ven_detail.is_tender === true) {
-                    await Emailer.toManager(
-                        ven_detail.name_1,
-                        ven_detail.ven_type,
-                        ven_detail.company,
-                        ticket_id,
-                        ven_detail.description
-                    );
-                }
+                // if (ven_detail.is_tender === true) {
+                //     await Emailer.toManager(
+                //         ven_detail.name_1,
+                //         ven_detail.ven_type,
+                //         ven_detail.company,
+                //         ticket_id,
+                //         ven_detail.description
+                //     );
+                // }
             } else if (!is_draft && ticket_state === "FINA") {
                 await Emailer.toApprove(
                     ven_detail.ven_code,
@@ -385,6 +408,15 @@ const Ticket = {
                         dataTrg.mgr_md_email,
                         dataTrg.mdm_email,
                     ]
+                );
+            } else if (!is_draft && ticket_state === "INIT") {
+                await Emailer.newRequest(
+                    ven_detail.title,
+                    ven_detail.local_ovs,
+                    ven_detail.name_1,
+                    ven_detail.ticket_num,
+                    dataTrg.proc_email,
+                    [ven_detail.email]
                 );
             }
             await client.query(TRANS.COMMIT);

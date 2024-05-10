@@ -26,12 +26,6 @@ const servOption = {
     key: fs.readFileSync("./ssl/private-key.pem"),
 };
 const corsOption = {
-    // origin: [
-    //     "http://172.30.60.86:3000",
-    //     "http://127.0.0.1:3003/",
-    //     "http://localhost:3000/",
-    //     "http://vms.com:3000/",
-    // ],
     origin: function (req, callback) {
         if (whitelist.indexOf(req) !== -1) {
             callback(null, true);
@@ -58,6 +52,7 @@ app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
 app.use(routers);
 
+app.use("/static", express.static(path.join(__dirname, "backend/public")));
 app.use(express.static(path.join(__dirname, "public/build")));
 app.get("/*$", (req, res) => {
     res.sendFile(path.join(__dirname, "public/build", "index.html"));

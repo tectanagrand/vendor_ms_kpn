@@ -18,5 +18,6 @@ router.get("/mgrtest", controller.testmgr);
 router.post("/rejectmgr", controller.rejectformmgr);
 router.post("/checkvalid", controller.checkValidTicket);
 router.post("/extexp", AuthToken.authSession, controller.extendOneDay);
+router.post("/resendceo", AuthToken.authSession, controller.resendCEO);
 
 module.exports = router;

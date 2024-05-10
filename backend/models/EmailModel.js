@@ -26,22 +26,38 @@ const Emailer = {
         const company = getData.rows[0].code + " - " + getData.rows[0].name;
         const group = getData.rows[0].group_comp;
         let targetCeo = "";
+        let targetPA = "";
+        let queryPA = `SELECT email, first_name from mst_email WHERE id_user in ($1, $2) ORDER BY ID_USER ASC`;
         let email_target;
         if (group === "UPSTREAM") {
-            email_target = process.env.CEO_UPSTREAM;
-            targetCeo = "Mrs. Cenny";
+            const { rows: dataEmail } = await client.query(queryPA, [
+                "CEOUP",
+                "PACEOUP",
+            ]);
+            targetPA = dataEmail[1].email;
+            email_target = dataEmail[0].email;
+            targetCeo = dataEmail[0].first_name;
         } else if (group === "DOWNSTREAM") {
-            email_target = process.env.CEO_DOWNSTREAM;
-            targetCeo = "Mr. or Mrs.";
-        } else {
-            email_target = process.env.CEO_UPSTREAM;
-            targetCeo = "Mr. or Mrs.";
+            // const { rows: dataEmail } = await client.query(queryPA, [
+            //     "PACEODOWN",
+            // ]);
+            // targetPA = dataEmail[0].email;
+            // email_target = process.env.CEO_DOWNSTREAM;
+            // targetCeo = "Mr. or Mrs.";
+            const { rows: dataEmail } = await client.query(queryPA, [
+                "CEODOWN",
+                "PACEODOWN",
+            ]);
+            targetPA = dataEmail[1].email;
+            email_target = dataEmail[0].email;
+            targetCeo = dataEmail[0].first_name;
         }
         const transporter = tp;
         try {
             const setup = {
                 from: process.env.SMTP_USERNAME,
                 to: email_target,
+                cc: targetPA,
                 subject: `${ven_name} - ${company} - Request Approval Vendor`,
                 html: Email.manager(
                     targetCeo,
@@ -61,22 +77,64 @@ const Emailer = {
             client.release();
         }
     },
-    toRequest: async (ticket_num, requestor, target, cc) => {
+    newRequest: async (title, local_ovs, ven_name, ticket_num, target, cc) => {
+        try {
+            const transporter = tp;
+            const cc_email = cc.join(",");
+            const setup = {
+                from: process.env.SMTP_USERNAME,
+                to: target,
+                cc: cc_email,
+                subject: `Notification Filled User Form - ${ticket_num}`,
+                html: Email.vendorreq(title, local_ovs, ven_name, ticket_num),
+            };
+            const send = await transporter.sendMail(setup);
+            return send;
+        } catch (error) {
+            console.error(error);
+            throw error;
+        }
+    },
+
+    toRequest: async (
+        ticket_num,
+        requestor,
+        ven_name,
+        ven_group,
+        ven_account,
+        comp,
+        target,
+        cc
+    ) => {
         const transporter = tp;
         const cc_email = cc.join(",");
+        const client = await db.connect();
         try {
+            const { rows: data } = await client.query(
+                `select name, code, group_comp from mst_company where comp_id = '${comp}'`
+            );
+            let { name, code } = data[0];
             const setup = {
                 from: process.env.SMTP_USERNAME,
                 to: target,
                 cc: cc_email,
                 subject: `New Ticket Request - ${ticket_num}`,
-                html: Email.request(ticket_num, requestor),
+                html: Email.request(
+                    ticket_num,
+                    requestor,
+                    ven_name,
+                    ven_group,
+                    ven_account,
+                    name + `(${code})`
+                ),
             };
             const send = await transporter.sendMail(setup);
             return send;
         } catch (error) {
             console.log(error);
             throw error;
+        } finally {
+            client.release();
         }
     },
     toApprove: async (ven_code, ven_name, target, cc) => {

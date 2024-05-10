@@ -459,4 +459,43 @@ TicketController.extendOneDay = async (req, res) => {
     }
 };
 
+TicketController.resendCEO = async (req, res) => {
+    try {
+        const client = await db.connect();
+        try {
+            const ticket_id = req.body.ticket_id;
+            const { rows } = await client.query(
+                `SELECT T.TOKEN,
+            V.NAME_1,
+            V.DESCRIPTION,
+            V.VEN_TYPE,
+            V.COMPANY
+        FROM TICKET T
+        LEFT JOIN VENDOR V ON T.VEN_ID = V.VEN_ID
+        WHERE T.TOKEN = $1`,
+                [ticket_id]
+            );
+            let { name_1, description, ven_type, company } = rows[0];
+            await Emailer.toManager(
+                name_1,
+                ven_type,
+                company,
+                ticket_id,
+                description
+            );
+            res.status(200).send({
+                message: "Ticket Resent",
+            });
+        } catch (error) {
+            throw error;
+        } finally {
+            client.release;
+        }
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({
+            message: error.message,
+        });
+    }
+};
 module.exports = TicketController;
