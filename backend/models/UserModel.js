@@ -4,6 +4,7 @@ const jwt = require("jsonwebtoken");
 const { hashPassword, validatePassword } = require("../middleware/hashpass.js");
 const TRANS = require("../config/transaction.js");
 const crud = require("../helper/crudquery.js");
+const moment = require("moment");
 
 const User = {
     showAll: async () => {
@@ -68,9 +69,9 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
             username: username,
             email: email,
             role: role,
-            created_at: startDate,
-            expired_date: validDate,
-            updated_at: currentdate,
+            created_at: moment(startDate).format("YYYY-MM-DD"),
+            expired_date: moment(validDate).format("YYYY-MM-DD"),
+            updated_at: moment(currentdate).format("YYYY-MM-DD"),
             is_active: true,
             user_group: userGroup,
             user_id: user_id,
@@ -176,9 +177,9 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
             username: username,
             email: email,
             role: role,
-            created_at: startDate,
-            expired_date: validDate,
-            updated_at: currentdate,
+            created_at: moment(startDate).format("YYYY-MM-DD"),
+            expired_date: moment(validDate).format("YYYY-MM-DD"),
+            updated_at: moment(currentdate).format("YYYY-MM-DD"),
             is_active: true,
             department: department,
             user_group: userGroup,

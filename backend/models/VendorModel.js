@@ -5,6 +5,7 @@ const crud = require("../helper/crudquery");
 const os = require("os");
 const path = require("path");
 const fs = require("fs");
+const moment = require("moment");
 
 const Vendor = {
     async showAll({ isactive, limit, start }) {
@@ -101,15 +102,15 @@ const Vendor = {
             const isExist = await client.query(
                 `SELECT * FROM VENDOR WHERE ven_id = '${detail.ven_id}'`
             );
-            const today = new Date().toLocaleDateString();
+            const today = new Date();
             if ("valid_until" in detail) {
                 const valid_until = new Date(
                     detail.valid_until
                 ).toLocaleDateString();
                 detail.valid_until = valid_until ? valid_until : null;
             }
-            detail.updated_at = today;
-            detail.created_at = today;
+            detail.updated_at = moment(today).format("YYYY-MM-DD");
+            detail.created_at = moment(today).format("YYYY-MM-DD");
             if (isExist.rowCount != 0) {
                 if (is_draft === false && ticket_state === "FINA") {
                     detail.is_active = true;
@@ -244,9 +245,12 @@ const Vendor = {
         const client = await db.connect();
         try {
             const items =
-                await client.query(`select file_id, file_name, desc_file, file_type, created_at, 'temp_ven_file_atth' as source from temp_ven_file_atth 
+                await client.query(`select file_id, file_name, ty.file_type as desc_file, tmp.file_type, created_at, 'temp_ven_file_atth' as source from temp_ven_file_atth tmp
+                left join mst_file_type ty on ty.file_code = tmp.file_type
                 where ven_id = '${ven_id}' 
-            union select file_id, file_name, desc_file, file_type, created_at, 'ven_file_atth' as source from ven_file_atth where ven_id = '${ven_id}'`);
+            union select file_id, file_name,ty.file_type as desc_file, fl.file_type, created_at, 'ven_file_atth' as source from ven_file_atth fl
+            left join mst_file_type ty on ty.file_code = fl.file_type
+            where ven_id = '${ven_id}'`);
             // console.log(items);
             let result = {
                 count: items.rowCount,
