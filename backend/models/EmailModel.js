@@ -1,7 +1,9 @@
 const mailer = require("nodemailer");
 const Email = require("../helper/generateemail");
 const db = require("../config/connection");
+const fs = require("fs");
 const os = require("os");
+const path = require("path");
 
 const tp = mailer.createTransport({
     host: process.env.SMTP_HOST,
@@ -103,11 +105,9 @@ const Emailer = {
         ven_group,
         ven_account,
         comp,
-        target,
-        cc
+        target
     ) => {
         const transporter = tp;
-        const cc_email = cc.join(",");
         const client = await db.connect();
         try {
             const { rows: data } = await client.query(
@@ -117,8 +117,7 @@ const Emailer = {
             const setup = {
                 from: process.env.SMTP_USERNAME,
                 to: target,
-                cc: cc_email,
-                subject: `New Ticket Request - ${ticket_num}`,
+                subject: `New Vendor Request - ${ticket_num}`,
                 html: Email.request(
                     ticket_num,
                     requestor,
@@ -224,6 +223,128 @@ const Emailer = {
                     ven_name,
                     weburl
                 ),
+            };
+            const send = await transporter.sendMail(setup);
+            return send;
+        } catch (error) {
+            console.log(error);
+            throw error;
+        }
+    },
+    toMGRPRC: async (ven_detail, ticket_id) => {
+        try {
+            const client = await db.connect();
+            try {
+                const { rows: getHostname } = await client.query(
+                    "SELECT hostname from hostname where mode_env = $1",
+                    [process.env.NODE_ENV]
+                );
+                const { rows: getBanks } = await client.query(
+                    `select
+                                            mb.bank_name ,
+                                            vb.bank_id,
+                                            vb.bank_acc,
+                                            vb.acc_hold,
+                                            vb.bank_curr,
+                                            vb.country
+                                        from
+                                            ven_bank vb
+                                        left join mst_bank_sap mb on
+                                            mb.id::varchar = vb.bank_id 
+                                        where vb.ven_id = $1`,
+                    [ven_detail.ven_id]
+                );
+                const { rows: getFiles } = await client.query(
+                    `select mft.file_type , vfa.file_name from ven_file_atth vfa 
+                left join mst_file_type mft on vfa.file_type = mft.file_code 
+                where vfa.ven_id = $1`,
+                    [ven_detail.ven_id]
+                );
+                const { rows: getCompany } = await client.query(
+                    `select code, name from mst_company where comp_id = $1`,
+                    [ven_detail.company]
+                );
+                const { rows: emailmgrprc } = await client.query(`select
+                                        email from mst_mgr mm
+                                    left join (
+                                        select
+                                            distinct user_group_id,
+                                            user_group_name
+                                        from
+                                            mst_page_access mpa) mpa on
+                                        mm.user_group = mpa.user_group_id 
+                                    where mpa.user_group_name = 'MGRPRC';`);
+                const bankTable = getBanks.map(item => {
+                    return `
+                    <tr>
+                        <td>${item.country}</td>
+                        <td>${item.bank_name}</td>
+                        <td>${item.bank_curr}</td>
+                        <td>${item.bank_acc}</td>
+                        <td>${item.acc_hold}</td>
+                    </tr>
+                    `;
+                });
+                const fileAtth = getFiles.map(item => {
+                    let pathStream;
+                    if (os.platform() === "win32") {
+                        pathStream =
+                            path.join(path.resolve(), "backend\\public") +
+                            "\\" +
+                            item.file_name;
+                    } else {
+                        pathStream =
+                            path.join(path.resolve(), "backend/public") +
+                            "/" +
+                            item.file_name;
+                    }
+                    return {
+                        filename: `${item.file_type} - ${item.file_name} `,
+                        content: fs.createReadStream(pathStream),
+                    };
+                });
+                const hostname = getHostname[0].hostname;
+                ven_detail.company =
+                    getCompany[0].code + " - " + getCompany[0].name;
+                const html = Email.toMGRPRC(
+                    ven_detail,
+                    ticket_id,
+                    hostname,
+                    bankTable.join(" ")
+                );
+                const setup = {
+                    from: process.env.SMTP_USERNAME,
+                    to: emailmgrprc[0].email,
+                    subject: `Vendor ${ven_detail.name_1} Manager Approval Request (${ven_detail.ticket_num}) `,
+                    html: html,
+                    attachments: fileAtth,
+                };
+                await tp.sendMail(setup);
+            } catch (error) {
+                throw error;
+            } finally {
+                client.release();
+            }
+        } catch (error) {
+            console.error(error);
+            throw error;
+        }
+    },
+    RejectMgrPrc: async (ven_name, ven_type, company, reason, targets, cc) => {
+        const transporter = tp;
+        const emailTargets = targets.join(",");
+        try {
+            const setup = {
+                from: process.env.SMTP_USERNAME,
+                to: emailTargets,
+                subject: `Vendor ${ven_name} Manager Rejection Notification`,
+                html: Email.notifRejectMgrPrc(
+                    ven_name,
+                    ven_type,
+                    company,
+                    reason
+                ),
+                cc: cc,
             };
             const send = await transporter.sendMail(setup);
             return send;

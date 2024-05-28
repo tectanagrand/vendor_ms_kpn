@@ -169,6 +169,11 @@
                 font-weight: 700;
             }
 
+            h4 span.rejected {
+                color: red;
+                font-weight: 700;
+            }
+
             body {
                 font-family: "Montserrat", sans-serif;
                 font-weight: 400;
@@ -374,7 +379,7 @@
                                 >
                                     <h4>
                                         Vendor mentioned below
-                                        <span class="approved"
+                                        <span class="<%= rejected%>"
                                             ><%= reason%></span
                                         >
                                         as tender at KPN Corp :

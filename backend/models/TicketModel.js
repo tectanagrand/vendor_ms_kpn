@@ -5,6 +5,7 @@ const crud = require("../helper/crudquery");
 const jwt = require("jsonwebtoken");
 const Vendor = require("../models/VendorModel");
 const Emailer = require("../models/EmailModel");
+const moment = require("moment");
 
 const Ticket = {
     async showAll({ is_active, ticket_state }) {
@@ -20,7 +21,8 @@ const Ticket = {
             T.is_active, 
             T.ticket_id, 
             T.created_at,
-            case when T.cur_pos = 'MGR' then 'CEO'
+            case when T.cur_pos = 'CEO' then 'CEO'
+            when T.cur_pos = 'MGRPRC' then 'Manager'
             else T.cur_pos
             end as cur_pos,
             T.ticket_state,
@@ -189,13 +191,23 @@ const Ticket = {
                     state = "CREA";
                     break;
                 case "CREA":
-                    cur_pos = "MDM";
-                    state = "FINA";
+                    if (ticket.cur_pos === "PROC") {
+                        cur_pos = "MGRPRC";
+                        state = "CREA";
+                    } else {
+                        cur_pos = "MDM";
+                        state = "FINA";
+                        if (ticket.is_tender) {
+                            cur_pos = "CEO";
+                            state = "FINA";
+                        }
+                    }
                     break;
                 case "FINA":
                     is_active = false;
                     state = "END";
                     cur_pos = "END";
+                    break;
             }
             const q = `UPDATE ticket
                                 set cur_pos = $1,
@@ -227,7 +239,7 @@ const Ticket = {
         try {
             await client.query(TRANS.BEGIN);
             const ticketq =
-                await client.query(`SELECT tic.token as ticket_id, tic.ticket_id as ticket_num, tic.ticket_state, proc.department as proc, mdm.department as mdm, v.is_tender, v.name_1  from ticket tic
+                await client.query(`SELECT tic.token as ticket_id, tic.ticket_id as ticket_num, tic.ticket_state, tic.cur_pos, proc.department as proc, mdm.department as mdm, v.is_tender, v.name_1  from ticket tic
                         left join (select user_id, department from mst_user) proc on proc.user_id = tic.proc_id
                         left join (select user_id, department from mst_user) mdm on mdm.user_id = tic.mdm_id
                         left join vendor v on tic.ven_id = v.ven_id 
@@ -241,14 +253,16 @@ const Ticket = {
             let ticket_state;
             switch (session) {
                 case "CREA":
-                    reject_by = "PROC";
-                    ticket_state = "INIT";
-                    cur_pos = "VENDOR";
+                    if (cur_pos === "MGRPRC") {
+                        reject_by = "MGRPRC";
+                        ticket_state = "CREA";
+                        cur_pos = "PROC";
+                    } else {
+                        reject_by = "PROC";
+                        ticket_state = "INIT";
+                        cur_pos = "VENDOR";
+                    }
                     break;
-                // case "MGR":
-                //     reject_by = "MGR";
-                //     cur_pos = "PROC";
-                //     break;
                 case "FINA":
                     reject_by = "MDM";
                     ticket_state = "CREA";
@@ -322,6 +336,7 @@ const Ticket = {
         ticket_state,
         is_draft,
         mdm_id,
+        cur_pos,
         role,
     }) {
         const client = await db.connect();
@@ -350,54 +365,59 @@ const Ticket = {
             const res_tnum = ven_detail.ticket_num;
             let cc_emailCREA = [dataTrg.mgr_pr_email];
             if (!is_draft && ticket_state === "CREA") {
-                const { rows: companyData } = await client.query(
-                    `select name, code, group_comp from mst_company where comp_id = '${ven_detail.company}'`
-                );
-                let { group_comp } = companyData[0];
-                let queryEmail = `SELECT email, first_name from mst_email WHERE id_user in ($1, $2) ORDER BY ID_USER ASC`;
-                if (ven_detail.is_tender) {
-                    if (group_comp === "DOWNSTREAM") {
-                        const { rows: dataEmail } = await client.query(
-                            queryEmail,
-                            ["CEODOWN", "PACEODOWN"]
+                //get current position of ticket
+                // const { rows: companyData } = await client.query(
+                //     `select name, code, group_comp from mst_company where comp_id = '${ven_detail.company}'`
+                // );
+                // let { group_comp } = companyData[0];
+                // email to CEO
+                // let queryEmail = `SELECT email, first_name from mst_email WHERE id_user in ($1, $2) ORDER BY ID_USER ASC`;
+                // if (ven_detail.is_tender) {
+                // if (group_comp === "DOWNSTREAM") {
+                //     const { rows: dataEmail } = await client.query(
+                //         queryEmail,
+                //         ["CEODOWN", "PACEODOWN"]
+                //     );
+                //     cc_emailCREA.push(dataEmail[1].email);
+                //     cc_emailCREA.push(dataEmail[0].email);
+                // } else if (group_comp === "UPSTREAM") {
+                //     const { rows: dataEmail } = await client.query(
+                //         queryEmail,
+                //         ["CEOUP", "PACEOUP"]
+                //     );
+                //     cc_emailCREA.push(dataEmail[1].email);
+                //     cc_emailCREA.push(dataEmail[0].email);
+                // }
+                // }
+                if (cur_pos === "PROC") {
+                    await Emailer.toRequest(
+                        ven_detail.ticket_num,
+                        dataTrg.proc_fname,
+                        ven_detail.name_1,
+                        ven_detail.ven_group,
+                        ven_detail.ven_acc,
+                        ven_detail.company,
+                        dataTrg.proc_email
+                    );
+                    await Emailer.toMGRPRC(ven_detail, ticket_id);
+                } else {
+                    await Emailer.toMDM(
+                        ven_detail.name_1,
+                        ticket_id,
+                        ven_detail.ticket_num,
+                        ven_detail.title,
+                        ven_detail.local_ovs
+                    );
+                    if (ven_detail.is_tender === true) {
+                        await Emailer.toManager(
+                            ven_detail.name_1,
+                            ven_detail.ven_type,
+                            ven_detail.company,
+                            ticket_id,
+                            ven_detail.description
                         );
-                        cc_emailCREA.push(dataEmail[1].email);
-                        cc_emailCREA.push(dataEmail[0].email);
-                    } else if (group_comp === "UPSTREAM") {
-                        const { rows: dataEmail } = await client.query(
-                            queryEmail,
-                            ["CEOUP", "PACEOUP"]
-                        );
-                        cc_emailCREA.push(dataEmail[1].email);
-                        cc_emailCREA.push(dataEmail[0].email);
                     }
                 }
-                await Emailer.toRequest(
-                    ven_detail.ticket_num,
-                    dataTrg.proc_fname,
-                    ven_detail.name_1,
-                    ven_detail.ven_group,
-                    ven_detail.ven_acc,
-                    ven_detail.company,
-                    dataTrg.proc_email,
-                    cc_emailCREA
-                );
-                await Emailer.toMDM(
-                    ven_detail.name_1,
-                    ticket_id,
-                    ven_detail.ticket_num,
-                    ven_detail.title,
-                    ven_detail.local_ovs
-                );
-                // if (ven_detail.is_tender === true) {
-                //     await Emailer.toManager(
-                //         ven_detail.name_1,
-                //         ven_detail.ven_type,
-                //         ven_detail.company,
-                //         ticket_id,
-                //         ven_detail.description
-                //     );
-                // }
             } else if (!is_draft && ticket_state === "FINA") {
                 await Emailer.toApprove(
                     ven_detail.ven_code,
@@ -434,22 +454,27 @@ const Ticket = {
         const client = await db.connect();
         let itemup = {};
         try {
-            const checkTicket = await client.query(`
+            const { rows, rowCount } = await client.query(`
                 select t.ticket_id, t.is_active, t.cur_pos,
+                t.reject_by,
                 v.name_1, v.ven_type, v.ven_id, c.name, c.code
                 from ticket t
                 left join vendor v on v.ven_id = t.ven_id
                 left join mst_company c on c.comp_id = v.company
                 where token = '${ticket_id}'
             `);
-            if (
-                checkTicket.rowCount === 0 ||
-                !checkTicket.rows[0].is_active ||
-                checkTicket.rows[0].cur_pos != "MGR"
-            ) {
+            if (rowCount === 0 || !rows[0].is_active) {
                 throw new Error("Ticket is not valid");
+            } else if (rows[0].cur_pos == "PROC" && rows[0].reject_by) {
+                return {
+                    action: "rejected",
+                    ticket_num: rows[0].ticket_id,
+                    name: rows[0].name_1,
+                    type: rows[0].ven_type,
+                    company: `${rows[0].code} - ${rows[0].name}`,
+                };
             }
-            const date = new Date().toLocaleDateString();
+            const date = moment().format("YYYY-MM-DD");
             await client.query(TRANS.BEGIN);
             if (action === "accept") {
                 itemup = {
@@ -469,20 +494,107 @@ const Ticket = {
                 const updateTicket = await client.query(query, val);
             } else if (action === "reject") {
                 itemup = {
-                    is_active: false,
-                    reject_by: "MGR",
+                    cur_pos: "PROC",
+                    ticket_state: "CREA",
+                    reject_by: "CEO",
                     updated_at: date,
-                    remarks: "Rejected By Manager",
+                    remarks: "Rejected By CEO",
                 };
             }
             await client.query(TRANS.COMMIT);
             return {
                 action: action,
-                ven_id: checkTicket.rows[0].ven_id,
-                ticket_num: checkTicket.rows[0].ticket_id,
-                name: checkTicket.rows[0].name_1,
-                type: checkTicket.rows[0].ven_type,
-                company: `${checkTicket.rows[0].code} - ${checkTicket.rows[0].name}`,
+                ven_id: rows[0].ven_id,
+                ticket_num: rows[0].ticket_id,
+                name: rows[0].name_1,
+                type: rows[0].ven_type,
+                company: `${rows[0].code} - ${rows[0].name}`,
+            };
+        } catch (error) {
+            await client.query(TRANS.ROLLBACK);
+            console.error(error);
+            throw error;
+        } finally {
+            client.release();
+        }
+    },
+
+    async processMgrPrc(ticket_id, action) {
+        const client = await db.connect();
+        try {
+            const { rows, rowCount } = await client.query(`
+                select t.ticket_id, t.is_active, t.cur_pos, 
+                v.name_1, v.ven_type, v.ven_id, v.description, c.name, c.code,
+                v.is_tender, v.company,
+                t.reject_by
+                from ticket t
+                left join vendor v on v.ven_id = t.ven_id
+                left join mst_company c on c.comp_id = v.company
+                where token = '${ticket_id}'
+            `);
+            if (rowCount === 0 || !rows[0].is_active) {
+                throw new Error("Ticket is not valid");
+            } else if (rows[0].cur_pos == "PROC" && rows[0].reject_by) {
+                return {
+                    action: "rejected",
+                    ticket_num: rows[0].ticket_id,
+                    name: rows[0].name_1,
+                    type: rows[0].ven_type,
+                    company: `${rows[0].code} - ${rows[0].name}`,
+                };
+            }
+            const date = moment().format("YYYY-MM-DD");
+            await client.query(TRANS.BEGIN);
+            if (action === "accept") {
+                let itemup;
+                if (rows[0].is_tender) {
+                    itemup = {
+                        cur_pos: "CEO",
+                        ticket_state: "FINA",
+                        updated_at: date,
+                    };
+                    //send email to CEO
+                    await Emailer.toManager(
+                        rows[0].name_1,
+                        rows[0].ven_type,
+                        rows[0].company,
+                        ticket_id,
+                        rows[0].description
+                    );
+                } else {
+                    itemup = {
+                        cur_pos: "MDM",
+                        ticket_state: "FINA",
+                        updated_at: date,
+                    };
+                }
+                const where = {
+                    token: ticket_id,
+                };
+                const [query, val] = crud.updateItem(
+                    "ticket",
+                    itemup,
+                    where,
+                    "ticket_id"
+                );
+                const updateTicket = await client.query(query, val);
+            } else if (action === "reject") {
+                itemup = {
+                    reject_by: "MGRPRC",
+                    cur_pos: "PROC",
+                    ticket_state: "CREA",
+                    updated_at: date,
+                    remarks: "Rejected By CEO",
+                };
+            }
+            await client.query(TRANS.COMMIT);
+            return {
+                action: action,
+                ven_id: rows[0].ven_id,
+                ticket_num: rows[0].ticket_id,
+                name: rows[0].name_1,
+                type: rows[0].ven_type,
+                company: `${rows[0].code} - ${rows[0].name}`,
             };
         } catch (error) {
             await client.query(TRANS.ROLLBACK);

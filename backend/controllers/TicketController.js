@@ -4,6 +4,7 @@ const Vendor = require("../models/VendorModel");
 const Emailer = require("../models/EmailModel");
 const db = require("../config/connection");
 const crud = require("../helper/crudquery");
+const moment = require("moment");
 const fa = require("speakeasy");
 const path = require("path");
 
@@ -275,20 +276,62 @@ TicketController.processMgr = async (req, res) => {
     const action = req.query.action;
     try {
         const updateTicket = await Ticket.processMgr(ticket_id, action);
-        // res.status(200).send({
-        //     message: `${updateTicket.name} with ticket number ${
-        //         updateTicket.ticket_num
-        //     } is ${action === "accept" ? "approved" : "rejected"} `,
-        // });
-        if (action === "accept") {
+        if (updateTicket.action === "accept") {
             res.render("response", {
                 ven_name: updateTicket.name,
                 ven_type: updateTicket.type,
                 company: updateTicket.company,
                 reason: "has approved by you",
+                rejected: "approved",
+            });
+        } else if (updateTicket.action === "rejected") {
+            res.render("response", {
+                ven_name: updateTicket.name,
+                ven_type: updateTicket.type,
+                company: updateTicket.company,
+                reason: "has rejected by you",
+                rejected: "rejected",
             });
         } else {
             res.render("rejectform", {
+                cur_pos: "CEO",
+                ven_name: updateTicket.name,
+                ven_type: updateTicket.type,
+                company: updateTicket.company,
+                ticket_id: req.query.ticket_id,
+                reason: "has rejected by you",
+                ticket_id: ticket_id,
+            });
+        }
+    } catch (error) {
+        res.render("notvalid");
+    }
+};
+
+TicketController.processMgrPrc = async (req, res) => {
+    const ticket_id = req.query.ticket_id;
+    const action = req.query.action;
+    try {
+        const updateTicket = await Ticket.processMgrPrc(ticket_id, action);
+        if (updateTicket.action === "accept") {
+            res.render("response", {
+                ven_name: updateTicket.name,
+                ven_type: updateTicket.type,
+                company: updateTicket.company,
+                reason: "has approved by you",
+                rejected: "approved",
+            });
+        } else if (updateTicket.action === "rejected") {
+            res.render("response", {
+                ven_name: updateTicket.name,
+                ven_type: updateTicket.type,
+                company: updateTicket.company,
+                reason: "has rejected by you",
+                rejected: "rejected",
+            });
+        } else {
+            res.render("rejectform", {
+                cur_pos: "MGRPRC",
                 ven_name: updateTicket.name,
                 ven_type: updateTicket.type,
                 company: updateTicket.company,
@@ -355,7 +398,7 @@ TicketController.testmgr = (req, res) => {
 
 TicketController.rejectformmgr = async (req, res) => {
     const { ticket_id, reason } = req.body;
-    const date = new Date().toLocaleDateString();
+    const date = moment().format("YYYY-MM-DD");
     const client = await db.connect();
     try {
         await client.query(TRANS.BEGIN);
@@ -373,8 +416,9 @@ TicketController.rejectformmgr = async (req, res) => {
         const ticketItem = checkTicket.rows[0];
         const emailTargets = [ticketItem.email_user, ticketItem.email_mgr];
         const itemup = {
-            is_active: false,
-            reject_by: "MGR",
+            cur_pos: "PROC",
+            ticket_state: "CREA",
+            reject_by: "CEO",
             updated_at: date,
             remarks: reason,
         };
@@ -401,6 +445,7 @@ TicketController.rejectformmgr = async (req, res) => {
             ven_type: ticketItem.ven_type,
             company: `${ticketItem.code} - ${ticketItem.name}`,
             reason: "has rejected by you",
+            rejected: "rejected",
         });
         // res.status(200).send({
         //     message: "Ticket has been rejected",
@@ -413,6 +458,81 @@ TicketController.rejectformmgr = async (req, res) => {
         });
     } finally {
         client.release();
+    }
+};
+
+TicketController.rejectformgrproc = async (req, res) => {
+    const { ticket_id, reason } = req.body;
+    const today = moment().format("YYYY-MM-DD");
+    try {
+        const client = await db.connect();
+        try {
+            await client.query(TRANS.BEGIN);
+            const { rows: ticketItem } = await client.query(`
+                select t.ticket_id, t.is_active, t.cur_pos,
+                v.name_1, v.ven_type, v.ven_id, c.name, c.code,
+                usr.email as email_user, mgr.email as email_mgr
+                from ticket t
+                left join vendor v on v.ven_id = t.ven_id
+                left join mst_company c on c.comp_id = v.company
+                left join mst_user usr on t.proc_id = usr.user_id
+                left join mst_mgr mgr on usr.mgr_id = mgr.mgr_id
+                where t.token = '${ticket_id}'`);
+            const { rows: emailmgrprc } = await client.query(`select
+                email from mst_mgr mm
+            left join (
+                select
+                    distinct user_group_id,
+                    user_group_name
+                from
+                    mst_page_access mpa) mpa on
+                mm.user_group = mpa.user_group_id 
+            where mpa.user_group_name = 'MGRPRC';`);
+            const emailTargets = ticketItem[0].email_user;
+            const ticketUp = {
+                reject_by: "MGRPROC",
+                cur_pos: "PROC",
+                updated_at: today,
+                remarks: reason,
+            };
+            const where = {
+                token: ticket_id,
+            };
+            const [que, val] = crud.updateItem(
+                "ticket",
+                ticketUp,
+                where,
+                "ticket_id"
+            );
+            await client.query(que, val);
+            await client.query(TRANS.COMMIT);
+            await Emailer.RejectMgrPrc(
+                ticketItem[0].name_1,
+                ticketItem[0].ven_type,
+                `${ticketItem[0].code} - ${ticketItem[0].name}`,
+                reason,
+                [emailTargets],
+                emailmgrprc[0].email
+            );
+            await client.query(TRANS.COMMIT);
+            res.render("response", {
+                ven_name: ticketItem.name_1,
+                ven_type: ticketItem.ven_type,
+                company: `${ticketItem.code} - ${ticketItem.name}`,
+                reason: "has rejected by you",
+                rejected: "rejected",
+            });
+        } catch (error) {
+            await client.query(TRANS.ROLLBACK);
+            throw error;
+        } finally {
+            client.release();
+        }
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({
+            message: error.message,
+        });
     }
 };
 

@@ -494,15 +494,22 @@
 ></script>
 <script>
     const ticket_id = `<%= ticket_id%>`;
+    const position = `<%= cur_pos%>`;
     $("#RejectForm").on("submit", async e => {
         e.preventDefault();
         console.log($("#Reason").val());
         console.log(ticket_id);
+        console.log(position);
         await axios
-            .post("/api/ticket/rejectmgr", {
-                ticket_id: ticket_id,
-                reason: $("#Reason").val(),
-            })
+            .post(
+                position === "CEO"
+                    ? "/api/ticket/rejectmgr"
+                    : "/api/ticket/rejectmgrprc",
+                {
+                    ticket_id: ticket_id,
+                    reason: $("#Reason").val(),
+                }
+            )
             .then(result => {
                 alert("Success rejecting ticket");
                 window.location.reload();
