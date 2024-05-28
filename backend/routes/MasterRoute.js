@@ -15,5 +15,6 @@ router.get("/payterm", controller.getPayterm);
 router.post("/ssrbank", controller.getBankSSR);
 router.post("/addbank", controller.insertBank);
 router.post("/deletebank", controller.deleteBank);
+router.get("/filetype", controller.getFileType);
 
 module.exports = router;

@@ -187,6 +187,45 @@ const MasterController = {
             client.release();
         }
     },
+
+    getFileType: async (req, res) => {
+        try {
+            const client = await db.connect();
+            const title = req.query.title;
+            const localovs = req.query.localovs;
+            const curpos = req.query.curpos;
+            const queryFileType =
+                "SELECT file_code, file_type, is_mandatory from mst_file_type where ";
+            let whereFile = "";
+            if (title === "COMPANY") {
+                whereFile += "company = true and ";
+            } else {
+                whereFile += "personal = true and ";
+            }
+            if (curpos === "INIT") {
+                whereFile += "cur_pos = 'INIT' and ";
+            } else {
+                whereFile += "(cur_pos = 'INIT' OR cur_pos = 'CREA') and ";
+            }
+            if (localovs === "LOCAL") {
+                whereFile += "local = true order by file_code asc;";
+            } else {
+                whereFile += "ovs = true order by file_code asc ;";
+            }
+            try {
+                const { rows } = await client.query(queryFileType + whereFile);
+                res.status(200).send(rows);
+            } catch (error) {
+                throw error;
+            } finally {
+                client.release();
+            }
+        } catch (error) {
+            res.status(500).send({
+                message: error.message,
+            });
+        }
+    },
 };
 
 module.exports = MasterController;
