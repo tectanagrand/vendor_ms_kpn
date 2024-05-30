@@ -239,10 +239,12 @@ TicketController.singleSubmit = async (req, res) => {
 
 TicketController.rejectTicket = async (req, res) => {
     const params = req.body;
+    const cookies = req.cookies;
     try {
         const [ticket_id, reject_by, ven_name] = await Ticket.rejectTicket(
             params.ticket_id,
-            params.remarks
+            params.remarks,
+            cookies.user_id
         );
         const targets = await Ticket.ticketTarget(params.ticket_id);
         const dt_target = targets.data;
@@ -432,6 +434,18 @@ TicketController.rejectformmgr = async (req, res) => {
             "ticket_id"
         );
         const rejectTicket = await client.query(query, val);
+        const [qins, valins] = crud.insertItem(
+            "log_rejection",
+            {
+                ticket_id: ticket_id,
+                create_at: date,
+                remarks: reason,
+                create_by: "CEO",
+                ticket_state: "FINA",
+            },
+            "ticket_id"
+        );
+        await client.query(qins, valins);
         await client.query(TRANS.COMMIT);
         await Emailer.RejectMgrToProc(
             ticketItem.name_1,
@@ -504,7 +518,19 @@ TicketController.rejectformgrproc = async (req, res) => {
                 where,
                 "ticket_id"
             );
+            const [qins, valins] = crud.insertItem(
+                "log_rejection",
+                {
+                    ticket_id: ticket_id,
+                    create_at: today,
+                    remarks: reason,
+                    create_by: "MGRPRC",
+                    ticket_state: "CREA",
+                },
+                "ticket_id"
+            );
             await client.query(que, val);
+            await client.query(qins, valins);
             await client.query(TRANS.COMMIT);
             await Emailer.RejectMgrPrc(
                 ticketItem[0].name_1,
@@ -610,6 +636,35 @@ TicketController.resendCEO = async (req, res) => {
             throw error;
         } finally {
             client.release;
+        }
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({
+            message: error.message,
+        });
+    }
+};
+
+TicketController.rejectLog = async (req, res) => {
+    try {
+        const client = await db.connect();
+        try {
+            const { ticket_state, ticket_id } = req.query;
+            const q = `select lr.remarks, lr.create_at, coalesce(mu.fullname, lr.create_by) as create_by, lr.id from log_rejection lr
+            left join mst_user mu on mu.user_id = lr.create_by 
+            where ticket_id = $1 and ticket_state = $2 order by create_at desc`;
+            const { rows } = await client.query(q, [ticket_id, ticket_state]);
+            const results = rows.map(item => ({
+                id: item.id,
+                remarks: item.remarks,
+                create_at: moment(item.create_at).format("DD-MM-YYYY HH:mm:ss"),
+                create_by: item.create_by,
+            }));
+            res.status(200).send(results);
+        } catch (error) {
+            throw error;
+        } finally {
+            client.release();
         }
     } catch (error) {
         console.error(error);

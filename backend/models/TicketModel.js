@@ -234,12 +234,15 @@ const Ticket = {
         }
     },
 
-    async rejectTicket(ticket_id, remarks, role) {
+    async rejectTicket(ticket_id, remarks, id_user) {
         const client = await db.connect();
         try {
             await client.query(TRANS.BEGIN);
+            const today = moment().format("YYYY-MM-DDTHH:mm:ss");
             const ticketq =
-                await client.query(`SELECT tic.token as ticket_id, tic.ticket_id as ticket_num, tic.ticket_state, tic.cur_pos, proc.department as proc, mdm.department as mdm, v.is_tender, v.name_1  from ticket tic
+                await client.query(`SELECT tic.token as ticket_id, tic.ticket_id as ticket_num, 
+                        tic.ticket_state, tic.cur_pos, proc.department as proc, 
+                        mdm.department as mdm, v.is_tender, v.name_1  from ticket tic
                         left join (select user_id, department from mst_user) proc on proc.user_id = tic.proc_id
                         left join (select user_id, department from mst_user) mdm on mdm.user_id = tic.mdm_id
                         left join vendor v on tic.ven_id = v.ven_id 
@@ -271,16 +274,28 @@ const Ticket = {
             }
             const q = `UPDATE ticket
                                 set reject_by = '${reject_by}',
-                                remarks =  '${remarks}',
                                 cur_pos = '${cur_pos}',
+                                remarks= '${remarks}',
                                 ticket_state = '${ticket_state}',
                                 updated_at = DEFAULT
                                 where token = '${ticket.ticket_id}'
                                 returning ticket_id`;
+            const [qins, valins] = crud.insertItem(
+                "log_rejection",
+                {
+                    ticket_id: ticket_id,
+                    create_at: today,
+                    remarks: remarks,
+                    create_by: id_user,
+                    ticket_state: session,
+                },
+                "ticket_id"
+            );
             if (session === "CREA") {
                 await this.extendTicket(ticket.ticket_id, 3);
             }
             const upTick = await client.query(q);
+            const insLog = await client.query(qins, valins);
             await Emailer.toReject(remarks, ticket.name_1, dataTrg.proc_email, [
                 dataTrg.mgr_pr_email,
                 dataTrg.mgr_md_email,

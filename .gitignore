@@ -1,6 +1,7 @@
 node_modules
 frontend/node_modules
 backend/public
+public/build
 .env
 .env-dev
 .env.development

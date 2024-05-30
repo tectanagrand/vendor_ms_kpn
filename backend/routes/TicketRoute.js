@@ -18,6 +18,7 @@ router.get("/mgrapprprc", controller.processMgrPrc);
 router.get("/mgrtest", controller.testmgr);
 router.post("/rejectmgr", controller.rejectformmgr);
 router.post("/rejectmgrprc", controller.rejectformgrproc);
+router.get("/rejectlog", controller.rejectLog);
 router.post("/checkvalid", controller.checkValidTicket);
 router.post("/extexp", AuthToken.authSession, controller.extendOneDay);
 router.post("/resendceo", AuthToken.authSession, controller.resendCEO);
