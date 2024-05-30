@@ -635,7 +635,7 @@ TicketController.resendCEO = async (req, res) => {
         } catch (error) {
             throw error;
         } finally {
-            client.release;
+            client.release();
         }
     } catch (error) {
         console.error(error);

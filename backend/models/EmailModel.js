@@ -195,12 +195,13 @@ const Emailer = {
         }
     },
     toMDM: async (ven_name, ticket_token, ticket_num, title, local_ovs) => {
+        const client = await db.connect();
         try {
             const transporter = tp;
-            const getmdm_emails = await db.query(
+            const getmdm_emails = await client.query(
                 `select email from mst_user where role = 'MDM'`
             );
-            const getmgr_mdm = await db.query(`SELECT EMAIL
+            const getmgr_mdm = await client.query(`SELECT EMAIL
                                             FROM MST_MGR
                                             WHERE MGR_ID IN
                                                     (SELECT DISTINCT MGR_ID
@@ -229,6 +230,8 @@ const Emailer = {
         } catch (error) {
             console.log(error);
             throw error;
+        } finally {
+            client.release();
         }
     },
     toMGRPRC: async (ven_detail, ticket_id) => {
