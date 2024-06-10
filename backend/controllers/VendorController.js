@@ -69,7 +69,7 @@ VendorController.setTempFile = async (req, res) => {
         const extensions = ["pdf", "doc", "docx", "img", "png", "jpg", "jpeg"];
         const form = new formidable.IncomingForm();
         form.options.multiples = true;
-        form.options.maxFileSize = 3 * 1024 * 1024;
+        form.options.maxFileSize = 7 * 1024 * 1024;
         [fields, items] = await form.parse(req);
         let files = items.file_atth;
         let uploaded_files = [];
@@ -124,7 +124,7 @@ VendorController.setTempFile = async (req, res) => {
         if (err.code === 1016) {
             res.status(500).send({
                 status: 500,
-                message: "File size (~3mb) exceeded",
+                message: "File size (~7mb) exceeded",
             });
         } else {
             res.status(500).send({
