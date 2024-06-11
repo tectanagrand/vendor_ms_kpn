@@ -622,13 +622,7 @@ TicketController.resendCEO = async (req, res) => {
                 [ticket_id]
             );
             let { name_1, description, ven_type, company } = rows[0];
-            await Emailer.toManager(
-                name_1,
-                ven_type,
-                company,
-                ticket_id,
-                description
-            );
+            await Emailer.toManager(name_1, company, ticket_id);
             res.status(200).send({
                 message: "Ticket Resent",
             });

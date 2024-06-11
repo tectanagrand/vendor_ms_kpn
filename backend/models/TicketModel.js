@@ -150,7 +150,7 @@ const Ticket = {
     async getTicketById(ticket_num) {
         const client = await db.connect();
         try {
-            const q = `SELECT T.ticket_id as ticket_num, T.token as ticket_id, T.cur_pos, T.ticket_state, T.remarks, T.ven_id as ticket_ven_id, T.t_type as t_type,
+            const q = `SELECT T.ticket_id as ticket_num, T.token as ticket_id, T.cur_pos, T.ticket_state, T.remarks, coalesce(v.ven_id , t.ven_id) as ven_id, T.t_type as t_type,
             T.reject_by as reject_by, t.is_active as ticket_stat, V.*, 
             PROC.email as email_proc, PROC.role as dep_proc, MDM.email as email_mdm, MDM.role as dep_mdm, VHD.header 
                             FROM TICKET T
@@ -356,6 +356,7 @@ const Ticket = {
     }) {
         const client = await db.connect();
         try {
+            console.log(ven_detail);
             await client.query(TRANS.BEGIN);
             const client1 = await Vendor.setDetailVen(
                 ven_detail,
@@ -405,6 +406,7 @@ const Ticket = {
                 // }
                 // }
                 if (cur_pos === "PROC") {
+                    await client.query(TRANS.COMMIT);
                     await Emailer.toRequest(
                         ven_detail.ticket_num,
                         dataTrg.proc_fname,
@@ -426,10 +428,8 @@ const Ticket = {
                     if (ven_detail.is_tender === true) {
                         await Emailer.toManager(
                             ven_detail.name_1,
-                            ven_detail.ven_type,
                             ven_detail.company,
-                            ticket_id,
-                            ven_detail.description
+                            ticket_id
                         );
                     }
                 }
@@ -571,10 +571,8 @@ const Ticket = {
                     //send email to CEO
                     await Emailer.toManager(
                         rows[0].name_1,
-                        rows[0].ven_type,
                         rows[0].company,
-                        ticket_id,
-                        rows[0].description
+                        ticket_id
                     );
                 } else {
                     itemup = {

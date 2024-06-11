@@ -3558,7 +3558,7 @@ const Email = {
         </html>
         `;
     },
-    toMGRPRC: (detail, ticket_id, hostname, rowbank) => {
+    toMGRPRC: (detail, rowbank, approve, reject, opening) => {
         return `
         <!doctype html>
 <html lang="en">
@@ -3969,9 +3969,7 @@ const Email = {
                                     style="padding: 1em 2.5em"
                                 >
                                     <h4>
-                                        Kepada Yth. Bapak/Ibu <br />
-                                        Mohon approval Request Registrasi Vendor
-                                        dengan detail berikut :
+                                        ${opening}
                                     </h4>
                                 </td>
                             </tr>
@@ -4154,7 +4152,14 @@ const Email = {
                                 </td>
                                 <td style="padding: 0.1em 2.5em">
                                     : ${detail.lim_curr ?? ""} ${
-                                        detail.limit_vendor ?? ""
+                                        detail.limit_vendor
+                                            ? parseInt(detail.limit_vendor)
+                                                  .toFixed(2)
+                                                  .replace(
+                                                      /\d(?=(\d{3})+\.)/g,
+                                                      "$&,"
+                                                  )
+                                            : ""
                                     }
                                 </td>
                             </tr>
@@ -4191,7 +4196,7 @@ const Email = {
                                 </td>
                                 <td style="padding: 0.1em 2.5em">
                                     <a
-                                        href="${hostname}/api/ticket/mgrapprprc?ticket_id=${ticket_id}&action=accept"
+                                        href="${approve}"
                                     >
                                         <button
                                             class="btn btn-primary"
@@ -4206,7 +4211,7 @@ const Email = {
                                         </button>
                                     </a>
                                     <a
-                                        href="${hostname}/api/ticket/mgrapprprc?ticket_id=${ticket_id}&action=reject"
+                                        href="${reject}"
                                     >
                                         <button
                                             class="btn btn-primary"

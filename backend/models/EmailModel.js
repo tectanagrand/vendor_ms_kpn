@@ -20,11 +20,117 @@ const tp = mailer.createTransport({
 });
 
 const Emailer = {
-    toManager: async (ven_name, ven_type, comp, ticket_id, description) => {
+    toManager: async (ven_name, comp, ticket_id) => {
         const client = await db.connect();
+        const { rows: getHostname } = await client.query(
+            "SELECT hostname from hostname where mode_env = $1",
+            [process.env.NODE_ENV]
+        );
         const getData = await client.query(
             `select name, code, group_comp from mst_company where comp_id = '${comp}'`
         );
+        const { rows: getVenDetail } = await client.query(
+            `
+                        select
+                v.ven_id,
+                v.ven_group,
+                v.ven_acc,
+                v.ven_type,
+                v.title,
+                v.name_1,
+                v.street,
+                v.telf1,
+                v.fax,
+                v.purch_org ,
+                v.postal,
+                v.email,
+                v.npwp,
+                upper(v.pay_mthd) as pay_mthd ,
+                concat(v.pay_term,
+                ' ',
+                mpt.term_name) as pay_term,
+                case
+                    when v.local_ovs = 'LOCAL' then 'LOCAL'
+                    when v.local_ovs = 'OVS' then 'OVERSEAS'
+                    else ''
+                end
+            as local_ovs,
+                v.lim_curr,
+                v.city,
+                v.country,
+                mc.country_name,
+                concat(mc2.code,
+                ' ',
+                mc2."name") as company,
+                v.purch_org ,
+                v.lim_curr ,
+                v.limit_vendor ,
+                v.description,
+                t.token
+            from
+                vendor v
+            left join ticket t on
+                v.ven_id = t.ven_id
+            left join mst_pay_term mpt on
+                mpt.term_code = v.pay_term
+            left join mst_country mc on
+                mc.country_code = v.country
+            left join mst_company mc2 on
+                mc2.comp_id = v.company
+            where t.token = $1
+            `,
+            [ticket_id]
+        );
+        const { rows: getBanks } = await client.query(
+            `select
+                                    mb.bank_name ,
+                                    vb.bank_id,
+                                    vb.bank_acc,
+                                    vb.acc_hold,
+                                    vb.bank_curr,
+                                    vb.country
+                                from
+                                    ven_bank vb
+                                left join mst_bank_sap mb on
+                                    mb.id::varchar = vb.bank_id 
+                                where vb.ven_id = $1`,
+            [getVenDetail[0].ven_id]
+        );
+        const { rows: getFiles } = await client.query(
+            `select mft.file_type , vfa.file_name from ven_file_atth vfa 
+        left join mst_file_type mft on vfa.file_type = mft.file_code 
+        where vfa.ven_id = $1`,
+            [getVenDetail[0].ven_id]
+        );
+        const fileAtth = getFiles.map(item => {
+            let pathStream;
+            if (os.platform() === "win32") {
+                pathStream =
+                    path.join(path.resolve(), "backend\\public") +
+                    "\\" +
+                    item.file_name;
+            } else {
+                pathStream =
+                    path.join(path.resolve(), "backend/public") +
+                    "/" +
+                    item.file_name;
+            }
+            return {
+                filename: `${item.file_type} - ${item.file_name} `,
+                content: fs.createReadStream(pathStream),
+            };
+        });
+        const bankTable = getBanks.map(item => {
+            return `
+            <tr>
+                <td>${item.country}</td>
+                <td>${item.bank_name}</td>
+                <td>${item.bank_curr}</td>
+                <td>${item.bank_acc}</td>
+                <td>${item.acc_hold}</td>
+            </tr>
+            `;
+        });
         const company = getData.rows[0].code + " - " + getData.rows[0].name;
         const group = getData.rows[0].group_comp;
         let targetCeo = "";
@@ -54,21 +160,26 @@ const Emailer = {
             email_target = dataEmail[0].email;
             targetCeo = dataEmail[0].first_name;
         }
+        // ${process.env.APP_URL}/api/ticket/mgrappr?ticket_id=${ticket_id}&action=accept
+        const hostname = getHostname[0].hostname;
+        const opening = `Dear ${targetCeo}, <br /> Please approve for vendor who <span class="approved">have</span> participated in the tender at KPN Corp :`;
+        const linkapproval = `${hostname}/api/ticket/mgrappr?ticket_id=${ticket_id}&action=accept`;
+        const linkreject = `${hostname}/api/ticket/mgrappr?ticket_id=${ticket_id}&action=reject`;
         const transporter = tp;
         try {
             const setup = {
                 from: process.env.SMTP_USERNAME,
                 to: email_target,
                 cc: targetPA,
-                subject: `${ven_name} - ${company} - Request Approval Vendor`,
-                html: Email.manager(
-                    targetCeo,
-                    ven_name,
-                    ven_type,
-                    company,
-                    ticket_id,
-                    description
+                subject: `${ven_name} - ${company} - Request CFO Approval Vendor`,
+                html: Email.toMGRPRC(
+                    getVenDetail[0],
+                    bankTable,
+                    linkapproval,
+                    linkreject,
+                    opening
                 ),
+                attachments: fileAtth,
             };
             const send = await transporter.sendMail(setup);
             return send;
@@ -257,12 +368,14 @@ const Emailer = {
                                         where vb.ven_id = $1`,
                     [ven_detail.ven_id]
                 );
+                console.log(getBanks);
                 const { rows: getFiles } = await client.query(
                     `select mft.file_type , vfa.file_name from ven_file_atth vfa 
                 left join mst_file_type mft on vfa.file_type = mft.file_code 
                 where vfa.ven_id = $1`,
                     [ven_detail.ven_id]
                 );
+                console.log(getFiles);
                 const { rows: getCompany } = await client.query(
                     `select code, name from mst_company where comp_id = $1`,
                     [ven_detail.company]
@@ -309,11 +422,15 @@ const Emailer = {
                 const hostname = getHostname[0].hostname;
                 ven_detail.company =
                     getCompany[0].code + " - " + getCompany[0].name;
+                const approveLink = `${hostname}/api/ticket/mgrapprprc?ticket_id=${ticket_id}&action=accept`;
+                const rejectLink = `${hostname}/api/ticket/mgrapprprc?ticket_id=${ticket_id}&action=reject`;
+                const opening = `Kepada Yth. Bapak/Ibu <br />Mohon approval Request Registrasi Vendor dengan detail berikut :`;
                 const html = Email.toMGRPRC(
                     ven_detail,
-                    ticket_id,
-                    hostname,
-                    bankTable.join(" ")
+                    bankTable.join(" "),
+                    approveLink,
+                    rejectLink,
+                    opening
                 );
                 const setup = {
                     from: process.env.SMTP_USERNAME,

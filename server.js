@@ -21,6 +21,7 @@ const whitelist = [
     "http://172.29.0.1:3000",
     "http://localhost:3000",
     "https://localhost:3000",
+    "https://localhost:4173",
 ];
 const servOption = {
     cert: fs.readFileSync("./ssl/certificate.crt"),
