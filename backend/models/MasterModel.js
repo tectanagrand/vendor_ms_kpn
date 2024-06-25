@@ -9,7 +9,7 @@ const Master = {
         const client = await db.connect();
         try {
             const countries = await client.query(
-                "SELECT distinct code FROM mst_currency"
+                "SELECT distinct code, nation  FROM mst_currency"
             );
             return {
                 count: countries.rowCount,

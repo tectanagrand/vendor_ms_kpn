@@ -23,6 +23,9 @@ const devSettings = {
     idleTimeoutMillis: 3000,
     connectionTimeoutMillis: 30000,
     allowExitOnIdle: true,
+    ssl: {
+        rejectUnauthorized: false,
+    },
 };
 
 const pool = new Pool(

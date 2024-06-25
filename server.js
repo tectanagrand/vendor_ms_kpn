@@ -68,14 +68,15 @@ process.on("uncaughtException", err => {
     process.exit(1);
 });
 
-setInterval(() => {
-    console.log("client:" + db.totalCount);
-}, 1000);
+// setInterval(() => {
+//     console.log("client:" + db.totalCount);
+// }, 1000);
 
 const server = https.createServer(servOption, app).listen(port, () => {
     console.log(`App running on ${port}`);
 });
 
+// const server = https.createServer(servOption, app);
 // app.listen(port, "0.0.0.0", () => {
 //     console.log(`App running on ${port}`);
 // });

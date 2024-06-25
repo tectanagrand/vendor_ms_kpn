@@ -564,29 +564,33 @@ TicketController.rejectformgrproc = async (req, res) => {
 
 TicketController.checkValidTicket = async (req, res) => {
     const { ticket_id } = req.body;
-    const client = await db.connect();
     try {
-        const getTime = await client.query(
-            `select valid_until, ticket_id from ticket where token = '${ticket_id}'`
-        );
-        const timeValid = new Date(getTime.rows[0].valid_until);
-        const today = new Date();
-        if (timeValid < today) {
-            res.status(403).send({
-                message: `${getTime.rows[0].ticket_id} is closed`,
-            });
-        } else {
-            res.status(200).send({
-                message: "ticket is valid",
-            });
+        const client = await db.connect();
+        try {
+            const getTime = await client.query(
+                `select valid_until, ticket_id from ticket where token = '${ticket_id}'`
+            );
+            const timeValid = new Date(getTime.rows[0].valid_until);
+            const today = new Date();
+            if (timeValid < today) {
+                res.status(403).send({
+                    message: `${getTime.rows[0].ticket_id} is closed`,
+                });
+            } else {
+                res.status(200).send({
+                    message: "ticket is valid",
+                });
+            }
+        } catch (error) {
+            throw error;
+        } finally {
+            client.release();
         }
     } catch (error) {
         res.status(500).send({
             message: "something went wrong",
             error: error.message,
         });
-    } finally {
-        client.release();
     }
 };
 

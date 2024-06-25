@@ -173,26 +173,30 @@ VendorController.getHeaderCode = async (req, res) => {
 };
 
 VendorController.checkNameisExist = async (req, res) => {
-    const client = await db.connect();
     try {
-        const q = req.query.name;
-        const checkName = await client.query(
-            `select * from vendor where LOWER(name_1) like LOWER('%${q}%')`
-        );
-        const counts = checkName.rowCount;
-        if (counts > 0) {
-            throw new Error("Company already exist");
-        } else {
-            res.status(200).send({
-                message: "Company name available",
-            });
+        const client = await db.connect();
+        try {
+            const q = req.query.name;
+            const checkName = await client.query(
+                `select * from vendor where LOWER(name_1) like LOWER('%${q}%')`
+            );
+            const counts = checkName.rowCount;
+            if (counts > 0) {
+                throw new Error("Company already exist");
+            } else {
+                res.status(200).send({
+                    message: "Company name available",
+                });
+            }
+        } catch (err) {
+            throw err;
+        } finally {
+            client.release();
         }
-    } catch (err) {
+    } catch (error) {
         res.status(500).send({
             message: err.message,
         });
-    } finally {
-        client.release();
     }
 };
 
