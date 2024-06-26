@@ -13,7 +13,7 @@ RUN npm install -g pm2
 
 COPY . .
 
-# EXPOSE 5000
+EXPOSE 5000
 EXPOSE 443
 EXPOSE 80
 
