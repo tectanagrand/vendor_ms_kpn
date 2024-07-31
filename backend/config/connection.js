@@ -6,6 +6,7 @@ const prodSettings = {
     password: process.env.PGPASSWORD,
     port: process.env.PGPORT,
     database: process.env.PGDATABASE,
+    timezone: "+00:00",
     ssl: {
         rejectUnauthorized: false,
     },
@@ -20,6 +21,7 @@ const devSettings = {
     password: process.env.PGPASSWORD,
     port: process.env.PGPORT,
     database: process.env.PGDATABASE,
+    timezone: "+00:00",
     idleTimeoutMillis: 3000,
     connectionTimeoutMillis: 30000,
     allowExitOnIdle: true,
