@@ -93,7 +93,7 @@ const Vendor = {
         return promise;
     },
 
-    async setDetailVen(detail, client, is_draft, ticket_state) {
+    async setDetailVen(detail, client, is_draft, ticket_state, edited_fields) {
         /*Flow :
     - file temporary already stored in temp_ven_file_atth, delete after move
     - bank could be multiple, map through bank object
@@ -102,6 +102,13 @@ const Vendor = {
             const isExist = await client.query(
                 `SELECT * FROM VENDOR WHERE ven_id = '${detail.ven_id}'`
             );
+            let payloadEdit;
+            const { rows: getStatusTicket } = await client.query(
+                `select reject_by, is_draft from ticket where ven_id = $1`,
+                [detail.ven_id]
+            );
+            const is_draftdb = getStatusTicket[0].is_draft;
+            // const last_ver = isExist.rows[0].last_version;
             const today = new Date();
             if ("valid_until" in detail) {
                 const valid_until = new Date(
@@ -115,6 +122,16 @@ const Vendor = {
                 if (is_draft === false && ticket_state === "FINA") {
                     detail.is_active = true;
                 }
+                // if (!is_draftdb) {
+                //     detail.last_version = parseInt(last_ver) + 1;
+                //     payloadEdit.version = parseInt(last_ver) + 1;
+                // } else {
+                //     payloadEdit.version = parseInt(last_ver);
+                // }
+
+                // for(const edited of edited_fields) {
+
+                // }
                 [q, value] = crud.updateItem(
                     "VENDOR",
                     detail,
@@ -241,16 +258,51 @@ const Vendor = {
         }
     },
 
+    async deleteFile({ id }) {
+        try {
+            const client = await db.connect();
+            try {
+                await client.query(TRANS.BEGIN);
+                const q =
+                    "DELETE FROM ven_file_atth where file_id = $1 returning file_name ;";
+                const { rows } = await client.query(q, [id]);
+                const file_name = rows[0].file_name;
+                if (os.platform() == "linux") {
+                    await fs.promises.unlink(
+                        path.join(path.resolve(), "backend/public") +
+                            "/" +
+                            file_name
+                    );
+                } else {
+                    await fs.promises.unlink(
+                        path.join(path.resolve(), "backend\\public") +
+                            "\\" +
+                            file_name
+                    );
+                }
+                await client.query("COMMIT");
+                return rows[0];
+            } catch (error) {
+                await client.query(TRANS.ROLLBACK);
+                throw error;
+            } finally {
+                client.release();
+            }
+        } catch (error) {
+            throw error;
+        }
+    },
+
     async getFiles(ven_id) {
         const client = await db.connect();
         try {
             const items =
                 await client.query(`select file_id, file_name, ty.file_type as desc_file, tmp.file_type, created_at, 'temp_ven_file_atth' as source from temp_ven_file_atth tmp
                 left join mst_file_type ty on ty.file_code = tmp.file_type
-                where ven_id = '${ven_id}' 
+                where ven_id = '${ven_id}' and tmp.file_type not in ('A001', 'A002') 
             union select file_id, file_name,ty.file_type as desc_file, fl.file_type, created_at, 'ven_file_atth' as source from ven_file_atth fl
             left join mst_file_type ty on ty.file_code = fl.file_type
-            where ven_id = '${ven_id}'`);
+            where ven_id = '${ven_id}' and fl.file_type not in ('A001', 'A002')`);
             // console.log(items);
             let result = {
                 count: items.rowCount,
@@ -267,11 +319,30 @@ const Vendor = {
         const client = await db.connect();
         try {
             const items = await client.query(
-                `SELECT distinct v.bankv_id as id, v.bank_id, v.bank_acc, v.acc_hold, v.acc_name, 
-                b.id as bank_id, b.bank_name, b.bank_code, b.bank_key, v.bank_curr, v.country, b.source
+                `SELECT distinct v.id as order_id, v.bankv_id as id, v.bank_id, v.bank_acc, v.acc_hold, v.acc_name, 
+                b.id as bank_id, b.bank_name, b.bank_code, b.bank_key, v.bank_curr, v.country, b.source,
+                case
+                    when acl.file_type = 'A001' then acl.file_name
+                    else ''
+                    end as account_statement_letter,
+                case
+                    when acl.file_type = 'A001' then acl.file_id
+                    else ''
+                    end as account_statement_letter_id,
+                case
+                    when pbk.file_type = 'A002' then pbk.file_name
+                    else ''
+                    end as passbook,
+                    case
+                    when pbk.file_type = 'A002' then pbk.file_id
+                    else ''
+                    end as passbook_id
                 FROM VEN_BANK V
                 LEFT JOIN MST_BANK_SAP B ON v.bank_id = b.id::varchar
-                WHERE VEN_ID = '${ven_id}'`
+                LEFT JOIN ven_file_atth acl on acl.bank_id = v.bankv_id and acl.file_type = 'A001'
+                LEFT JOIN ven_file_atth pbk on pbk.bank_id = v.bankv_id and pbk.file_type = 'A002'
+                WHERE v.is_active = true and v.VEN_ID = '${ven_id}'
+                order by order_id asc`
             );
             // console.log(items);
             let result = {
@@ -307,10 +378,6 @@ const Vendor = {
                         bankv_id: bank.bankv_id,
                     });
                     return client.query(q, val);
-
-                case "delete":
-                    q = crud.deleteItem("VEN_BANK", "bankv_id", bank.bankv_id);
-                    return client.query(q);
             }
         });
         const promise = Promise.all(promises)
@@ -324,33 +391,32 @@ const Vendor = {
         return promise;
     },
 
-    async setBankRfctr(banks, client) {
+    async setBankRfctr(banks, client, ven_id) {
         let promises = [];
         let method;
         let q, val;
         try {
             for (let bank of banks) {
                 method = bank.method;
-                delete bank.method;
+                const payload = {
+                    ven_id: ven_id,
+                    bank_id: bank.bank_id,
+                    bank_acc: bank.bank_acc,
+                    country: bank.bank_country,
+                    bank_curr: bank.bank_curr,
+                    acc_hold: bank.acc_hold,
+                };
                 switch (method) {
                     case "insert":
-                        bank.bankv_id = uuid.uuid();
-                        [q, val] = crud.insertItem("VEN_BANK", bank);
+                        payload.bankv_id = bank.id;
+                        [q, val] = crud.insertItem("VEN_BANK", payload);
                         promises.push(client.query(q, val));
                         break;
                     case "update":
-                        [q, val] = crud.updateItem("VEN_BANK", bank, {
-                            bankv_id: bank.bankv_id,
+                        [q, val] = crud.updateItem("VEN_BANK", payload, {
+                            bankv_id: bank.id,
                         });
                         promises.push(client.query(q, val));
-                        break;
-                    case "delete":
-                        q = crud.deleteItem(
-                            "VEN_BANK",
-                            "bankv_id",
-                            bank.bankv_id
-                        );
-                        promises.push(client.query(q));
                         break;
                 }
             }
@@ -358,6 +424,35 @@ const Vendor = {
             return returnPromise;
         } catch (error) {
             console.error(error.stack);
+            throw error;
+        }
+    },
+
+    async deleteBankVen(id) {
+        try {
+            const client = await db.connect();
+            try {
+                await client.query(TRANS.BEGIN);
+                const payload = {
+                    is_active: false,
+                    updated_at: moment().format("YYYY-MM-DDTHH:mm:ss"),
+                };
+                const [upQue, upVal] = crud.updateItem(
+                    "ven_bank",
+                    payload,
+                    { bankv_id: id },
+                    "bank_acc"
+                );
+                const { rows } = await client.query(upQue, upVal);
+                await client.query(TRANS.COMMIT);
+                return { bank_acc: rows[0].bank_acc };
+            } catch (error) {
+                await client.query(TRANS.ROLLBACK);
+                throw error;
+            } finally {
+                client.release();
+            }
+        } catch (error) {
             throw error;
         }
     },
