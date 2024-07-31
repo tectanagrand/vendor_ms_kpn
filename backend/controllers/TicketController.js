@@ -114,6 +114,7 @@ TicketController.submitTicket = async (req, res) => {
             ven_files,
             is_draft,
             role,
+            edited_fields,
         } = req.body;
         // return;
         //change ticket cur_pos
@@ -140,7 +141,11 @@ TicketController.submitTicket = async (req, res) => {
             .then(async result => {
                 try {
                     const ticket = await Ticket.submitTicket(
-                        { ticket_id: ticket_id, remarks: remarks },
+                        {
+                            ticket_id: ticket_id,
+                            remarks: remarks,
+                            is_draft: is_draft,
+                        },
                         client
                     );
                     const targets = await Ticket.ticketTarget(ticket_id);
@@ -198,7 +203,9 @@ TicketController.submitTicket = async (req, res) => {
 TicketController.submitVendor = async (req, res) => {
     try {
         const { ven_detail, is_draft } = req.body;
-        const submission = await Ticket.submitVendor(req.body);
+        const { user_id } = req.cookies;
+        const payload = { ...req.body, id_user: user_id };
+        const submission = await Ticket.submitVendor(payload);
         res.status(200).send({
             message: !is_draft
                 ? `${ven_detail.name_1} Vendor with num ticket : ${submission} has been requested`
@@ -401,12 +408,13 @@ TicketController.testmgr = (req, res) => {
 TicketController.rejectformmgr = async (req, res) => {
     const { ticket_id, reason } = req.body;
     const date = moment().format("YYYY-MM-DD");
+    const logrejectdate = moment().format("YYYY-MM-DDTHH:mm:ss");
     const client = await db.connect();
     try {
         await client.query(TRANS.BEGIN);
         const checkTicket = await client.query(`
                 select t.ticket_id, t.is_active, t.cur_pos,
-                v.name_1, v.ven_type, v.ven_id, c.name, c.code,
+                v.name_1, v.ven_type, v.ven_id, c.name, c.sap_code as code,
                 usr.email as email_user, mgr.email as email_mgr
                 from ticket t
                 left join vendor v on v.ven_id = t.ven_id
@@ -438,7 +446,7 @@ TicketController.rejectformmgr = async (req, res) => {
             "log_rejection",
             {
                 ticket_id: ticket_id,
-                create_at: date,
+                create_at: logrejectdate,
                 remarks: reason,
                 create_by: "CEO",
                 ticket_state: "FINA",
@@ -478,13 +486,14 @@ TicketController.rejectformmgr = async (req, res) => {
 TicketController.rejectformgrproc = async (req, res) => {
     const { ticket_id, reason } = req.body;
     const today = moment().format("YYYY-MM-DD");
+    const logrejectdate = moment().format("YYYY-MM-DDTHH:mm:ss");
     try {
         const client = await db.connect();
         try {
             await client.query(TRANS.BEGIN);
             const { rows: ticketItem } = await client.query(`
                 select t.ticket_id, t.is_active, t.cur_pos,
-                v.name_1, v.ven_type, v.ven_id, c.name, c.code,
+                v.name_1, v.ven_type, v.ven_id, c.name, c.sap_code as code,
                 usr.email as email_user, mgr.email as email_mgr
                 from ticket t
                 left join vendor v on v.ven_id = t.ven_id
@@ -522,7 +531,7 @@ TicketController.rejectformgrproc = async (req, res) => {
                 "log_rejection",
                 {
                     ticket_id: ticket_id,
-                    create_at: today,
+                    create_at: logrejectdate,
                     remarks: reason,
                     create_by: "MGRPRC",
                     ticket_state: "CREA",
@@ -650,8 +659,8 @@ TicketController.rejectLog = async (req, res) => {
             const { ticket_state, ticket_id } = req.query;
             const q = `select lr.remarks, lr.create_at, coalesce(mu.fullname, lr.create_by) as create_by, lr.id from log_rejection lr
             left join mst_user mu on mu.user_id = lr.create_by 
-            where ticket_id = $1 and ticket_state = $2 order by create_at desc`;
-            const { rows } = await client.query(q, [ticket_id, ticket_state]);
+            where ticket_id = $1  order by create_at desc`;
+            const { rows } = await client.query(q, [ticket_id]);
             const results = rows.map(item => ({
                 id: item.id,
                 remarks: item.remarks,

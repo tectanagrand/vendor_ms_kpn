@@ -21,6 +21,8 @@ const Ticket = {
             T.is_active, 
             T.ticket_id, 
             T.created_at,
+            UP.fullname as updated_by,
+            T.updated_at,
             case when T.cur_pos = 'CEO' then 'CEO'
             when T.cur_pos = 'MGRPRC' then 'Manager'
             else T.cur_pos
@@ -40,8 +42,9 @@ const Ticket = {
 			END AS IS_EXPIRED
         FROM TICKET T
         LEFT JOIN VENDOR V ON V.VEN_ID = T.VEN_ID
+        LEFT JOIN MST_USER UP ON T.updated_by = UP.user_id
         LEFT JOIN MST_USER UR ON UR.USER_ID = T.PROC_ID ${where}
-        ORDER BY T.CREATED_AT DESC, T.TICKET_ID DESC`;
+        ORDER BY T.UPDATED_AT DESC, T.CREATED_AT DESC, T.TICKET_ID DESC`;
             const items = await client.query(q);
             return {
                 count: items.rowCount,
@@ -151,13 +154,15 @@ const Ticket = {
         const client = await db.connect();
         try {
             const q = `SELECT T.ticket_id as ticket_num, T.token as ticket_id, T.cur_pos, T.ticket_state, T.remarks, coalesce(v.ven_id , t.ven_id) as ven_id, T.t_type as t_type,
-            T.reject_by as reject_by, t.is_active as ticket_stat, V.*, 
+            T.reject_by as reject_by, t.is_active as ticket_stat, LR.counter , V.*, 
             PROC.email as email_proc, PROC.role as dep_proc, MDM.email as email_mdm, MDM.role as dep_mdm, VHD.header 
                             FROM TICKET T
                             LEFT JOIN VENDOR V ON V.VEN_ID = T.VEN_ID
                             LEFT JOIN MST_USER PROC ON PROC.USER_ID = T.PROC_ID
                             LEFT JOIN MST_USER MDM ON MDM.USER_ID = T.MDM_ID
                             LEFT JOIN VEN_CODE_HD VHD ON (V.local_ovs = VHD.local_ovs AND v.ven_group = vhd.ven_group AND v.ven_acc = vhd.ven_acc AND v.ven_type = vhd.ven_type )
+                            LEFT JOIN
+                            (SELECT ticket_id, count(remarks) as counter from log_rejection group by ticket_id) LR ON LR.ticket_id = T.token
                             WHERE T.TOKEN = '${ticket_num}'
                             ORDER BY T.CREATED_AT DESC`;
             const item = await client.query(q);
@@ -172,6 +177,37 @@ const Ticket = {
 
     async submitTicket(item, client) {
         try {
+            // let resetTicket = "";
+            let payload = [
+                { id: "updated_by", value: item.updated_by },
+                {
+                    id: "updated_at",
+                    value: "DEFAULT",
+                },
+            ];
+            if (item.is_draft) {
+                // resetTicket = `is_draft = true`;
+                payload.push({
+                    id: "is_draft",
+                    value: true,
+                });
+            } else {
+                // resetTicket = `is_draft = false, reject_by = null`;
+                payload.push({
+                    id: "is_draft",
+                    value: false,
+                });
+                payload.push({
+                    id: "reject_by",
+                    value: "null",
+                });
+            }
+            if (item.mdm_id) {
+                payload.push({
+                    id: "mdm_id",
+                    value: item.mdm_id,
+                });
+            }
             const ticketq =
                 await client.query(`SELECT tic.ticket_id, tic.cur_pos, tic.ticket_state, proc.department as proc, mdm.department as mdm, v.is_tender, v.name_1  from ticket tic
                         left join (select user_id, department from mst_user) proc on proc.user_id = tic.proc_id
@@ -185,46 +221,116 @@ const Ticket = {
             const name_1 = ticket.name_1;
             let cur_pos;
             let is_active = true;
-            switch (session) {
-                case "INIT":
-                    cur_pos = "PROC";
-                    state = "CREA";
-                    break;
-                case "CREA":
-                    if (ticket.cur_pos === "PROC") {
-                        cur_pos = "MGRPRC";
-                        state = "CREA";
-                    } else {
-                        cur_pos = "MDM";
-                        state = "FINA";
-                        if (ticket.is_tender) {
-                            cur_pos = "CEO";
-                            state = "FINA";
+            if (!item.is_draft) {
+                switch (session) {
+                    case "INIT":
+                        // cur_pos = "PROC";
+                        // state = "CREA";
+                        payload.push({
+                            id: "cur_pos",
+                            value: "PROC",
+                        });
+                        payload.push({
+                            id: "ticket_state",
+                            value: "CREA",
+                        });
+                        break;
+                    case "CREA":
+                        if (ticket.cur_pos === "PROC") {
+                            // cur_pos = "MGRPRC";
+                            // state = "CREA";
+                            payload.push({
+                                id: "cur_pos",
+                                value: "MGRPRC",
+                            });
+                            payload.push({
+                                id: "ticket_state",
+                                value: "CREA",
+                            });
+                        } else {
+                            if (item.is_tender || item.is_priority) {
+                                // cur_pos = "CEO";
+                                // state = "FINA";
+                                payload.push({
+                                    id: "cur_pos",
+                                    value: "CEO",
+                                });
+                                payload.push({
+                                    id: "ticket_state",
+                                    value: "FINA",
+                                });
+                            } else {
+                                // cur_pos = "MDM";
+                                // state = "FINA";
+                                payload.push({
+                                    id: "cur_pos",
+                                    value: "MDM",
+                                });
+                                payload.push({
+                                    id: "ticket_state",
+                                    value: "FINA",
+                                });
+                            }
                         }
-                    }
-                    break;
-                case "FINA":
-                    is_active = false;
-                    state = "END";
-                    cur_pos = "END";
-                    break;
+                        break;
+                    case "FINA":
+                        // is_active = false;
+                        // state = "END";
+                        // cur_pos = "END";
+                        payload.push({
+                            id: "cur_pos",
+                            value: "END",
+                        });
+                        payload.push({
+                            id: "ticket_state",
+                            value: "END",
+                        });
+                        payload.push({
+                            id: "is_active",
+                            value: false,
+                        });
+                        break;
+                }
             }
-            const q = `UPDATE ticket
-                                set cur_pos = $1,
-                                remarks = $2,
-                                ticket_state = $3,
-                                is_active = $4,
-                                reject_by = null,
-                                mdm_id = $5,
-                                updated_at = DEFAULT
-                                where ticket_id = $6
-                                returning ticket_id`;
-            const result = await client.query(q, [
-                cur_pos,
-                item.remarks,
-                state,
-                is_active,
-                item.mdm_id,
+            let queryUpdate = [];
+            let valueUpdate = [];
+            let index = 1;
+            for (const pl of payload) {
+                if (pl.value !== "null" && pl.value !== "DEFAULT") {
+                    queryUpdate.push(`${pl.id} = $${index}`);
+                    valueUpdate.push(pl.value);
+                    index++;
+                } else {
+                    queryUpdate.push(`${pl.id} = ${pl.value}`);
+                }
+            }
+            let queryFinal = `UPDATE ticket set ${queryUpdate.join(
+                ","
+            )} where ticket_id = $${index} returning ticket_id `;
+            console.log(queryFinal);
+            console.log([...valueUpdate, ticket.ticket_id]);
+            // const q = `UPDATE ticket
+            //                     set cur_pos = $1,
+            //                     remarks = $2,
+            //                     ticket_state = $3,
+            //                     is_active = $4, //
+            //                     mdm_id = $5,
+            //                     ${resetTicket},
+            //                     updated_by = $6, //
+            //                     updated_at = DEFAULT
+            //                     where ticket_id = $7
+            //                     returning ticket_id`;
+            // const result = await client.query(q, [
+            //     cur_pos,
+            //     item.remarks,
+            //     state,
+            //     is_active,
+            //     item.mdm_id,
+            //     item.updated_by,
+            //     ticket.ticket_id,
+            // ]);
+            const result = await client.query(queryFinal, [
+                ...valueUpdate,
                 ticket.ticket_id,
             ]);
             return result;
@@ -251,12 +357,13 @@ const Ticket = {
             const dataTrg = targets.data;
             const ticket = ticketq.rows[0];
             const session = ticket.ticket_state;
+            const ticket_position = ticket.cur_pos;
             let reject_by;
             let cur_pos;
             let ticket_state;
             switch (session) {
                 case "CREA":
-                    if (cur_pos === "MGRPRC") {
+                    if (ticket_position === "MGRPRC") {
                         reject_by = "MGRPRC";
                         ticket_state = "CREA";
                         cur_pos = "PROC";
@@ -353,58 +460,48 @@ const Ticket = {
         mdm_id,
         cur_pos,
         role,
+        edited_fields,
+        id_user,
     }) {
         const client = await db.connect();
         try {
-            console.log(ven_detail);
             await client.query(TRANS.BEGIN);
             const client1 = await Vendor.setDetailVen(
                 ven_detail,
                 client,
                 is_draft,
-                ticket_state
+                ticket_state,
+                edited_fields
             );
-            const client2 = await Vendor.setBankRfctr(ven_banks, client);
+            const client2 = await Vendor.setBankRfctr(
+                ven_banks,
+                client,
+                ven_detail.ven_id
+            );
             if (is_draft === false) {
                 const client3 = await Vendor.setFileRfctr(
                     ven_detail.ven_id,
                     ven_files,
                     client
                 );
-                const ticket = await this.submitTicket(
-                    { ticket_id: ticket_id, remarks: remarks, mdm_id: mdm_id },
-                    client
-                );
             }
+            const ticket = await this.submitTicket(
+                {
+                    ticket_id: ticket_id,
+                    remarks: remarks,
+                    mdm_id: mdm_id,
+                    updated_by: id_user,
+                    is_draft: is_draft,
+                    is_tender: ven_detail.is_tender,
+                    is_priority: ven_detail.is_priority,
+                },
+                client
+            );
             const targets = await this.ticketTarget(ticket_id);
             const dataTrg = targets.data;
             const res_tnum = ven_detail.ticket_num;
             let cc_emailCREA = [dataTrg.mgr_pr_email];
             if (!is_draft && ticket_state === "CREA") {
-                //get current position of ticket
-                // const { rows: companyData } = await client.query(
-                //     `select name, code, group_comp from mst_company where comp_id = '${ven_detail.company}'`
-                // );
-                // let { group_comp } = companyData[0];
-                // email to CEO
-                // let queryEmail = `SELECT email, first_name from mst_email WHERE id_user in ($1, $2) ORDER BY ID_USER ASC`;
-                // if (ven_detail.is_tender) {
-                // if (group_comp === "DOWNSTREAM") {
-                //     const { rows: dataEmail } = await client.query(
-                //         queryEmail,
-                //         ["CEODOWN", "PACEODOWN"]
-                //     );
-                //     cc_emailCREA.push(dataEmail[1].email);
-                //     cc_emailCREA.push(dataEmail[0].email);
-                // } else if (group_comp === "UPSTREAM") {
-                //     const { rows: dataEmail } = await client.query(
-                //         queryEmail,
-                //         ["CEOUP", "PACEOUP"]
-                //     );
-                //     cc_emailCREA.push(dataEmail[1].email);
-                //     cc_emailCREA.push(dataEmail[0].email);
-                // }
-                // }
                 if (cur_pos === "PROC") {
                     await client.query(TRANS.COMMIT);
                     await Emailer.toRequest(
@@ -425,15 +522,31 @@ const Ticket = {
                         ven_detail.title,
                         ven_detail.local_ovs
                     );
-                    if (ven_detail.is_tender === true) {
+                    if (
+                        ven_detail.is_tender === true ||
+                        ven_detail.is_priority === true
+                    ) {
+                        let state;
+                        if (ven_detail.is_tender && ven_detail.is_priority) {
+                            state = 3;
+                        } else if (ven_detail.is_tender) {
+                            state = 0;
+                        } else if (ven_detail.is_priority) {
+                            state = 1;
+                        }
+                        // state = 0 => is tender
+                        // state = 1 => is priority
+                        // state = 3 => both
                         await Emailer.toManager(
                             ven_detail.name_1,
                             ven_detail.company,
-                            ticket_id
+                            ticket_id,
+                            state
                         );
                     }
                 }
             } else if (!is_draft && ticket_state === "FINA") {
+                //Email vendor sudah complete
                 await Emailer.toApprove(
                     ven_detail.ven_code,
                     ven_detail.name_1,
@@ -444,6 +557,8 @@ const Ticket = {
                         dataTrg.mdm_email,
                     ]
                 );
+                //Email vendor ke orang pajak
+                await Emailer.NotifPajak(ven_detail);
             } else if (!is_draft && ticket_state === "INIT") {
                 await Emailer.newRequest(
                     ven_detail.title,
@@ -472,7 +587,7 @@ const Ticket = {
             const { rows, rowCount } = await client.query(`
                 select t.ticket_id, t.is_active, t.cur_pos,
                 t.reject_by,
-                v.name_1, v.ven_type, v.ven_id, c.name, c.code
+                v.name_1, v.ven_type, v.ven_id, c.name, c.sap_code as code
                 from ticket t
                 left join vendor v on v.ven_id = t.ven_id
                 left join mst_company c on c.comp_id = v.company
@@ -489,7 +604,9 @@ const Ticket = {
                     company: `${rows[0].code} - ${rows[0].name}`,
                 };
             }
-            const date = moment().format("YYYY-MM-DD");
+            const date = moment(new Date())
+                .utc()
+                .format("YYYY-MM-DD HH:mm:ss UTC");
             await client.query(TRANS.BEGIN);
             if (action === "accept") {
                 itemup = {
@@ -538,10 +655,10 @@ const Ticket = {
         const client = await db.connect();
         try {
             const { rows, rowCount } = await client.query(`
-                select t.ticket_id, t.is_active, t.cur_pos, 
-                v.name_1, v.ven_type, v.ven_id, v.description, c.name, c.code,
-                v.is_tender, v.company,
-                t.reject_by
+                select t.ticket_id, t.is_active, t.cur_pos, v.local_ovs,
+                v.name_1, v.ven_type, v.ven_id, v.description, c.name, c.sap_code as code,
+                v.is_tender, v.is_priority, v.company,
+                t.reject_by, t.token, v.title
                 from ticket t
                 left join vendor v on v.ven_id = t.ven_id
                 left join mst_company c on c.comp_id = v.company
@@ -558,21 +675,32 @@ const Ticket = {
                     company: `${rows[0].code} - ${rows[0].name}`,
                 };
             }
-            const date = moment().format("YYYY-MM-DD");
+            const date = moment(new Date())
+                .utc()
+                .format("YYYY-MM-DD HH:mm:ss UTC");
             await client.query(TRANS.BEGIN);
             if (action === "accept") {
                 let itemup;
-                if (rows[0].is_tender) {
+                if (rows[0].is_tender || rows[0].is_priority) {
                     itemup = {
                         cur_pos: "CEO",
                         ticket_state: "FINA",
                         updated_at: date,
                     };
+                    let state;
+                    if (rows[0].is_tender && rows[0].is_priority) {
+                        state = 3;
+                    } else if (rows[0].is_tender) {
+                        state = 0;
+                    } else if (rows[0].is_priority) {
+                        state = 1;
+                    }
                     //send email to CEO
                     await Emailer.toManager(
                         rows[0].name_1,
                         rows[0].company,
-                        ticket_id
+                        ticket_id,
+                        state
                     );
                 } else {
                     itemup = {
@@ -580,6 +708,13 @@ const Ticket = {
                         ticket_state: "FINA",
                         updated_at: date,
                     };
+                    await Emailer.toMDM(
+                        rows[0].name_1,
+                        rows[0].token,
+                        rows[0].ticket_id,
+                        rows[0].title,
+                        rows[0].local_ovs
+                    );
                 }
                 const where = {
                     token: ticket_id,
