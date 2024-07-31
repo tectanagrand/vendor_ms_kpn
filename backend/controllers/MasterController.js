@@ -195,7 +195,7 @@ const MasterController = {
             const localovs = req.query.localovs;
             const curpos = req.query.curpos;
             const queryFileType =
-                "SELECT file_code, file_type, is_mandatory from mst_file_type where ";
+                "SELECT file_code, file_type, is_mandatory, help, helpen from mst_file_type where ";
             let whereFile = "";
             if (title === "COMPANY") {
                 whereFile += "company = true and ";
@@ -221,6 +221,71 @@ const MasterController = {
                 client.release();
             }
         } catch (error) {
+            res.status(500).send({
+                message: error.message,
+            });
+        }
+    },
+
+    getPhoneCode: async (req, res) => {
+        try {
+            const client = await db.connect();
+            const countryId = req.query.id;
+            console.log(countryId);
+            try {
+                const { rows: phoneCode } = await client.query(
+                    `select prefix from mst_phone_code where territory = $1`,
+                    [countryId]
+                );
+                console.log(phoneCode);
+                res.status(200).send({
+                    code: phoneCode[0].prefix,
+                });
+            } catch (error) {
+                throw error;
+            } finally {
+                client.release();
+            }
+        } catch (error) {
+            console.error(error);
+            res.status(500).send({
+                message: error.message,
+            });
+        }
+    },
+
+    getPurOrg: async (req, res) => {
+        try {
+            const client = await db.connect();
+            const { limit, offset, company, q } = req.query;
+            if (!company) {
+                throw new Error("Provide Company First");
+            }
+            try {
+                const { rows } = await client.query(
+                    `select distinct porg_id from mst_porg mp
+                    left join mst_company mc on mc.sap_code = mp.company_code
+                    where mc.comp_id = $1 and porg_id like $2 order by porg_id limit $3 offset $4 `,
+                    [company, `%${q}%`, limit, offset]
+                );
+                const { rowCount } = await client.query(
+                    `select distinct porg_id from mst_porg mp
+                    left join mst_company mc on mc.sap_code = mp.company_code
+                    where mc.comp_id = $1 and porg_id like $2 order by porg_id `,
+                    [company, `%${q}%`]
+                );
+
+                res.status(200).send({
+                    data: rows,
+                    count: rowCount,
+                });
+            } catch (error) {
+                throw error;
+            } finally {
+                client.release();
+            }
+        } catch (error) {
+            console.error(error);
             res.status(500).send({
                 message: error.message,
             });

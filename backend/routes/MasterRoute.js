@@ -16,5 +16,7 @@ router.post("/ssrbank", controller.getBankSSR);
 router.post("/addbank", controller.insertBank);
 router.post("/deletebank", controller.deleteBank);
 router.get("/filetype", controller.getFileType);
+router.get("/phonecode", controller.getPhoneCode);
+router.get("/getporg", controller.getPurOrg);
 
 module.exports = router;

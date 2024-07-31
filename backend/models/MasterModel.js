@@ -84,12 +84,25 @@ const Master = {
         const client = await db.connect();
         try {
             const items = await client.query(
-                `SELECT * FROM MST_COMPANY ORDER BY code`
+                `SELECT * FROM MST_COMPANY where is_active = true ORDER BY name asc`
             );
             // console.log(items);
+            const grouping = new Map();
+            for (const i of items.rows) {
+                if (!grouping.get(i.group_comp)) {
+                    grouping.set(i.group_comp, [
+                        { name: i.name, code: i.sap_code, comp_id: i.comp_id },
+                    ]);
+                } else {
+                    grouping.set(i.group_comp, [
+                        ...grouping.get(i.group_comp),
+                        { name: i.name, code: i.sap_code, comp_id: i.comp_id },
+                    ]);
+                }
+            }
             let result = {
                 count: items.rowCount,
-                data: items.rows,
+                data: Object.fromEntries(grouping.entries()),
             };
             return result;
         } catch (err) {
