@@ -20,14 +20,14 @@ const tp = mailer.createTransport({
 });
 
 const Emailer = {
-    toManager: async (ven_name, comp, ticket_id) => {
+    toManager: async (ven_name, comp, ticket_id, state) => {
         const client = await db.connect();
         const { rows: getHostname } = await client.query(
             "SELECT hostname from hostname where mode_env = $1",
             [process.env.NODE_ENV]
         );
         const getData = await client.query(
-            `select name, code, group_comp from mst_company where comp_id = '${comp}'`
+            `select name, sap_code as code, group_comp from mst_company where comp_id = '${comp}'`
         );
         const { rows: getVenDetail } = await client.query(
             `
@@ -39,6 +39,9 @@ const Emailer = {
                 v.title,
                 v.name_1,
                 v.street,
+                v.street2,
+                v.street3,
+                v.street4,
                 v.telf1,
                 v.fax,
                 v.purch_org ,
@@ -59,7 +62,7 @@ const Emailer = {
                 v.city,
                 v.country,
                 mc.country_name,
-                concat(mc2.code,
+                concat(mc2.sap_code,
                 ' ',
                 mc2."name") as company,
                 v.purch_org ,
@@ -162,7 +165,19 @@ const Emailer = {
         }
         // ${process.env.APP_URL}/api/ticket/mgrappr?ticket_id=${ticket_id}&action=accept
         const hostname = getHostname[0].hostname;
-        const opening = `Dear ${targetCeo}, <br /> Please approve for vendor who <span class="approved">have</span> participated in the tender at KPN Corp :`;
+        // state = 0 => is tender
+        // state = 1 => is priority
+        // state = 3 => both
+        let openingState;
+        if (state === 0) {
+            openingState = "who have participated in the tender at KPN Corp";
+        } else if (state === 1) {
+            openingState = "which is priority vendor";
+        } else {
+            openingState =
+                "who have participated in the tender at KPN Corp also a priority vendor";
+        }
+        const opening = `Dear ${targetCeo}, <br /> Please approve for vendor ${openingState} :`;
         const linkapproval = `${hostname}/api/ticket/mgrappr?ticket_id=${ticket_id}&action=accept`;
         const linkreject = `${hostname}/api/ticket/mgrappr?ticket_id=${ticket_id}&action=reject`;
         const transporter = tp;
@@ -174,7 +189,7 @@ const Emailer = {
                 subject: `${ven_name} - ${company} - Request CFO Approval Vendor`,
                 html: Email.toMGRPRC(
                     getVenDetail[0],
-                    bankTable,
+                    bankTable.join(""),
                     linkapproval,
                     linkreject,
                     opening
@@ -222,7 +237,7 @@ const Emailer = {
         const client = await db.connect();
         try {
             const { rows: data } = await client.query(
-                `select name, code, group_comp from mst_company where comp_id = '${comp}'`
+                `select name, sap_code as code, group_comp from mst_company where comp_id = '${comp}'`
             );
             let { name, code } = data[0];
             const setup = {
@@ -312,6 +327,15 @@ const Emailer = {
             const getmdm_emails = await client.query(
                 `select email from mst_user where role = 'MDM'`
             );
+            const { rows: procEmail } = await client.query(
+                `
+                select mu.email 
+                from ticket t  
+                left join mst_user mu on mu.user_id = t.proc_id 
+                 where t.token = $1`,
+                [ticket_token]
+            );
+            const emailProc = procEmail[0].email;
             const getmgr_mdm = await client.query(`SELECT EMAIL
                                             FROM MST_MGR
                                             WHERE MGR_ID IN
@@ -320,6 +344,7 @@ const Emailer = {
                                                         WHERE ROLE = 'MDM')`);
             const mdmEmail = getmdm_emails.rows.map(item => item.email);
             const mgrmdmEmail = getmgr_mdm.rows.map(item => item.email);
+            mgrmdmEmail.push(emailProc);
             const weburl = `${process.env.APP_URL}/dashboard/form/${ticket_token}`;
             const setup = {
                 from: process.env.SMTP_USERNAME,
@@ -353,6 +378,61 @@ const Emailer = {
                     "SELECT hostname from hostname where mode_env = $1",
                     [process.env.NODE_ENV]
                 );
+                const { rows: getVenDetail } = await client.query(
+                    `
+                                select
+                        v.ven_id,
+                        v.ven_group,
+                        v.ven_acc,
+                        v.ven_type,
+                        v.title,
+                        v.name_1,
+                        v.street,
+                        v.street2,
+                        v.street3,
+                        v.street4,
+                        v.telf1,
+                        v.fax,
+                        v.purch_org ,
+                        v.postal,
+                        v.email,
+                        v.npwp,
+                        upper(v.pay_mthd) as pay_mthd ,
+                        concat(v.pay_term,
+                        ' ',
+                        mpt.term_name) as pay_term,
+                        case
+                            when v.local_ovs = 'LOCAL' then 'LOCAL'
+                            when v.local_ovs = 'OVS' then 'OVERSEAS'
+                            else ''
+                        end
+                    as local_ovs,
+                        v.lim_curr,
+                        v.city,
+                        v.country,
+                        mc.country_name,
+                        concat(mc2.sap_code,
+                        ' ',
+                        mc2."name") as company,
+                        v.purch_org ,
+                        v.lim_curr ,
+                        v.limit_vendor ,
+                        v.description,
+                        t.token
+                    from
+                        vendor v
+                    left join ticket t on
+                        v.ven_id = t.ven_id
+                    left join mst_pay_term mpt on
+                        mpt.term_code = v.pay_term
+                    left join mst_country mc on
+                        mc.country_code = v.country
+                    left join mst_company mc2 on
+                        mc2.comp_id = v.company
+                    where t.token = $1
+                    `,
+                    [ticket_id]
+                );
                 const { rows: getBanks } = await client.query(
                     `select
                                             mb.bank_name ,
@@ -368,16 +448,14 @@ const Emailer = {
                                         where vb.ven_id = $1`,
                     [ven_detail.ven_id]
                 );
-                console.log(getBanks);
                 const { rows: getFiles } = await client.query(
                     `select mft.file_type , vfa.file_name from ven_file_atth vfa 
                 left join mst_file_type mft on vfa.file_type = mft.file_code 
                 where vfa.ven_id = $1`,
                     [ven_detail.ven_id]
                 );
-                console.log(getFiles);
                 const { rows: getCompany } = await client.query(
-                    `select code, name from mst_company where comp_id = $1`,
+                    `select sap_code as code, name from mst_company where comp_id = $1`,
                     [ven_detail.company]
                 );
                 const { rows: emailmgrprc } = await client.query(`select
@@ -426,7 +504,7 @@ const Emailer = {
                 const rejectLink = `${hostname}/api/ticket/mgrapprprc?ticket_id=${ticket_id}&action=reject`;
                 const opening = `Kepada Yth. Bapak/Ibu <br />Mohon approval Request Registrasi Vendor dengan detail berikut :`;
                 const html = Email.toMGRPRC(
-                    ven_detail,
+                    getVenDetail[0],
                     bankTable.join(" "),
                     approveLink,
                     rejectLink,
@@ -440,6 +518,7 @@ const Emailer = {
                     attachments: fileAtth,
                 };
                 await tp.sendMail(setup);
+                return;
             } catch (error) {
                 throw error;
             } finally {
@@ -470,6 +549,408 @@ const Emailer = {
             return send;
         } catch (error) {
             console.log(error);
+            throw error;
+        }
+    },
+    NotifPajak: async detail => {
+        const transporter = tp;
+        try {
+            const client = await db.connect();
+            try {
+                const { rows: getVenDetail } = await client.query(
+                    `
+                                select
+                        v.ven_id,
+                        v.ven_group,
+                        v.ven_acc,
+                        v.ven_type,
+                        v.title,
+                        v.name_1,
+                        v.street,
+                        v.telf1,
+                        v.fax,
+                        v.purch_org ,
+                        v.postal,
+                        v.email,
+                        v.npwp,
+                        v.ven_code,
+                        upper(v.pay_mthd) as pay_mthd ,
+                        concat(v.pay_term,
+                        ' ',
+                        mpt.term_name) as pay_term,
+                        case
+                            when v.local_ovs = 'LOCAL' then 'LOCAL'
+                            when v.local_ovs = 'OVS' then 'OVERSEAS'
+                            else ''
+                        end
+                    as local_ovs,
+                        v.lim_curr,
+                        v.city,
+                        v.country,
+                        mc.country_name,
+                        concat(mc2.sap_code,
+                        ' ',
+                        mc2."name") as company,
+                        v.purch_org ,
+                        v.lim_curr ,
+                        v.limit_vendor ,
+                        v.description,
+                        t.token
+                    from
+                        vendor v
+                    left join ticket t on
+                        v.ven_id = t.ven_id
+                    left join mst_pay_term mpt on
+                        mpt.term_code = v.pay_term
+                    left join mst_country mc on
+                        mc.country_code = v.country
+                    left join mst_company mc2 on
+                        mc2.comp_id = v.company
+                    where v.ven_id = $1
+                    `,
+                    [detail.ven_id]
+                );
+                const ven_detail = getVenDetail[0];
+                const { rows: getFiles } = await client.query(
+                    `select mft.file_type , vfa.file_name from ven_file_atth vfa 
+                left join mst_file_type mft on vfa.file_type = mft.file_code 
+                where vfa.ven_id = $1 and vfa.file_type in ('A005', 'A006') `,
+                    [detail.ven_id]
+                );
+                const { rows: getTarget } = await client.query(
+                    `select email from mst_email where id_user = 'PAJAK'`
+                );
+                const fileAtth = getFiles.map(item => {
+                    let pathStream;
+                    if (os.platform() === "win32") {
+                        pathStream =
+                            path.join(path.resolve(), "backend\\public") +
+                            "\\" +
+                            item.file_name;
+                    } else {
+                        pathStream =
+                            path.join(path.resolve(), "backend/public") +
+                            "/" +
+                            item.file_name;
+                    }
+                    return {
+                        filename: `${item.file_type} - ${item.file_name} `,
+                        content: fs.createReadStream(pathStream),
+                    };
+                });
+                const setup = {
+                    from: process.env.SMTP_USERNAME,
+                    to: getTarget[0].email,
+                    subject: `Vendor ${detail.ven_code} - ${ven_detail.name_1} New Registration`,
+                    html: Email.toNotifPajak(ven_detail, detail.ven_code),
+                    attachments: fileAtth,
+                };
+                const send = await transporter.sendMail(setup);
+                return send;
+            } catch (error) {
+                throw error;
+            } finally {
+                client.release();
+            }
+        } catch (error) {
+            console.error(error);
+            throw error;
+        }
+    },
+
+    ApprovalDeact: async (ticketappr_id, ven_id, reason, action) => {
+        try {
+            const client = await db.connect();
+            try {
+                const { rows: getHostname } = await client.query(
+                    "SELECT hostname from hostname where mode_env = $1",
+                    [process.env.NODE_ENV]
+                );
+                const hostname = getHostname[0].hostname;
+                const { rows: getVenDetail } = await client.query(
+                    `
+                                select
+                        v.ven_id,
+                        v.ven_code,
+                        v.ven_group,
+                        v.ven_acc,
+                        v.ven_type,
+                        v.title,
+                        v.name_1,
+                        v.street,
+                        v.street2,
+                        v.street3,
+                        v.street4,
+                        v.telf1,
+                        v.fax,
+                        v.purch_org ,
+                        v.postal,
+                        v.email,
+                        v.npwp,
+                        upper(v.pay_mthd) as pay_mthd ,
+                        concat(v.pay_term,
+                        ' ',
+                        mpt.term_name) as pay_term,
+                        case
+                            when v.local_ovs = 'LOCAL' then 'LOCAL'
+                            when v.local_ovs = 'OVS' then 'OVERSEAS'
+                            else ''
+                        end
+                    as local_ovs,
+                        v.lim_curr,
+                        v.city,
+                        v.country,
+                        mc.country_name,
+                        concat(mc2.sap_code,
+                        ' ',
+                        mc2."name") as company,
+                        v.company as comp_id,
+                        v.purch_org ,
+                        v.lim_curr ,
+                        v.limit_vendor ,
+                        v.description,
+                        t.token
+                    from
+                        vendor v
+                    left join ticket t on
+                        v.ven_id = t.ven_id
+                    left join mst_pay_term mpt on
+                        mpt.term_code = v.pay_term
+                    left join mst_country mc on
+                        mc.country_code = v.country
+                    left join mst_company mc2 on
+                        mc2.comp_id = v.company
+                    where v.ven_id = $1
+                    `,
+                    [ven_id]
+                );
+                const { rows: getBanks } = await client.query(
+                    `select
+                                            mb.bank_name ,
+                                            vb.bank_id,
+                                            vb.bank_acc,
+                                            vb.acc_hold,
+                                            vb.bank_curr,
+                                            vb.country
+                                        from
+                                            ven_bank vb
+                                        left join mst_bank_sap mb on
+                                            mb.id::varchar = vb.bank_id 
+                                        where vb.ven_id = $1`,
+                    [ven_id]
+                );
+
+                const { rows: getCompany } = await client.query(
+                    `select sap_code as code, name from mst_company where comp_id = $1`,
+                    [getVenDetail[0].comp_id]
+                );
+
+                const { rows: emailmgrprc } = await client.query(`select
+                    email from mst_mgr mm
+                left join (
+                    select
+                        distinct user_group_id,
+                        user_group_name
+                    from
+                        mst_page_access mpa) mpa on
+                    mm.user_group = mpa.user_group_id 
+                where mpa.user_group_name = 'MGRPRC';`);
+
+                const bankTable = getBanks.map(item => {
+                    return `
+                    <tr>
+                        <td>${item.country}</td>
+                        <td>${item.bank_name}</td>
+                        <td>${item.bank_curr}</td>
+                        <td>${item.bank_acc}</td>
+                        <td>${item.acc_hold}</td>
+                    </tr>
+                    `;
+                });
+                const ven_detail = getVenDetail[0];
+                ven_detail.company =
+                    getCompany[0].code + " - " + getCompany[0].name;
+                const approveLink = `${hostname}/api/reqstat/mgrappract?ticket_id=${ticketappr_id}&action=accept`;
+                const rejectLink = `${hostname}/api/reqstat/mgrappract?ticket_id=${ticketappr_id}&action=reject`;
+                const actionEmail =
+                    action === "Activation" ? "Pengaktifan" : "Penonaktifan";
+                const html = Email.ApprovalDeact(
+                    actionEmail,
+                    ven_detail,
+                    bankTable.join(""),
+                    reason,
+                    approveLink,
+                    rejectLink
+                );
+                const setup = {
+                    from: process.env.SMTP_USERNAME,
+                    to: emailmgrprc[0].email,
+                    subject: `Vendor ${ven_detail.name_1} ${action} Manager Approval Request  `,
+                    html: html,
+                };
+                await tp.sendMail(setup);
+                return;
+            } catch (error) {
+                throw error;
+            } finally {
+                client.release();
+            }
+        } catch (error) {
+            console.error(error);
+            throw error;
+        }
+    },
+
+    toMDMApprDeact: async (action, ticket_num, ven_name, reason) => {
+        try {
+            const client = await db.connect();
+            try {
+                const { rows: getHostname } = await client.query(
+                    "SELECT hostname from hostname where mode_env = $1",
+                    [process.env.NODE_ENV]
+                );
+                const { rows: getEmailMDM } = await client.query(`select
+                    distinct email
+                from
+                    mst_user mu
+                left join mst_page_access mpa on
+                    mu.user_group = mpa.user_group_id
+                where
+                    user_group_name = 'MDM';`);
+                const hostname = getHostname[0].hostname;
+                const emailmdm = getEmailMDM.map(item => item.email).join(",");
+                const linkAccess = `${hostname}/dashboard/ticketreqstat`;
+                const actionEmail =
+                    action === "1" ? "reaktivasi" : "deaktivasi";
+                const actionTitle =
+                    action === "1" ? "Reactivate" : "Deactivate";
+                const html = Email.ActVenMDM(
+                    actionEmail,
+                    ticket_num,
+                    ven_name,
+                    linkAccess,
+                    reason
+                );
+                const setup = {
+                    from: process.env.SMTP_USERNAME,
+                    to: emailmdm,
+                    subject: `Vendor ${ven_name} ${actionTitle} Request MDM  `,
+                    html: html,
+                };
+                await tp.sendMail(setup);
+                return;
+            } catch (error) {
+                throw error;
+            } finally {
+                client.release();
+            }
+        } catch (error) {
+            throw error;
+        }
+    },
+
+    rejectedApprDeact: async (ticket_id, remarks) => {
+        try {
+            const client = await db.connect();
+            try {
+                const { rows } = await client.query(
+                    `
+                    select 
+                    trv.ticket_num, 
+                    v.name_1,
+                    concat(c.name, ' (', c.sap_code, ')') as company,
+                    trv.request,
+                    mu.email
+                    from ticket_reqstat_ven trv
+                    left join vendor v on trv.ven_id = v.ven_id
+                    left join mst_company c on c.comp_id = v.company
+                    left join mst_user mu on mu.user_id = trv.requestor_id
+                    where trv.ticket_id = $1`,
+                    [ticket_id]
+                );
+                const {
+                    ticket_num,
+                    name_1,
+                    request,
+                    email: emailTarget,
+                } = rows[0];
+                const actionEmail =
+                    request == "1" ? "reaktivasi" : "deaktivasi";
+                const actionTitle =
+                    request == "1" ? "Reactivation" : "Deactivation";
+                const html = Email.RejVenReq(
+                    actionEmail,
+                    ticket_num,
+                    name_1,
+                    remarks
+                );
+                const setup = {
+                    from: process.env.SMTP_USERNAME,
+                    to: emailTarget,
+                    subject: `Vendor ${name_1} ${actionTitle} Request Rejected `,
+                    html: html,
+                };
+                await tp.sendMail(setup);
+                return;
+            } catch (error) {
+                throw error;
+            } finally {
+                client.release();
+            }
+        } catch (error) {
+            console.error(error);
+            throw error;
+        }
+    },
+    ApprovedApprDeact: async ticket_id => {
+        try {
+            const client = await db.connect();
+            try {
+                const { rows } = await client.query(
+                    `
+                    select 
+                    trv.ticket_num, 
+                    v.name_1,
+                    concat(c.name, ' (', c.sap_code, ')') as company,
+                    trv.request,
+                    mu.email
+                    from ticket_reqstat_ven trv
+                    left join vendor v on trv.ven_id = v.ven_id
+                    left join mst_company c on c.comp_id = v.company
+                    left join mst_user mu on mu.user_id = trv.requestor_id
+                    where trv.ticket_id = $1`,
+                    [ticket_id]
+                );
+                const {
+                    ticket_num,
+                    name_1,
+                    request,
+                    email: emailTarget,
+                } = rows[0];
+                const actionEmail =
+                    request == "1" ? "reaktivasi" : "deaktivasi";
+                const actionTitle =
+                    request == "1" ? "Reactivation" : "Deactivation";
+                const html = Email.ApprDeactVenReq(
+                    actionEmail,
+                    ticket_num,
+                    name_1
+                );
+                const setup = {
+                    from: process.env.SMTP_USERNAME,
+                    to: emailTarget,
+                    subject: `Vendor ${name_1} ${actionTitle} Request Approved`,
+                    html: html,
+                };
+                await tp.sendMail(setup);
+                return;
+            } catch (error) {
+                throw error;
+            } finally {
+                client.release();
+            }
+        } catch (error) {
+            console.error(error);
             throw error;
         }
     },
