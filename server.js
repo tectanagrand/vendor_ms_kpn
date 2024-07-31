@@ -72,11 +72,12 @@ process.on("uncaughtException", err => {
 //     console.log("client:" + db.totalCount);
 // }, 1000);
 
-const server = https.createServer(servOption, app).listen(port, () => {
-    console.log(`App running on ${port}`);
-});
-
-// const server = https.createServer(servOption, app);
-// app.listen(port, "0.0.0.0", () => {
+// const server = http.createServer(servOption, app).listen(port, () => {
 //     console.log(`App running on ${port}`);
 // });
+
+const server = https
+    .createServer(servOption, app)
+    .listen(port, "0.0.0.0", () => {
+        console.log(`App running on ${port}`);
+    });
