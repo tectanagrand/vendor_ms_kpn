@@ -107,7 +107,7 @@ const Vendor = {
                 `select reject_by, is_draft from ticket where ven_id = $1`,
                 [detail.ven_id]
             );
-            const is_draftdb = getStatusTicket[0].is_draft;
+            // const is_draftdb = getStatusTicket[0].is_draft;
             // const last_ver = isExist.rows[0].last_version;
             const today = new Date();
             if ("valid_until" in detail) {

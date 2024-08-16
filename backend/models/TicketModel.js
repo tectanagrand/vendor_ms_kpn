@@ -130,6 +130,7 @@ const Ticket = {
                 valid_until: until,
                 cur_pos: params.to_who,
                 t_type: params.to_who,
+                ticket_type: params.ticket_type,
                 is_active: true,
                 token: token,
                 ticket_state: ticketState,
@@ -209,18 +210,26 @@ const Ticket = {
                 });
             }
             const ticketq =
-                await client.query(`SELECT tic.ticket_id, tic.cur_pos, tic.ticket_state, proc.department as proc, mdm.department as mdm, v.is_tender, v.name_1  from ticket tic
+                await client.query(`SELECT tic.ticket_id, tic.cur_pos, tic.ticket_state, 
+                    proc.department as proc, mdm.department as mdm, 
+                    v.is_tender, v.name_1,
+                    tic.ticket_type
+                    from ticket tic
                         left join (select user_id, department from mst_user) proc on proc.user_id = tic.proc_id
                         left join (select user_id, department from mst_user) mdm on mdm.user_id = tic.mdm_id
                         left join vendor v on tic.ven_id = v.ven_id 
                         where tic.token = '${item.ticket_id}'`);
             const ticket = ticketq.rows[0];
+            const ticket_type = ticket.ticket_type;
             const session = ticket.ticket_state;
             const proc = ticket.proc;
             const mdm = ticket.mdm;
             const name_1 = ticket.name_1;
             let cur_pos;
             let is_active = true;
+            //flow
+            // VEN - PROC - MGRPRC - MGRDWS - CEO => ticket_type === DWS
+            // VEN - PROC - MGRPRC - CEO => ticket_type === UPS
             if (!item.is_draft) {
                 switch (session) {
                     case "INIT":
@@ -247,7 +256,38 @@ const Ticket = {
                                 id: "ticket_state",
                                 value: "CREA",
                             });
-                        } else {
+                        } else if (ticket.cur_pos === "MGRPRC") {
+                            if (ticket_type === "UPS") {
+                                if (item.is_tender || item.is_priority) {
+                                    // cur_pos = "CEO";
+                                    // state = "FINA";
+                                    payload.push({
+                                        id: "cur_pos",
+                                        value: "CEO",
+                                    });
+                                    payload.push({
+                                        id: "ticket_state",
+                                        value: "FINA",
+                                    });
+                                } else {
+                                    // cur_pos = "MDM";
+                                    // state = "FINA";
+                                    payload.push({
+                                        id: "cur_pos",
+                                        value: "MDM",
+                                    });
+                                    payload.push({
+                                        id: "ticket_state",
+                                        value: "FINA",
+                                    });
+                                }
+                            } else if (ticket_type === "DWS") {
+                                payload.push({
+                                    id: "cur_pos",
+                                    value: "MGRDWS",
+                                });
+                            }
+                        } else if (ticket.cur_pos === "MGRDWS") {
                             if (item.is_tender || item.is_priority) {
                                 // cur_pos = "CEO";
                                 // state = "FINA";
@@ -466,6 +506,11 @@ const Ticket = {
         const client = await db.connect();
         try {
             await client.query(TRANS.BEGIN);
+            const { rows: getdtTType } = await client.query(
+                `select ticket_type from ticket where token = $1`,
+                [ven_detail.ticket_id]
+            );
+            const ticket_type = getdtTType[0].ticket_type;
             const client1 = await Vendor.setDetailVen(
                 ven_detail,
                 client,
@@ -514,14 +559,7 @@ const Ticket = {
                         dataTrg.proc_email
                     );
                     await Emailer.toMGRPRC(ven_detail, ticket_id);
-                } else {
-                    await Emailer.toMDM(
-                        ven_detail.name_1,
-                        ticket_id,
-                        ven_detail.ticket_num,
-                        ven_detail.title,
-                        ven_detail.local_ovs
-                    );
+                } else if (cur_pos === "MGRPRC") {
                     if (
                         ven_detail.is_tender === true ||
                         ven_detail.is_priority === true
@@ -542,6 +580,14 @@ const Ticket = {
                             ven_detail.company,
                             ticket_id,
                             state
+                        );
+                    } else {
+                        await Emailer.toMDM(
+                            ven_detail.name_1,
+                            ticket_id,
+                            ven_detail.ticket_num,
+                            ven_detail.title,
+                            ven_detail.local_ovs
                         );
                     }
                 }
