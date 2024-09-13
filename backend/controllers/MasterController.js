@@ -231,13 +231,13 @@ const MasterController = {
         try {
             const client = await db.connect();
             const countryId = req.query.id;
-            console.log(countryId);
+            // console.log(countryId);
             try {
                 const { rows: phoneCode } = await client.query(
                     `select prefix from mst_phone_code where territory = $1`,
                     [countryId]
                 );
-                console.log(phoneCode);
+                // console.log(phoneCode);
                 res.status(200).send({
                     code: phoneCode[0].prefix,
                 });
