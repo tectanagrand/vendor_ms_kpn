@@ -23,8 +23,10 @@ const Ticket = {
             T.created_at,
             UP.fullname as updated_by,
             T.updated_at,
-            case when T.cur_pos = 'CEO' then 'CEO'
+            case when T.cur_pos = 'CEO' then 'CFO'
             when T.cur_pos = 'MGRPRC' then 'Manager'
+            when T.cur_pos = 'MGRDWS' then 'MGR PRC DWS'
+            when T.cur_pos = 'MGRPRCDWS' then 'Manager DWS'
             else T.cur_pos
             end as cur_pos,
             T.ticket_state,
@@ -107,12 +109,11 @@ const Ticket = {
             until.setDate(today.getDate() + 3);
             const f_until = until.toLocaleDateString();
             const ticketid = await client.query(
-                "SELECT nextval('ticket_id_seq')"
+                "select last_value + 1 as next_value from ticket_id_seq"
             );
             const ven_id = uuid.uuid();
             const token = uuid.uuid();
-            // console.log(ticketid.rows);
-            const latestnum = ticketid.rows[0].nextval;
+            const latestnum = ticketid.rows[0].next_value;
             const headerTicket = params.to_who === "VENDOR" ? "VEN" : "PRC";
             const ticketState = params.to_who === "VENDOR" ? "INIT" : "CREA";
             const ticketNumber =
@@ -154,7 +155,7 @@ const Ticket = {
     async getTicketById(ticket_num) {
         const client = await db.connect();
         try {
-            const q = `SELECT T.ticket_id as ticket_num, T.token as ticket_id, T.cur_pos, T.ticket_state, T.remarks, coalesce(v.ven_id , t.ven_id) as ven_id, T.t_type as t_type,
+            const q = `SELECT T.ticket_id as ticket_num, T.token as ticket_id, T.cur_pos, T.ticket_state, T.remarks, coalesce(v.ven_id , t.ven_id) as ven_id, T.t_type as t_type, T.ticket_type as bunit,
             T.reject_by as reject_by, t.is_active as ticket_stat, LR.counter , V.*, 
             PROC.email as email_proc, PROC.role as dep_proc, MDM.email as email_mdm, MDM.role as dep_mdm, VHD.header 
                             FROM TICKET T
@@ -248,46 +249,64 @@ const Ticket = {
                         if (ticket.cur_pos === "PROC") {
                             // cur_pos = "MGRPRC";
                             // state = "CREA";
+                            if (ticket_type === "UPS") {
+                                payload.push({
+                                    id: "cur_pos",
+                                    value: "MGRPRC",
+                                });
+                                payload.push({
+                                    id: "ticket_state",
+                                    value: "CREA",
+                                });
+                            } else {
+                                payload.push({
+                                    id: "cur_pos",
+                                    value: "MGRDWS",
+                                });
+                                payload.push({
+                                    id: "ticket_state",
+                                    value: "CREA",
+                                });
+                            }
+                        } else if (ticket.cur_pos === "MGRPRC") {
+                            //Pak IVAN
+                            if (item.is_tender || item.is_priority) {
+                                // cur_pos = "CEO";
+                                // state = "FINA";
+                                payload.push({
+                                    id: "cur_pos",
+                                    value: "CEO",
+                                });
+                                payload.push({
+                                    id: "ticket_state",
+                                    value: "FINA",
+                                });
+                            } else {
+                                // cur_pos = "MDM";
+                                // state = "FINA";
+                                payload.push({
+                                    id: "cur_pos",
+                                    value: "MDM",
+                                });
+                                payload.push({
+                                    id: "ticket_state",
+                                    value: "FINA",
+                                });
+                            }
+                        } else if (ticket.cur_pos === "MGRDWS") {
+                            //Pak JONI
+                            // cur_pos = "CEO";
+                            // state = "FINA";
                             payload.push({
                                 id: "cur_pos",
-                                value: "MGRPRC",
+                                value: "MGRPRCDWS",
                             });
                             payload.push({
                                 id: "ticket_state",
                                 value: "CREA",
                             });
-                        } else if (ticket.cur_pos === "MGRPRC") {
-                            if (ticket_type === "UPS") {
-                                if (item.is_tender || item.is_priority) {
-                                    // cur_pos = "CEO";
-                                    // state = "FINA";
-                                    payload.push({
-                                        id: "cur_pos",
-                                        value: "CEO",
-                                    });
-                                    payload.push({
-                                        id: "ticket_state",
-                                        value: "FINA",
-                                    });
-                                } else {
-                                    // cur_pos = "MDM";
-                                    // state = "FINA";
-                                    payload.push({
-                                        id: "cur_pos",
-                                        value: "MDM",
-                                    });
-                                    payload.push({
-                                        id: "ticket_state",
-                                        value: "FINA",
-                                    });
-                                }
-                            } else if (ticket_type === "DWS") {
-                                payload.push({
-                                    id: "cur_pos",
-                                    value: "MGRDWS",
-                                });
-                            }
-                        } else if (ticket.cur_pos === "MGRDWS") {
+                        } else if (ticket.cur_pos === "MGRPRCDWS") {
+                            //Pak Edward
                             if (item.is_tender || item.is_priority) {
                                 // cur_pos = "CEO";
                                 // state = "FINA";
@@ -347,8 +366,6 @@ const Ticket = {
             let queryFinal = `UPDATE ticket set ${queryUpdate.join(
                 ","
             )} where ticket_id = $${index} returning ticket_id `;
-            console.log(queryFinal);
-            console.log([...valueUpdate, ticket.ticket_id]);
             // const q = `UPDATE ticket
             //                     set cur_pos = $1,
             //                     remarks = $2,
@@ -393,6 +410,7 @@ const Ticket = {
                         left join (select user_id, department from mst_user) mdm on mdm.user_id = tic.mdm_id
                         left join vendor v on tic.ven_id = v.ven_id 
                         where tic.token = '${ticket_id}'`);
+            console.log(ticketq);
             const targets = await this.ticketTarget(ticket_id);
             const dataTrg = targets.data;
             const ticket = ticketq.rows[0];
@@ -405,6 +423,14 @@ const Ticket = {
                 case "CREA":
                     if (ticket_position === "MGRPRC") {
                         reject_by = "MGRPRC";
+                        ticket_state = "CREA";
+                        cur_pos = "PROC";
+                    } else if (ticket_position === "MGRDWS") {
+                        reject_by = "MGRDWS";
+                        ticket_state = "CREA";
+                        cur_pos = "PROC";
+                    } else if (ticket_position === "MGRPRCDWS") {
+                        reject_by = "MGRPRCDWS";
                         ticket_state = "CREA";
                         cur_pos = "PROC";
                     } else {
@@ -508,7 +534,7 @@ const Ticket = {
             await client.query(TRANS.BEGIN);
             const { rows: getdtTType } = await client.query(
                 `select ticket_type from ticket where token = $1`,
-                [ven_detail.ticket_id]
+                [ticket_id]
             );
             const ticket_type = getdtTType[0].ticket_type;
             const client1 = await Vendor.setDetailVen(
@@ -542,6 +568,8 @@ const Ticket = {
                 },
                 client
             );
+
+            //emails
             const targets = await this.ticketTarget(ticket_id);
             const dataTrg = targets.data;
             const res_tnum = ven_detail.ticket_num;
@@ -558,8 +586,45 @@ const Ticket = {
                         ven_detail.company,
                         dataTrg.proc_email
                     );
-                    await Emailer.toMGRPRC(ven_detail, ticket_id);
+                    if (ticket_type === "UPS") {
+                        await Emailer.toMGRPRC(ven_detail, ticket_id, "MGRPRC");
+                    } else {
+                        await Emailer.toMGRPRC(ven_detail, ticket_id, "MGRDWS");
+                    }
                 } else if (cur_pos === "MGRPRC") {
+                    if (
+                        ven_detail.is_tender === true ||
+                        ven_detail.is_priority === true
+                    ) {
+                        let state;
+                        if (ven_detail.is_tender && ven_detail.is_priority) {
+                            state = 3;
+                        } else if (ven_detail.is_tender) {
+                            state = 0;
+                        } else if (ven_detail.is_priority) {
+                            state = 1;
+                        }
+                        // state = 0 => is tender
+                        // state = 1 => is priority
+                        // state = 3 => both
+                        await Emailer.toManager(
+                            ven_detail.name_1,
+                            ven_detail.company,
+                            ticket_id,
+                            state
+                        );
+                    } else {
+                        await Emailer.toMDM(
+                            ven_detail.name_1,
+                            ticket_id,
+                            ven_detail.ticket_num,
+                            ven_detail.title,
+                            ven_detail.local_ovs
+                        );
+                    }
+                } else if (cur_pos === "MGRDWS") {
+                    await Emailer.toMGRPRC(ven_detail, ticket_id, "MGRPRCDWS");
+                } else if (cur_pos === "MGRPRCDWS") {
                     if (
                         ven_detail.is_tender === true ||
                         ven_detail.is_priority === true
@@ -641,7 +706,8 @@ const Ticket = {
             `);
             if (rowCount === 0 || !rows[0].is_active) {
                 throw new Error("Ticket is not valid");
-            } else if (rows[0].cur_pos == "PROC" && rows[0].reject_by) {
+            }
+            if (rows[0].cur_pos == "PROC" && rows[0].reject_by) {
                 return {
                     action: "rejected",
                     ticket_num: rows[0].ticket_id,
@@ -649,6 +715,9 @@ const Ticket = {
                     type: rows[0].ven_type,
                     company: `${rows[0].code} - ${rows[0].name}`,
                 };
+            }
+            if (rows[0].cur_pos !== "CEO") {
+                throw new Error("Ticket is not valid");
             }
             const date = moment(new Date())
                 .utc()
@@ -697,19 +766,59 @@ const Ticket = {
         }
     },
 
-    async processMgrPrc(ticket_id, action) {
+    async processMgrPrc(ticket_id, action, role) {
         const client = await db.connect();
         try {
             const { rows, rowCount } = await client.query(`
                 select t.ticket_id, t.is_active, t.cur_pos, v.local_ovs,
                 v.name_1, v.ven_type, v.ven_id, v.description, c.name, c.sap_code as code,
                 v.is_tender, v.is_priority, v.company,
-                t.reject_by, t.token, v.title
+                t.reject_by, t.token, v.title, t.ticket_type, t.cur_pos
                 from ticket t
                 left join vendor v on v.ven_id = t.ven_id
                 left join mst_company c on c.comp_id = v.company
                 where token = '${ticket_id}'
             `);
+            const ticket_type = rows[0].ticket_type;
+            const ticket_curpos = rows[0].cur_pos;
+            if (ticket_curpos === "MGRPRC" && role === "MGRPRCDWS") {
+                throw new Error("Ticket is not valid");
+            }
+            if (ticket_type === "UPS" && role === "MGRDWS") {
+                throw new Error("Ticket is not valid");
+            }
+            if (ticket_type === "DWS" && role === "MGRPRC") {
+                throw new Error("Ticket is not valid");
+            }
+            if (!["MGRPRC", "MGRDWS", "MGRPRCDWS"].includes(role)) {
+                throw new Error("Ticket is not valid");
+            }
+            if (
+                ticket_curpos === "PROC" &&
+                ["MGRPRC", "MGRDWS", "MGRPRCDWS"].includes(rows[0].reject_by)
+            ) {
+                return {
+                    action: "rejected",
+                    ven_id: rows[0].ven_id,
+                    ticket_num: rows[0].ticket_id,
+                    name: rows[0].name_1,
+                    type: rows[0].ven_type,
+                    company: `${rows[0].code} - ${rows[0].name}`,
+                };
+            }
+            if (ticket_curpos === "CEO") {
+                return {
+                    action: "accept",
+                    ven_id: rows[0].ven_id,
+                    ticket_num: rows[0].ticket_id,
+                    name: rows[0].name_1,
+                    type: rows[0].ven_type,
+                    company: `${rows[0].code} - ${rows[0].name}`,
+                };
+            }
+            if (["PROC", "VENDOR", "MDM"].includes(ticket_curpos)) {
+                throw new Error("Ticket is not valid");
+            }
             if (rowCount === 0 || !rows[0].is_active) {
                 throw new Error("Ticket is not valid");
             } else if (rows[0].cur_pos == "PROC" && rows[0].reject_by) {
@@ -721,45 +830,66 @@ const Ticket = {
                     company: `${rows[0].code} - ${rows[0].name}`,
                 };
             }
+            // console.log(rows);
+            // return;
             const date = moment(new Date())
                 .utc()
                 .format("YYYY-MM-DD HH:mm:ss UTC");
             await client.query(TRANS.BEGIN);
             if (action === "accept") {
                 let itemup;
-                if (rows[0].is_tender || rows[0].is_priority) {
-                    itemup = {
-                        cur_pos: "CEO",
-                        ticket_state: "FINA",
-                        updated_at: date,
-                    };
-                    let state;
-                    if (rows[0].is_tender && rows[0].is_priority) {
-                        state = 3;
-                    } else if (rows[0].is_tender) {
-                        state = 0;
-                    } else if (rows[0].is_priority) {
-                        state = 1;
+                if (role === "MGRPRC" || role === "MGRPRCDWS") {
+                    if (rows[0].is_tender || rows[0].is_priority) {
+                        itemup = {
+                            cur_pos: "CEO",
+                            ticket_state: "FINA",
+                            updated_at: date,
+                        };
+                        let state;
+                        if (rows[0].is_tender && rows[0].is_priority) {
+                            state = 3;
+                        } else if (rows[0].is_tender) {
+                            state = 0;
+                        } else if (rows[0].is_priority) {
+                            state = 1;
+                        }
+                        //send email to CEO
+                        await Emailer.toManager(
+                            rows[0].name_1,
+                            rows[0].company,
+                            ticket_id,
+                            state
+                        );
+                    } else {
+                        itemup = {
+                            cur_pos: "MDM",
+                            ticket_state: "FINA",
+                            updated_at: date,
+                        };
+                        await Emailer.toMDM(
+                            rows[0].name_1,
+                            rows[0].token,
+                            rows[0].ticket_id,
+                            rows[0].title,
+                            rows[0].local_ovs
+                        );
                     }
-                    //send email to CEO
-                    await Emailer.toManager(
-                        rows[0].name_1,
-                        rows[0].company,
-                        ticket_id,
-                        state
-                    );
-                } else {
+                } else if (role === "MGRDWS") {
+                    const ven_detail = {
+                        ven_id: rows[0].ven_id,
+                        company: rows[0].company,
+                        name_1: rows[0].name_1,
+                        ticket_num: rows[0].ticket_id, // PRC and VEN ticket number
+                    };
                     itemup = {
-                        cur_pos: "MDM",
-                        ticket_state: "FINA",
+                        cur_pos: "MGRPRCDWS",
+                        ticket_state: "CREA",
                         updated_at: date,
                     };
-                    await Emailer.toMDM(
-                        rows[0].name_1,
+                    await Emailer.toMGRPRC(
+                        ven_detail,
                         rows[0].token,
-                        rows[0].ticket_id,
-                        rows[0].title,
-                        rows[0].local_ovs
+                        "MGRPRCDWS"
                     );
                 }
                 const where = {
@@ -774,11 +904,11 @@ const Ticket = {
                 const updateTicket = await client.query(query, val);
             } else if (action === "reject") {
                 itemup = {
-                    reject_by: "MGRPRC",
+                    reject_by: role,
                     cur_pos: "PROC",
                     ticket_state: "CREA",
                     updated_at: date,
-                    remarks: "Rejected By CEO",
+                    remarks: "Rejected By Manager Procurement",
                 };
             }
             await client.query(TRANS.COMMIT);
