@@ -320,8 +320,13 @@ TicketController.processMgr = async (req, res) => {
 TicketController.processMgrPrc = async (req, res) => {
     const ticket_id = req.query.ticket_id;
     const action = req.query.action;
+    const role = req.query?.role;
     try {
-        const updateTicket = await Ticket.processMgrPrc(ticket_id, action);
+        const updateTicket = await Ticket.processMgrPrc(
+            ticket_id,
+            action,
+            role
+        );
         if (updateTicket.action === "accept") {
             res.render("response", {
                 ven_name: updateTicket.name,
@@ -501,7 +506,9 @@ TicketController.rejectformgrproc = async (req, res) => {
                 left join mst_user usr on t.proc_id = usr.user_id
                 left join mst_mgr mgr on usr.mgr_id = mgr.mgr_id
                 where t.token = '${ticket_id}'`);
-            const { rows: emailmgrprc } = await client.query(`select
+            const cur_pos = ticketItem[0].cur_pos;
+            const { rows: emailmgrprc } = await client.query(
+                `select
                 email from mst_mgr mm
             left join (
                 select
@@ -510,10 +517,12 @@ TicketController.rejectformgrproc = async (req, res) => {
                 from
                     mst_page_access mpa) mpa on
                 mm.user_group = mpa.user_group_id 
-            where mpa.user_group_name = 'MGRPRC';`);
+            where mpa.user_group_name = $1;`,
+                [cur_pos]
+            );
             const emailTargets = ticketItem[0].email_user;
             const ticketUp = {
-                reject_by: "MGRPROC",
+                reject_by: cur_pos,
                 cur_pos: "PROC",
                 updated_at: today,
                 remarks: reason,
@@ -533,14 +542,14 @@ TicketController.rejectformgrproc = async (req, res) => {
                     ticket_id: ticket_id,
                     create_at: logrejectdate,
                     remarks: reason,
-                    create_by: "MGRPRC",
+                    create_by: cur_pos,
                     ticket_state: "CREA",
                 },
                 "ticket_id"
             );
             await client.query(que, val);
             await client.query(qins, valins);
-            await client.query(TRANS.COMMIT);
+            // await client.query(TRANS.COMMIT);
             await Emailer.RejectMgrPrc(
                 ticketItem[0].name_1,
                 ticketItem[0].ven_type,
