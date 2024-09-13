@@ -4,6 +4,7 @@ const db = require("../config/connection");
 const TRANS = require("../config/transaction");
 const crud = require("../helper/crudquery");
 const { hashPassword } = require("../middleware/hashpass");
+const PageModel = require("../models/PageModel");
 
 const UserController = {
     showAll: async (req, res) => {
@@ -23,6 +24,10 @@ const UserController = {
                 username: req.body.username,
                 password: req.body.password,
             });
+            const { jsonMenu, nameMenu } = await PageModel.showAll(
+                logData.groupid
+            );
+
             // res.cookie("jwt", logData.refreshToken, {
             //     httpOnly: true,
             //     secure: false,
@@ -32,6 +37,7 @@ const UserController = {
             // console.log(logData);
             res.status(200).send({
                 ...logData,
+                menu: jsonMenu,
             });
         } catch (err) {
             console.log(err);
@@ -53,43 +59,50 @@ const UserController = {
     },
 
     refreshToken: async (req, res) => {
-        const client = await db.connect();
-        const cookies = req.cookies;
-        if (!cookies?.accessToken) {
-            return res.status(401).send({
-                message: "Unauthorized",
-            });
-        }
         try {
-            let refToken_q = "";
-            if (cookies.role !== "MGR") {
-                refToken_q = `select token from mst_user where user_id = '${cookies.user_id}'`;
-            } else {
-                refToken_q = `select token from mst_mgr where mgr_id = '${cookies.user_id}'`;
+            const client = await db.connect();
+            const cookies = req.cookies;
+            if (!cookies?.accessToken) {
+                return res.status(401).send({
+                    message: "Unauthorized",
+                });
             }
-            const getrefToken = await client.query(refToken_q);
-            const refToken = getrefToken.rows[0].token;
-            const verif = jwt.verify(refToken, process.env.TOKEN_KEY);
-            const newAct = jwt.sign(
-                {
-                    id: cookies.user_id,
-                    username: cookies.username,
-                    email: cookies.email,
-                },
-                process.env.TOKEN_KEY,
-                {
-                    expiresIn: "30s",
+            try {
+                let refToken_q = "";
+                if (cookies.role !== "MGR") {
+                    refToken_q = `select token from mst_user where user_id = '${cookies.user_id}'`;
+                } else {
+                    refToken_q = `select token from mst_mgr where mgr_id = '${cookies.user_id}'`;
                 }
-            );
-            res.status(200).send({
-                accessToken: newAct,
-            });
+                const getrefToken = await client.query(refToken_q);
+                const refToken = getrefToken.rows[0].token;
+                const verif = jwt.verify(refToken, process.env.TOKEN_KEY);
+                const newAct = jwt.sign(
+                    {
+                        id: cookies.user_id,
+                        username: cookies.username,
+                        email: cookies.email,
+                    },
+                    process.env.TOKEN_KEY,
+                    {
+                        expiresIn: "30s",
+                    }
+                );
+                res.status(200).send({
+                    accessToken: newAct,
+                });
+            } catch (error) {
+                res.status(401).send({
+                    message: "Login Expired",
+                });
+            } finally {
+                client.release();
+            }
         } catch (error) {
+            console.error(error);
             res.status(401).send({
                 message: "Login Expired",
             });
-        } finally {
-            client.release();
         }
     },
 
