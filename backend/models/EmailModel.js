@@ -370,7 +370,7 @@ const Emailer = {
             client.release();
         }
     },
-    toMGRPRC: async (ven_detail, ticket_id) => {
+    toMGRPRC: async (ven_detail, ticket_id, role) => {
         try {
             const client = await db.connect();
             try {
@@ -418,7 +418,9 @@ const Emailer = {
                         v.lim_curr ,
                         v.limit_vendor ,
                         v.description,
-                        t.token
+                        t.token,
+                        t.cur_pos,
+                        t.ticket_type
                     from
                         vendor v
                     left join ticket t on
@@ -433,6 +435,7 @@ const Emailer = {
                     `,
                     [ticket_id]
                 );
+                let ticket_type = getVenDetail[0].ticket_type;
                 const { rows: getBanks } = await client.query(
                     `select
                                             mb.bank_name ,
@@ -458,6 +461,7 @@ const Emailer = {
                     `select sap_code as code, name from mst_company where comp_id = $1`,
                     [ven_detail.company]
                 );
+
                 const { rows: emailmgrprc } = await client.query(`select
                                         email from mst_mgr mm
                                     left join (
@@ -467,7 +471,7 @@ const Emailer = {
                                         from
                                             mst_page_access mpa) mpa on
                                         mm.user_group = mpa.user_group_id 
-                                    where mpa.user_group_name = 'MGRPRC';`);
+                                    where mpa.user_group_name = '${role}';`);
                 const bankTable = getBanks.map(item => {
                     return `
                     <tr>
@@ -500,8 +504,8 @@ const Emailer = {
                 const hostname = getHostname[0].hostname;
                 ven_detail.company =
                     getCompany[0].code + " - " + getCompany[0].name;
-                const approveLink = `${hostname}/api/ticket/mgrapprprc?ticket_id=${ticket_id}&action=accept`;
-                const rejectLink = `${hostname}/api/ticket/mgrapprprc?ticket_id=${ticket_id}&action=reject`;
+                const approveLink = `${hostname}/api/ticket/mgrapprprc?ticket_id=${ticket_id}&action=accept&role=${role}`;
+                const rejectLink = `${hostname}/api/ticket/mgrapprprc?ticket_id=${ticket_id}&action=reject&role=${role}`;
                 const opening = `Kepada Yth. Bapak/Ibu <br />Mohon approval Request Registrasi Vendor dengan detail berikut :`;
                 const html = Email.toMGRPRC(
                     getVenDetail[0],
@@ -513,7 +517,9 @@ const Emailer = {
                 const setup = {
                     from: process.env.SMTP_USERNAME,
                     to: emailmgrprc[0].email,
-                    subject: `Vendor ${ven_detail.name_1} Manager Approval Request (${ven_detail.ticket_num}) `,
+                    subject: `Vendor ${ven_detail.name_1} Manager ${
+                        ticket_type === "DWS" ? "Downstream" : "Upstream"
+                    } Approval Request (${ven_detail.ticket_num}) `,
                     html: html,
                     attachments: fileAtth,
                 };
