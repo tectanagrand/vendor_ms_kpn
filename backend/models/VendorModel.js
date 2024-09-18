@@ -628,6 +628,66 @@ const Vendor = {
         return promise;
     },
 
+    async getApprovedVendor() {
+        const client = await db.connect();
+        try {
+            let query = `
+            SELECT 
+                ven.ven_code,
+                ven.name_1,
+                ven.email_pic,
+                ven.no_telf_pic,
+                ven.street,
+                ven.city,
+                bank.country,
+                bank.bank_id,
+                bank.bank_curr,
+                bank.bank_acc,
+                bank.acc_hold,
+                user.email,
+                file.file_name
+            FROM vendor ven
+            JOIN ven_bank bank ON ven.ven_id = bank.ven_id
+            JOIN ticket tic ON ven.ticket_num = tic.ticket_id
+            JOIN mst_user user ON tic.proc_id = user.user_id
+            JOIN ven_file_atth file ON ven.ven_id = file.ven_id
+            WHERE ven.ven_code IS NOT NULL
+            `;
+
+            const result = await client.query(query);
+            return {
+                count: result.rowCount,
+                data: result.rows,
+            };
+        } catch (err) {
+            console.error(err);
+            throw err;
+        } finally {
+            client.release();
+        }
+    },
+
+    async verifyVendor(status, id) {
+        const client = await db.connect();
+        try {
+            await client.query(TRANS.BEGIN);
+            const result = await client.query(
+                `
+                UPDATE vendor SET is_verif = $1 WHERE ven_id = $2
+                `,
+                [status, id]
+            );
+            await client.query(TRANS.COMMIT);
+            console.log(result);
+            return result;
+        } catch (err) {
+            console.error(err);
+            throw err;
+        } finally {
+            client.release();
+        }
+    },
+
     /*
      There will be :
      - setter : setDetailVen, setBankVen, setFileVen, setTempFileVen

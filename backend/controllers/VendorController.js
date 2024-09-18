@@ -405,4 +405,23 @@ VendorController.newBank = async (req, res) => {
     }
 };
 
+VendorController.verify = async (req, res) => {
+    const id = req.body.ven_id;
+    const status = req.body.verified;
+    try {
+        if (!id) {
+            throw new Error("Bad Request");
+        }
+        const result = await Vendor.verifyVendor(status, id);
+        res.status(200).send({
+            message: `Success verify vendor ${id}`,
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({
+            message: error.message,
+        });
+    }
+};
+
 module.exports = VendorController;
