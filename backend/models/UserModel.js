@@ -264,6 +264,7 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
     loginUser: async ({ username, password }) => {
         const client = await db.connect();
         try {
+            // add union to a_uservendor
             const userData = await client.query(
                 `SELECT * FROM 
                 (SELECT USERNAME,
@@ -284,7 +285,18 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
                     MGR_ID AS USER_ID,
                     EMAIL,
                     IS_ACTIVE
-                FROM MST_MGR) AS user_vms
+                FROM MST_MGR
+                UNION
+                SELECT USERNAME,
+                    PASSWORD,
+                    FULLNAME,
+                    DEPARTMENT AS ROLE,
+                    USER_GROUP_ID AS USER_GROUP,
+                    USER_ID,
+                    EMAIL,
+                    IS_ACTIVE
+                FROM A_USERVENDOR)
+                AS user_vms
                 where USERNAME = '${username}'`
             );
             if (userData.rows.length === 0) {
@@ -359,13 +371,24 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
             );
             await client.query(TRANS.BEGIN);
             let qUpRef = "";
+            let is_reset_pwd = null;
             if (resdata.role === "MGR") {
                 qUpRef = `UPDATE MST_MGR set token = '${refreshToken}' where mgr_id = '${resdata.user_id}'`;
+            } else if (resdata.role === "VENDOR") {
+                qUpRef = `UPDATE a_uservendor SET token = '${refreshToken}' where user_id ='${resdata.user_id}'`;
+                // IF USER VENDOR, CHECK RESET PASS
+                // SELECT IS_RESET_PWD
+                const resIsPwd = await client.query(
+                    `SELECT is_reset_pwd FROM a_uservendor WHERE user_id = $1`,
+                    [resdata.user_id]
+                );
+                is_reset_pwd = resIsPwd.rows[0].is_reset_pwd;
             } else {
                 qUpRef = `UPDATE MST_USER SET token = '${refreshToken}' where user_id ='${resdata.user_id}'`;
             }
             await client.query(qUpRef);
             await client.query(TRANS.COMMIT);
+            console.log(`is reset pwd? ${is_reset_pwd}`);
             return {
                 fullname: resdata.fullname,
                 username: resdata.username,
@@ -376,6 +399,7 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
                 refreshToken: refreshToken,
                 permission: authPerm,
                 groupid: userGroup,
+                is_reset_pwd: is_reset_pwd,
             };
         } catch (error) {
             await client.query(TRANS.ROLLBACK);

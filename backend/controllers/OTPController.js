@@ -30,7 +30,17 @@ OTPController.sendOTP = async (req, res) => {
                 USER_GROUP,
                 MGR_ID AS USER_ID,
                 EMAIL
-            FROM MST_MGR) AS user_vms
+            FROM MST_MGR
+            UNION
+            SELECT USERNAME,
+                PASSWORD,
+                FULLNAME,
+                DEPARTMENT AS ROLE,
+                USER_GROUP_ID AS USER_GROUP,
+                USER_ID,
+                EMAIL
+            FROM A_USERVENDOR)
+            AS user_vms
             where USERNAME = '${username}'`);
         if (fetchData.rowCount < 1) {
             throw new Error("Username not found");
@@ -46,7 +56,8 @@ OTPController.sendOTP = async (req, res) => {
             subject: `Reset Password OTP - Vendor Management System App`,
             text: `This is your OTP Code : ${otp_code}, this code will expired after 5 minute. Please insert before expiry time`,
         };
-        await mailer.sendMail(setup);
+        const emailres = await mailer.sendMail(setup);
+        console.log(emailres);
         res.cookie("user_id", userData.user_id);
         res.status(200).send({
             message: "OTP code sent",

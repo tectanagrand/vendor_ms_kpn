@@ -71,6 +71,8 @@ const UserController = {
                 let refToken_q = "";
                 if (cookies.role !== "MGR") {
                     refToken_q = `select token from mst_user where user_id = '${cookies.user_id}'`;
+                } else if (cookies.role === "VENDOR") {
+                    refToken_q = `select token from a_uservendor where user_id = '${cookies.user_id}'`;
                 } else {
                     refToken_q = `select token from mst_mgr where mgr_id = '${cookies.user_id}'`;
                 }
@@ -227,6 +229,7 @@ const UserController = {
         const client = await db.connect();
         try {
             const user_id = req.cookies.user_id;
+            const vendor = req.body.is_vendor ?? false;
             const resetPwd = req.body.newpwd;
             if (resetPwd === undefined || resetPwd === "") {
                 throw new Error("Please provide new password");
@@ -252,12 +255,22 @@ const UserController = {
             const items = {
                 password: pass,
             };
-            const [que, val] = crud.updateItem(
-                "mst_user",
-                items,
-                { user_id: user_id },
-                "username"
-            );
+            let [que, val] = ["", ""];
+            if (vendor) {
+                [que, val] = crud.updateItem(
+                    "a_uservendor",
+                    { ...items, is_reset_pwd: true },
+                    { user_id: user_id },
+                    "username"
+                );
+            } else {
+                [que, val] = crud.updateItem(
+                    "mst_user",
+                    items,
+                    { user_id: user_id },
+                    "username"
+                );
+            }
             const resetPass = await client.query(que, val);
             const otpdelete = await client.query(
                 `delete from otp_transaction where user_id = '${user_id}'`
