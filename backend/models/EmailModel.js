@@ -960,6 +960,45 @@ const Emailer = {
             throw error;
         }
     },
+
+    approvedVerif: async (ticket_num, name_1, username, password) => {
+        try {
+            const html = Email.approvedVerify(
+                ticket_num,
+                name_1,
+                username,
+                password
+            );
+            const setup = {
+                from: process.env.SMTP_USERNAME,
+                to: "faizbyp@gmail.com",
+                subject: `Vendor ${name_1} Verification Approved`,
+                html: html,
+            };
+            const res = await tp.sendMail(setup);
+            return res;
+        } catch (error) {
+            console.error(error);
+            throw error;
+        }
+    },
+
+    rejectedVerif: async (ticket_num, name_1, notes) => {
+        try {
+            const html = Email.rejectedVerify(ticket_num, name_1, notes);
+            const setup = {
+                from: process.env.SMTP_USERNAME,
+                to: "faizbyp@gmail.com",
+                subject: `Vendor ${name_1} Verification Rejected`,
+                html: html,
+            };
+            const res = await tp.sendMail(setup);
+            return res;
+        } catch (error) {
+            console.error(error);
+            throw error;
+        }
+    },
 };
 
 module.exports = Emailer;

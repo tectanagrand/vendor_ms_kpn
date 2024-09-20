@@ -35,13 +35,13 @@ const Crud = {
             value.push(v);
         });
         Object.keys(where).forEach(key => {
-            whereCol.push(key + `= '${where[key]}'`);
+            whereCol.push(key + ` = '${where[key]}'`);
         });
         let whereScr = whereCol.join(" and ");
         const qinsertCol = insertCol.join(", ");
         let query = `UPDATE ${toTable} SET ${qinsertCol} WHERE ${whereScr}`;
         if (returning != null) {
-            query += `RETURNING ${returning}`;
+            query += ` RETURNING ${returning}`;
         } else {
             query += " ;";
         }

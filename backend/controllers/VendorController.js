@@ -406,15 +406,17 @@ VendorController.newBank = async (req, res) => {
 };
 
 VendorController.verify = async (req, res) => {
+    const verified = req.body.verified;
     const id = req.body.ven_id;
-    const status = req.body.verified;
+    const notes = req.body.reject_notes || "";
+    const status = verified == 1 ? "approve" : "reject";
     try {
-        if (!id) {
+        if (!id || !verified) {
             throw new Error("Bad Request");
         }
-        const result = await Vendor.verifyVendor(status, id);
+        const result = await Vendor.verifyVendor(verified, id, notes);
         res.status(200).send({
-            message: `Success verify vendor ${id}`,
+            message: `Success ${status} verify vendor ${id}`,
         });
     } catch (error) {
         console.error(error);
