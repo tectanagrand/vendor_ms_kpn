@@ -704,7 +704,10 @@ const Vendor = {
                     username: result.rows[0].ven_code,
                     department: "VENDOR",
                     token: refreshToken,
+                    user_group_id: "39bbc879-0e03-49d2-a16b-c19eecae313d",
                 };
+                if (!userPayload.email || !userPayload.username)
+                    throw new Error("Bad Request");
                 console.log(password);
                 console.log(userPayload);
                 const [insertQue, insertVal] = crud.insertItem(
