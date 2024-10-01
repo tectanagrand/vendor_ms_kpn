@@ -2,7 +2,7 @@ const db = require("../config/connection");
 
 const PageModel = {};
 
-PageModel.showAll = async role_id => {
+PageModel.showAll = async (role_id, username) => {
     const client = await db.connect();
     const promises = [];
     const menuAccess = new Map();
@@ -39,10 +39,12 @@ PageModel.showAll = async role_id => {
         dataHeadMenu.forEach((item, index) => {
             const childMenu = dataChildMenu[index].rows.map(item => {
                 menuName.set(item.menu_link, item.menu_page);
+                const receiptUname =
+                    item.menu_id == 30 ? `?username=${username}` : "";
                 return {
                     key: item.menu_id,
                     text: item.page,
-                    url: item.url_link,
+                    url: item.url_link + receiptUname,
                     access: [
                         item.fcreate,
                         item.fread,

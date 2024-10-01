@@ -25,7 +25,8 @@ const UserController = {
                 password: req.body.password,
             });
             const { jsonMenu, nameMenu } = await PageModel.showAll(
-                logData.groupid
+                logData.groupid,
+                logData.username
             );
 
             // res.cookie("jwt", logData.refreshToken, {
