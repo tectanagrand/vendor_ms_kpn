@@ -1,3 +1,5 @@
+const { emailTemplate } = require("./helper");
+
 const Email = {
     manager: (target, ven_name, ven_type, comp, ticket_id, description) => {
         return `
@@ -6921,6 +6923,118 @@ const Email = {
 </html>
 
         `;
+    },
+
+    approvedVerify: (ticket_num, ven_name, username, password) => {
+        return emailTemplate(`
+            <tr>
+                <table style="width: 100%">
+                    <tr>
+                    <td valign="top" class="bg_white" style="padding: 1em 2.5em">
+                        <h4>
+                        Kepada Yth. Bapak/Ibu <br />
+                        Request vendor dengan detail berikut:
+                        </h4>
+                    </td>
+                    </tr>
+                </table>
+            </tr>
+            <tr>
+            <table class="bg_white" width="100%">
+                <tr>
+                <td width="30%" style="padding: 0.1em 2.5em">Ticket Number</td>
+                <td style="padding: 0.1em 2.5em">: ${ticket_num}</td>
+                </tr>
+                <tr>
+                <td width="30%" style="padding: 0.1em 2.5em">Vendor Name</td>
+                <td style="padding: 0.1em 2.5em">: ${ven_name}</td>
+                </tr>
+                <tr>
+                <td style="padding-top: 1rem"></td>
+                </tr>
+            </table>
+            </tr>
+            <tr>
+                <table style="width: 100%">
+                    <tr>
+                    <td valign="top" class="bg_white" style="padding: 1em 2.5em">
+                        <h4>
+                        Telah diverifikasi. Mohon untuk memberikan username dan password kepada vendor terkait agar dapat masuk ke dalam sistem VMS.
+                        </h4>
+                    </td>
+                    </tr>
+                </table>
+            </tr>
+            <tr>
+            <table class="bg_white" width="100%">
+                <tr>
+                <td width="30%" style="padding: 0.1em 2.5em">Username</td>
+                <td style="padding: 0.1em 2.5em">: ${username}</td>
+                </tr>
+                <tr>
+                <td width="30%" style="padding: 0.1em 2.5em">Password</td>
+                <td style="padding: 0.1em 2.5em">: ${password}</td>
+                </tr>
+                <tr>
+                <td style="padding-top: 1rem"></td>
+                </tr>
+            </table>
+            </tr>
+            `);
+    },
+
+    rejectedVerify: (ticket_num, ven_name, reject_notes) => {
+        return emailTemplate(`
+            <tr>
+                <table style="width: 100%">
+                    <tr>
+                    <td valign="top" class="bg_white" style="padding: 1em 2.5em">
+                        <h4>
+                        Kepada Yth. Bapak/Ibu <br />
+                        Request vendor dengan detail berikut:
+                        </h4>
+                    </td>
+                    </tr>
+                </table>
+            </tr>
+            <tr>
+            <table class="bg_white" width="100%">
+                <tr>
+                <td width="30%" style="padding: 0.1em 2.5em">Ticket Number</td>
+                <td style="padding: 0.1em 2.5em">: ${ticket_num}</td>
+                </tr>
+                <tr>
+                <td width="30%" style="padding: 0.1em 2.5em">Vendor Name</td>
+                <td style="padding: 0.1em 2.5em">: ${ven_name}</td>
+                </tr>
+                <tr>
+                <td style="padding-top: 1rem"></td>
+                </tr>
+            </table>
+            </tr>
+            <tr>
+                <table style="width: 100%">
+                    <tr>
+                    <td valign="top" class="bg_white" style="padding: 1em 2.5em">
+                        <h4>
+                        Ditolak pada tahap verifikasi. Berikut detail yang diberikan oleh verifikator:
+                        </h4>
+                    </td>
+                    </tr>
+                </table>
+            </tr>
+            <tr>
+            <table class="bg_white" width="100%">
+                <tr>
+                <td width="30%" style="padding: 0.1em 2.5em">Catatan</td>
+                <td style="padding: 0.1em 2.5em">: ${reject_notes}</td>
+                </tr>
+                <tr>
+                <td style="padding-top: 1rem"></td>
+                </tr>
+            </table>
+            </tr>
+            `);
     },
 };
 

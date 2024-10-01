@@ -5,7 +5,11 @@ const crud = require("../helper/crudquery");
 const os = require("os");
 const path = require("path");
 const fs = require("fs");
+const jwt = require("jsonwebtoken");
 const moment = require("moment");
+const { hashPassword } = require("../middleware/hashpass");
+const { generate4Digit } = require("../helper/helper");
+const { approvedVerif, rejectedVerif } = require("./EmailModel");
 
 const Vendor = {
     async showAll({ isactive, limit, start }) {
@@ -626,6 +630,120 @@ const Vendor = {
             }
         });
         return promise;
+    },
+
+    async getApprovedVendor() {
+        const client = await db.connect();
+        try {
+            let query = `
+            SELECT 
+                ven.ven_code,
+                ven.name_1,
+                ven.email_pic,
+                ven.no_telf_pic,
+                ven.street,
+                ven.city,
+                bank.country,
+                bank.bank_id,
+                bank.bank_curr,
+                bank.bank_acc,
+                bank.acc_hold,
+                user.email,
+                file.file_name
+            FROM vendor ven
+            JOIN ven_bank bank ON ven.ven_id = bank.ven_id
+            JOIN ticket tic ON ven.ticket_num = tic.ticket_id
+            JOIN mst_user user ON tic.proc_id = user.user_id
+            JOIN ven_file_atth file ON ven.ven_id = file.ven_id
+            WHERE ven.ven_code IS NOT NULL
+            `;
+
+            const result = await client.query(query);
+            return {
+                count: result.rowCount,
+                data: result.rows,
+            };
+        } catch (err) {
+            console.error(err);
+            throw err;
+        } finally {
+            client.release();
+        }
+    },
+
+    async verifyVendor(verified, id, notes) {
+        // STATUS: 1 === approved; 2 === rejected
+        const client = await db.connect();
+        try {
+            await client.query(TRANS.BEGIN);
+            const [query, value] = crud.updateItem(
+                "vendor",
+                { is_verif: verified, reject_verif_notes: notes },
+                { ven_id: id },
+                "ven_id, name_1, email_pic, ven_code"
+            );
+            console.log(query);
+            const result = await client.query(query, value);
+            console.log("returning value", result.rows[0]);
+            // IF APPROVED
+            if (verified == 1) {
+                const rand = generate4Digit();
+                const password = `Kpn#${rand}`;
+                const hashed = await hashPassword(password);
+                const refreshToken = jwt.sign(
+                    { id: result.rows[0].ven_id },
+                    process.env.TOKEN_KEY,
+                    { expiresIn: "6h" }
+                );
+                const userPayload = {
+                    user_id: result.rows[0].ven_id,
+                    fullname: result.rows[0].name_1,
+                    email: result.rows[0].email_pic,
+                    password: hashed,
+                    is_active: true,
+                    username: result.rows[0].ven_code,
+                    department: "VENDOR",
+                    token: refreshToken,
+                    user_group_id: "39bbc879-0e03-49d2-a16b-c19eecae313d",
+                };
+                if (!userPayload.email || !userPayload.username)
+                    throw new Error("Bad Request");
+                console.log(password);
+                console.log(userPayload);
+                const [insertQue, insertVal] = crud.insertItem(
+                    "a_uservendor",
+                    userPayload,
+                    "user_id"
+                );
+                const insertRes = await client.query(insertQue, insertVal);
+                console.log(insertRes);
+                // send approve email to proc
+                await approvedVerif(
+                    result.rows[0].ven_code,
+                    result.rows[0].name_1,
+                    result.rows[0].ven_code,
+                    password
+                );
+            }
+            // IF REJECTED
+            else {
+                if (!notes) throw new Error("Reject notes are required");
+                console.log(notes);
+                // send reject email to proc
+                await rejectedVerif(
+                    result.rows[0].ven_code,
+                    result.rows[0].name_1,
+                    notes
+                );
+            }
+            await client.query(TRANS.COMMIT);
+            return result;
+        } catch (err) {
+            console.error(err);
+            throw err;
+        } finally {
+            client.release();
+        }
     },
 
     /*

@@ -13,6 +13,7 @@ route.delete("/delfile", controller.deleteSavedId);
 route.get("/checkven", controller.checkNameisExist);
 route.post("/deletebank", controller.deleteVenBank);
 route.post("/newbank", controller.newBank);
+route.post("/verif", controller.verify);
 route.delete("/clearfilebank", controller.deleteFileBank);
 
 module.exports = route;
