@@ -1,4 +1,5 @@
 const db = require("../config/connection");
+const moment = require("moment");
 
 const TNUMGen = {
     createTnum: async (sequence, thead) => {
@@ -19,6 +20,32 @@ const TNUMGen = {
         } finally {
             client.release();
         }
+    },
+    GenTicketEditDetReq: (username, lastticketedit) => {
+        //format RDUUUUMMYYXXX
+        // TOL => identifier
+        // UUU => 3 last digit user code
+        let running_num = 1;
+        const max_num = 999;
+        let month = moment().format("MM");
+        let year = moment().format("YY");
+        let U = username.slice(-4);
+
+        if (lastticketedit) {
+            let curmth = lastticketedit.slice(7, 9);
+            let curyr = lastticketedit.slice(9, 11);
+            if (year === curyr) {
+                if (month === curmth) {
+                    running_num = parseInt(lastticketedit.slice(-3)) + 1;
+                    if (running_num > max_num) {
+                        running_num = 1;
+                    }
+                }
+            }
+        }
+        return (
+            "RD" + U + month + year + running_num.toString().padStart(3, "0")
+        );
     },
 };
 

@@ -291,7 +291,7 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
                     PASSWORD,
                     FULLNAME,
                     DEPARTMENT AS ROLE,
-                    USER_GROUP_ID AS USER_GROUP,
+                    GROUP_ID AS USER_GROUP,
                     USER_ID,
                     EMAIL,
                     IS_ACTIVE
@@ -382,13 +382,14 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
                     `SELECT is_reset_pwd FROM a_uservendor WHERE user_id = $1`,
                     [resdata.user_id]
                 );
+                // console.log(resIsPwd);
                 is_reset_pwd = resIsPwd.rows[0].is_reset_pwd;
             } else {
                 qUpRef = `UPDATE MST_USER SET token = '${refreshToken}' where user_id ='${resdata.user_id}'`;
             }
+            // console.log(qUpRef);
             await client.query(qUpRef);
             await client.query(TRANS.COMMIT);
-            console.log(`is reset pwd? ${is_reset_pwd}`);
             return {
                 fullname: resdata.fullname,
                 username: resdata.username,
@@ -615,6 +616,53 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
             throw error;
         } finally {
             client.release();
+        }
+    },
+
+    ResetPassVendor: async (password, user_id) => {
+        try {
+            const client = await db.connect();
+            try {
+                const { rows: user_data } = await client.query(
+                    `
+                    select password from a_uservendor where user_id = $1
+                    `,
+                    [user_id]
+                );
+                let hashedPass = user_data[0].password;
+                if (!hashedPass) {
+                    throw new Error("Password not set");
+                }
+                await client.query(TRANS.BEGIN);
+                const verif = await validatePassword({
+                    password,
+                    hashed: hashedPass,
+                });
+                if (verif) {
+                    throw new Error(
+                        "Please set new password, inputted password is same with latest"
+                    );
+                }
+                let new_pass = await hashPassword(password);
+                const [queUp, valUp] = crud.updateItem(
+                    "a_uservendor",
+                    {
+                        is_reset_pwd: true,
+                        password: new_pass,
+                    },
+                    { user_id: user_id },
+                    "user_id"
+                );
+                await client.query(queUp, valUp);
+                await client.query(TRANS.COMMIT);
+            } catch (error) {
+                await client.query(TRANS.ROLLBACK);
+                throw error;
+            } finally {
+                client.release();
+            }
+        } catch (error) {
+            throw error;
         }
     },
 };

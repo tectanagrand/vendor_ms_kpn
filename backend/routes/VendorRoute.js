@@ -1,6 +1,7 @@
 const express = require("express");
 const route = express.Router();
 const controller = require("../controllers/VendorController");
+const AuthMiddleware = require("../middleware/tokenmanager");
 
 route.get("/", controller.showAll);
 route.post("/add/:id", controller.setVenDetail);
@@ -14,6 +15,11 @@ route.get("/checkven", controller.checkNameisExist);
 route.post("/deletebank", controller.deleteVenBank);
 route.post("/newbank", controller.newBank);
 route.post("/verif", controller.verify);
+route.get("/verif", controller.GetVendorVerif);
+route.get("/verified", controller.GetVerifiedVendor);
+route.post("/stage", controller.UploadStaging);
 route.delete("/clearfilebank", controller.deleteFileBank);
+route.get("/simple", AuthMiddleware.authSession, controller.GetSimpleData);
+route.get("/syncstage", controller.SyncStagingVendor);
 
 module.exports = route;

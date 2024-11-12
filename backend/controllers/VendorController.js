@@ -167,8 +167,8 @@ VendorController.setBankFile = async (req, res) => {
         const form = new formidable.IncomingForm();
         form.options.maxFileSize = 10 * 1024 * 1024;
         [fields, items] = await form.parse(req);
-        console.log(items);
-        console.log(fields);
+        // console.log(items);
+        // console.log(fields);
         let file = items.file_atth[0];
         let newPath = "";
         try {
@@ -410,13 +410,85 @@ VendorController.verify = async (req, res) => {
     const id = req.body.ven_id;
     const notes = req.body.reject_notes || "";
     const status = verified == 1 ? "approve" : "reject";
+    const session = req.cookies;
     try {
-        if (!id || !verified) {
+        if (!id) {
             throw new Error("Bad Request");
         }
-        const result = await Vendor.verifyVendor(verified, id, notes);
+        const result = await Vendor.verifyVendor(verified, id, notes, session);
         res.status(200).send({
-            message: `Success ${status} verify vendor ${id}`,
+            message: `Success ${status} verify vendor ${result.name_1}`,
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({
+            message: error.message,
+        });
+    }
+};
+
+VendorController.GetVendorVerif = async (req, res) => {
+    try {
+        const data_verif = await Vendor.GetVendorVerif();
+        res.status(200).send({
+            data: data_verif,
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({
+            message: error.message,
+        });
+    }
+};
+
+VendorController.GetVerifiedVendor = async (req, res) => {
+    try {
+        const { limit, offset, q } = req.query;
+        const data = await Vendor.GetVerifiedVendors(limit, offset, q);
+        res.status(200).send(data);
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({
+            message: error.message,
+        });
+    }
+};
+
+VendorController.GetSimpleData = async (req, res) => {
+    try {
+        const { ven_id } = req.query;
+        const result = await Vendor.SimpleData(ven_id);
+        res.status(200).send(result);
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({
+            message: error.message,
+        });
+    }
+};
+
+VendorController.UploadStaging = async (req, res) => {
+    try {
+        const { ven_id } = req.body;
+        const result = await Vendor.UploadStaging(ven_id);
+        res.status(200).send({
+            data: result,
+            message: "Data Pushed to Staging",
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({
+            message: error.message,
+        });
+    }
+};
+
+VendorController.SyncStagingVendor = async (req, res) => {
+    try {
+        const result = await Vendor.SyncStagingVendor();
+        res.status(200).send({
+            data: result,
+            message: "Data Synced",
         });
     } catch (error) {
         console.error(error);

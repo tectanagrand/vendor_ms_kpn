@@ -41,7 +41,9 @@ VerifyLogin.verif = async (req, res, next) => {
                     const { rows } = await client.query(
                         `select token from (select username, user_id, token from mst_user mu 
             union 
-            select username, mgr_id as user_id, token from mst_mgr mm ) u where user_id = $1`,
+            select username, mgr_id as user_id, token from mst_mgr mm 
+            union 
+            select username, user_id, token from a_uservendor) u where user_id = $1`,
                         [cookies.user_id]
                     );
                     const refreshToken = rows[0].token;

@@ -410,7 +410,7 @@ const Ticket = {
                         left join (select user_id, department from mst_user) mdm on mdm.user_id = tic.mdm_id
                         left join vendor v on tic.ven_id = v.ven_id 
                         where tic.token = '${ticket_id}'`);
-            console.log(ticketq);
+            // console.log(ticketq);
             const targets = await this.ticketTarget(ticket_id);
             const dataTrg = targets.data;
             const ticket = ticketq.rows[0];
@@ -657,19 +657,59 @@ const Ticket = {
                     }
                 }
             } else if (!is_draft && ticket_state === "FINA") {
-                //Email vendor sudah complete
-                await Emailer.toApprove(
-                    ven_detail.ven_code,
-                    ven_detail.name_1,
-                    dataTrg.proc_email,
-                    [
-                        dataTrg.mgr_pr_email,
-                        dataTrg.mgr_md_email,
-                        dataTrg.mdm_email,
-                    ]
+                if (
+                    ven_detail.ven_code == "" ||
+                    ven_detail.ven_code.length === 10
+                ) {
+                    throw new Error("Inputted Vendor Code is not allowed");
+                }
+                await client.query(TRANS.COMMIT);
+                await Vendor.UploadStaging(ven_detail.ven_id, client);
+                const { rows: hostname } = await client.query(
+                    `
+                    select hostname from hostname where mode_env = $1
+                    `,
+                    [process.env.NODE_ENV]
                 );
-                //Email vendor ke orang pajak
-                await Emailer.NotifPajak(ven_detail);
+                const { rows: verificator } = await client.query(`
+                    select
+                        email
+                    from
+                        mst_mgr mm
+                    left join (
+                        select
+                            distinct user_group_id,
+                            user_group_name
+                        from
+                            mst_page_access mp) mpa on
+                        mm.user_group = mpa.user_group_id
+                    where
+                        mpa.user_group_name = 'VERIFIC'
+
+                    `);
+                const link = `${hostname[0].hostname}/dashboard/vendorverif`;
+                await Emailer.RequestVerificator(
+                    {
+                        title: ven_detail.title,
+                        local_ovs: ven_detail.local_ovs,
+                        ven_name: ven_detail.name_1,
+                    },
+                    link,
+                    verificator[0].email
+                );
+                // //Email vendor sudah complete
+                // await Emailer.toApprove(
+                //     ven_detail.ven_code,
+                //     ven_detail.name_1,
+                //     dataTrg.proc_email,
+                //     [
+                //         dataTrg.mgr_pr_email,
+                //         dataTrg.mgr_md_email,
+                //         dataTrg.mdm_email,
+                //     ]
+                // );
+                // //Email vendor ke orang pajak
+                // await Emailer.NotifPajak(ven_detail);
             } else if (!is_draft && ticket_state === "INIT") {
                 await Emailer.newRequest(
                     ven_detail.title,
@@ -738,6 +778,8 @@ const Ticket = {
                     where,
                     "ticket_id"
                 );
+                // console.log(query);
+                // console.log(val);
                 const updateTicket = await client.query(query, val);
             } else if (action === "reject") {
                 itemup = {

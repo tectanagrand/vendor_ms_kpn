@@ -2,7 +2,7 @@ const express = require("express");
 const header = require("./backend/middleware/header");
 const app = express();
 const dotenv = require("dotenv").config({
-    path: `./.env.${process.env.NODE_ENV}`,
+    path: `./${process.env.NODE_ENV}.env`,
 });
 const os = require("os");
 const https = require("https");
@@ -15,6 +15,7 @@ const cookieParser = require("cookie-parser");
 const fs = require("fs");
 const db = require("./backend/config/connection");
 const VerifyLogin = require("./backend/middleware/VerifyLogin");
+const { SchedulerSyncStaged } = require("./backend/helper/Scheduler");
 
 const whitelist = [
     "http://172.30.60.50:3000",
@@ -67,6 +68,13 @@ process.on("uncaughtException", err => {
     console.error(err, "Uncaught Exception thrown");
     process.exit(1);
 });
+
+setInterval(
+    async () => {
+        await SchedulerSyncStaged();
+    },
+    1000 * 60 * 11
+); //11 minutes
 
 // setInterval(() => {
 //     console.log("client:" + db.totalCount);

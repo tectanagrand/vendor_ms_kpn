@@ -8,6 +8,8 @@ public/build
 .env.production
 .env-prod
 .env-dev1
+*.env
+.env*
 ssl
 Dockerfilebk.prod
 

@@ -8,7 +8,7 @@ const Emailer = require("./EmailModel");
 
 const Reqstat = {
     request: async reqForm => {
-        console.log(reqForm);
+        // console.log(reqForm);
         try {
             const client = await db.connect();
             await client.query(TRANS.BEGIN);

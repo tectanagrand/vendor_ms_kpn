@@ -70,10 +70,10 @@ const UserController = {
             }
             try {
                 let refToken_q = "";
-                if (cookies.role !== "MGR") {
-                    refToken_q = `select token from mst_user where user_id = '${cookies.user_id}'`;
-                } else if (cookies.role === "VENDOR") {
+                if (cookies.role == "VENDOR") {
                     refToken_q = `select token from a_uservendor where user_id = '${cookies.user_id}'`;
+                } else if (cookies.role !== "MGR") {
+                    refToken_q = `select token from mst_user where user_id = '${cookies.user_id}'`;
                 } else {
                     refToken_q = `select token from mst_mgr where mgr_id = '${cookies.user_id}'`;
                 }
@@ -95,6 +95,7 @@ const UserController = {
                     accessToken: newAct,
                 });
             } catch (error) {
+                console.error(error);
                 res.status(401).send({
                     message: "Login Expired",
                 });
@@ -203,7 +204,7 @@ const UserController = {
             } else {
                 submitDt = await User.createUser(Dt);
             }
-            console.log(submitDt);
+            // console.log(submitDt);
             res.status(200).send({
                 message: `success created ${submitDt.name}`,
             });
@@ -325,6 +326,22 @@ const UserController = {
             });
         } finally {
             client.release();
+        }
+    },
+
+    ResetPassVendor: async (req, res) => {
+        try {
+            const { password } = req.body;
+            const { user_id } = req.cookies;
+            const reset_pass = await User.ResetPassVendor(password, user_id);
+            res.status(200).send({
+                message: "Password successfully reset",
+            });
+        } catch (error) {
+            console.error(error);
+            res.status(500).send({
+                message: error.message,
+            });
         }
     },
 };

@@ -9,7 +9,8 @@ const jwt = require("jsonwebtoken");
 const moment = require("moment");
 const { hashPassword } = require("../middleware/hashpass");
 const { generate4Digit } = require("../helper/helper");
-const { approvedVerif, rejectedVerif } = require("./EmailModel");
+const Emailer = require("./EmailModel");
+const { getConnection } = require("../config/oracleconnection");
 
 const Vendor = {
     async showAll({ isactive, limit, start }) {
@@ -301,10 +302,10 @@ const Vendor = {
         const client = await db.connect();
         try {
             const items =
-                await client.query(`select file_id, file_name, ty.file_type as desc_file, tmp.file_type, created_at, 'temp_ven_file_atth' as source from temp_ven_file_atth tmp
+                await client.query(`select file_id as id, file_id, file_name, ty.file_type as desc_file, tmp.file_type, created_at, 'temp_ven_file_atth' as source from temp_ven_file_atth tmp
                 left join mst_file_type ty on ty.file_code = tmp.file_type
                 where ven_id = '${ven_id}' and tmp.file_type not in ('A001', 'A002') 
-            union select file_id, file_name,ty.file_type as desc_file, fl.file_type, created_at, 'ven_file_atth' as source from ven_file_atth fl
+            union select file_id as id, file_id, file_name,ty.file_type as desc_file, fl.file_type, created_at, 'ven_file_atth' as source from ven_file_atth fl
             left join mst_file_type ty on ty.file_code = fl.file_type
             where ven_id = '${ven_id}' and fl.file_type not in ('A001', 'A002')`);
             // console.log(items);
@@ -671,7 +672,7 @@ const Vendor = {
         }
     },
 
-    async verifyVendor(verified, id, notes) {
+    async verifyVendor(verified, id, notes, session) {
         // STATUS: 1 === approved; 2 === rejected
         const client = await db.connect();
         try {
@@ -682,9 +683,26 @@ const Vendor = {
                 { ven_id: id },
                 "ven_id, name_1, email_pic, ven_code"
             );
-            console.log(query);
+            const { rows: proc_email } = await client.query(
+                `
+                select
+                    mu.email, t.token
+                from
+                    ticket t
+                left join vendor v on
+                    v.ven_id = t.ven_id
+                left join mst_user mu on
+                    mu.user_id = t.proc_id
+                where
+                    v.ven_id = $1
+                `,
+                [id]
+            );
+            // console.log(query);
             const result = await client.query(query, value);
-            console.log("returning value", result.rows[0]);
+            const targets = await Vendor.ticket_target(proc_email[0].token);
+            const dataTrg = targets;
+            // console.log("returning value", result.rows[0]);
             // IF APPROVED
             if (verified == 1) {
                 const rand = generate4Digit();
@@ -704,24 +722,39 @@ const Vendor = {
                     username: result.rows[0].ven_code,
                     department: "VENDOR",
                     token: refreshToken,
-                    user_group_id: "39bbc879-0e03-49d2-a16b-c19eecae313d",
+                    group_id: "39bbc879-0e03-49d2-a16b-c19eecae313d",
+                    user_group_id: "1",
                 };
                 if (!userPayload.email || !userPayload.username)
                     throw new Error("Bad Request");
-                console.log(password);
-                console.log(userPayload);
+                // console.log(password);
+                // console.log(userPayload);
                 const [insertQue, insertVal] = crud.insertItem(
                     "a_uservendor",
                     userPayload,
                     "user_id"
                 );
                 const insertRes = await client.query(insertQue, insertVal);
-                console.log(insertRes);
+                // console.log(insertRes);
                 // send approve email to proc
-                await approvedVerif(
+                //Email vendor sudah complete
+                await Emailer.toApprove(
+                    result.rows[0].ven_code,
+                    result.rows[0].name_1,
+                    dataTrg.proc_email,
+                    [
+                        dataTrg.mgr_pr_email,
+                        dataTrg.mgr_md_email,
+                        dataTrg.mdm_email,
+                    ]
+                );
+                //Email vendor ke orang pajak
+                await Emailer.NotifPajak(result.rows[0]);
+                await Emailer.approvedVerif(
                     result.rows[0].ven_code,
                     result.rows[0].name_1,
                     result.rows[0].ven_code,
+                    proc_email[0].email,
                     password
                 );
             }
@@ -729,15 +762,38 @@ const Vendor = {
             else {
                 if (!notes) throw new Error("Reject notes are required");
                 console.log(notes);
+                const today = moment().format("YYYY-MM-DDTHH:mm:ss");
+                const [qins, valins] = crud.insertItem(
+                    "log_rejection",
+                    {
+                        ticket_id: proc_email[0].token,
+                        create_at: today,
+                        remarks: notes,
+                        create_by: session.user_id,
+                        ticket_state: "VERIF",
+                    },
+                    "ticket_id"
+                );
+                await client.query(`UPDATE ticket
+                                set reject_by = 'VERIFIC',
+                                cur_pos = 'PROC',
+                                remarks= '${notes}',
+                                ticket_state = 'CREA',
+                                updated_at = DEFAULT
+                                where token = '${proc_email[0].token}'
+                                returning ticket_id`);
+                await client.query(qins, valins);
                 // send reject email to proc
-                await rejectedVerif(
+                await Emailer.rejectedVerif(
                     result.rows[0].ven_code,
                     result.rows[0].name_1,
-                    notes
+                    notes,
+                    proc_email[0].email,
+                    dataTrg.mdm_email
                 );
             }
             await client.query(TRANS.COMMIT);
-            return result;
+            return result.rows[0];
         } catch (err) {
             console.error(err);
             throw err;
@@ -745,6 +801,717 @@ const Vendor = {
             client.release();
         }
     },
+
+    async GetVerifiedVendors(limit, offset, q) {
+        try {
+            const client = await db.connect();
+            try {
+                let query = `%${q}%`;
+                const { rows } = await client.query(
+                    `
+                    SELECT auv.fullname, 
+                    auv.email, 
+                    auv.username, 
+                    concat('+', mpc.prefix, '-', no_telf_pic) as telf, 
+                    v.ven_id,
+                    t.token
+                    from a_uservendor auv
+                    LEFT JOIN vendor v on auv.user_id = v.ven_id
+                    LEFT JOIN mst_phone_code mpc on v.country = mpc.territory 
+                    LEFT JOIN ticket t on t.ven_id = v.ven_id
+                    where auv.fullname like $1 or auv.username like $2 or auv.email like $3
+                    limit $4 offset $5
+                    `,
+                    [query, query, query, limit, offset]
+                );
+                const { rows: dataCount } = await client.query(
+                    `
+                    SELECT count(*) as count_data from a_uservendor auv
+                     where auv.fullname like $1 or auv.username like $2 or auv.email like $3
+                    `,
+                    [query, query, query]
+                );
+
+                return {
+                    data: rows,
+                    count: dataCount[0].count_data,
+                };
+            } catch (error) {
+                throw error;
+            } finally {
+                client.release();
+            }
+        } catch (error) {
+            throw error;
+        }
+    },
+
+    async GetVendorVerif() {
+        try {
+            const client = await db.connect();
+            try {
+                const vendors = new Map();
+                const baseq = `
+                    select v.ven_id, 
+                    ven_code, 
+                    name_1, 
+                    email_pic, 
+                    concat('+', mpc.prefix, '-', no_telf_pic) as no_telf_pic, 
+                    concat(street, ' ', street2, ' ', street3, ' ', street4) as street, 
+                    v.city,
+                    t.token,
+                    mu.email as email_requestor
+                    from vendor v
+                    left join ticket t on t.ven_id = v.ven_id
+                    left join mst_user mu on mu.user_id = t.proc_id
+                    left join mst_phone_code mpc on mpc.territory = v.country 
+                    where v.is_verif is null 
+                    and (v.ven_code is not null and trim(v.ven_code) <> '') 
+                `;
+                const { rows: data_ven } = await client.query(baseq);
+                data_ven.forEach(value => {
+                    vendors.set(value.ven_id, value);
+                });
+                const bankbq = `
+                select 
+                    v.ven_id,
+                    vb.bankv_id,
+                    mbs.bank_name,
+                    bank_acc,
+                    acc_hold,
+                    a001.file_name as A001,
+                    a002.file_name as A002
+                from
+                    ven_bank vb
+                left join ven_file_atth a001 on
+                    vb.bankv_id = a001.bank_id
+                    and a001.file_type = 'A001'
+                left join ven_file_atth a002 on
+                    vb.bankv_id = a002.bank_id
+                    and a002.file_type = 'A002'
+                left join vendor v on
+                    v.ven_id = vb.ven_id
+                left join mst_bank_sap mbs on mbs.id = vb.bank_id::int
+                where
+                    v.is_verif is null 
+                                    and (v.ven_code is not null and trim(v.ven_code) <> '') 
+                order by vb.ven_id desc
+                `;
+                const { rows: banks } = await client.query(bankbq);
+                let initvenid = banks[0].ven_id;
+                let bk = [];
+                for (let i = 0; i < banks.length; i++) {
+                    bk.push(banks[i]);
+                    if (banks[i + 1]) {
+                        if (initvenid !== banks[i + 1].ven_id) {
+                            vendors.set(initvenid, {
+                                ...vendors.get(initvenid),
+                                bank: bk,
+                            });
+                            initvenid = banks[i + 1].ven_id;
+                            bk = [];
+                        }
+                    } else {
+                        vendors.set(initvenid, {
+                            ...vendors.get(initvenid),
+                            bank: bk,
+                        });
+                        initvenid = "";
+                        bk = [];
+                    }
+                }
+                return Array.from(vendors.values());
+            } catch (error) {
+                throw error;
+            } finally {
+                client.release();
+            }
+        } catch (error) {
+            throw error;
+        }
+    },
+
+    async ticket_target(ticket_id) {
+        const client = await db.connect();
+        try {
+            const getTargetsq = `
+            select 
+            proc.email as proc_email, 
+            mdm.email as mdm_email, 
+            mgr_pr.email as mgr_pr_email,
+            mgr_md.email as mgr_md_email,
+            proc.fullname as proc_fname,
+            mdm.fullname as mdm_fname
+            from ticket t
+                left join mst_user proc on proc.user_id = t.proc_id
+                left join mst_user mdm on mdm.user_id = t.mdm_id
+                left join mst_mgr mgr_pr on mgr_pr.mgr_id = proc.mgr_id
+                left join mst_mgr mgr_md on mgr_md.mgr_id = mdm.mgr_id
+                where t.token = '${ticket_id}'
+            `;
+            const item = await client.query(getTargetsq);
+            return item.rows[0];
+        } catch (error) {
+            console.error(error);
+            throw error;
+        } finally {
+            client.release();
+        }
+    },
+
+    async SimpleData(ven_id) {
+        try {
+            const client = await db.connect();
+            try {
+                const { rows: vendor_data } = await client.query(
+                    `
+                    select
+                        ven_code,
+                        title,
+                        local_ovs ,
+                        name_1 ,
+                        street ,
+                        street2,
+                        street3,
+                        street4,
+                        mc2.country_name as country,
+                        postal ,
+                        city,
+                        telf1 ,
+                        email,
+                        npwp,
+                        pay_mthd ,
+                        pay_term,
+                        mpt.term_name,
+                        v.last_version
+                    from
+                        vendor v
+                    left join mst_company mc on
+                        mc.comp_id = v.company
+                    left join mst_country mc2 on
+                        mc2.country_code = v.country
+                    left join mst_pay_term mpt on
+                        mpt.term_code = v.pay_term
+                    where
+                        ven_id = $1                    
+                    `,
+                    [ven_id]
+                );
+
+                const { rows: ven_bank } = await client.query(
+                    `
+                    select
+                        bankv_id,
+                        mbs.bank_code ,
+                        mbs.bank_name ,
+                        bank_acc ,
+                        bank_curr ,
+                        acc_hold,
+                        mc.country_name as country,
+                        accst.file_name as account_statement_letter,
+                        psbk.file_name as passbook,
+                        vb.last_version
+                        from 
+                        ven_bank vb
+                    left join mst_bank_sap mbs on
+                        mbs.id = vb.bank_id::int
+                    left join mst_country mc on
+                        mc.country_code = vb.country
+                    left join ven_file_atth accst on accst.bank_id = vb.bankv_id and accst.file_type = 'A001'
+                    left join ven_file_atth psbk on psbk.bank_id = vb.bankv_id and psbk.file_type = 'A002'
+                    where
+                        vb.ven_id = $1
+                    `,
+                    [ven_id]
+                );
+
+                const { rows: ven_file } = await client.query(
+                    `
+                    select mft.file_type, vfa.file_name from ven_file_atth vfa 
+                        left join mst_file_type mft on mft.file_code = vfa.file_type 
+                        where ven_id = $1 and bank_id is null
+                    `,
+                    [ven_id]
+                );
+                if (!vendor_data.length > 0) {
+                    throw new Error("Vendor data not found");
+                }
+                return {
+                    detail: vendor_data[0],
+                    banks: ven_bank,
+                    files: ven_file,
+                    version: {
+                        vendor: vendor_data[0].last_version,
+                        bank: ven_bank[0].last_version,
+                    },
+                };
+            } catch (error) {
+                throw error;
+            } finally {
+                client.release();
+            }
+        } catch (error) {
+            throw error;
+        }
+    },
+
+    async GetById(ven_id) {
+        try {
+            const client = await db.connect();
+            try {
+                const { rows: vendor } = await client.query(
+                    `
+                    select v.*, mpc.prefix as code_prefix from vendor v 
+                    left join mst_phone_code mpc on mpc.territory = v.country
+                    where ven_id = $1
+                    `,
+                    [ven_id]
+                );
+                const { rows: ven_bank } = await client.query(
+                    `
+                        select
+                            bankv_id,
+                            mbs.bank_code ,
+                            mbs.bank_name ,
+                            bank_acc ,
+                            bank_curr ,
+                            acc_hold,
+                            mc.country_name as country,
+                            vb.last_version,
+                            accst.file_name as account_statement_letter,
+                            psbk.file_name as passbook
+                            from 
+                            ven_bank vb
+                        left join mst_bank_sap mbs on
+                            mbs.id = vb.bank_id::int
+                        left join mst_country mc on
+                            mc.country_code = vb.country
+                        left join ven_file_atth accst on accst.bank_id = vb.bankv_id and accst.file_type = 'A001'
+                        left join ven_file_atth psbk on psbk.bank_id = vb.bankv_id and psbk.file_type = 'A002'
+                        where
+                            vb.ven_id = $1
+                        `,
+                    [ven_id]
+                );
+                const { rows: ven_file } = await client.query(
+                    `
+                        select mft.file_type, vfa.file_name, vfa.file_type as file_code from ven_file_atth vfa 
+                            left join mst_file_type mft on mft.file_code = vfa.file_type 
+                            where ven_id = $1 and bank_id is null
+                        `,
+                    [ven_id]
+                );
+                return {
+                    detail: vendor[0],
+                    files: ven_file,
+                    banks: ven_bank,
+                };
+            } catch (error) {
+                throw error;
+            } finally {
+                client.release();
+            }
+        } catch (error) {
+            throw error;
+        }
+    },
+
+    async GetRevisionById(ven_id) {
+        try {
+            const client = await db.connect();
+            try {
+                const { rows: vendor_stage } = await client.query(
+                    `
+                    select l.*, mpc.prefix as code_prefix from log_history_edit l 
+                    left join vendor v on v.ven_id = l.ven_id and v.last_version = l.version
+                    left join mst_phone_code mpc on mpc.territory = l.country
+                    where l.ven_id = $1 
+                    `,
+                    [ven_id]
+                );
+                const { rows: vendor } = await client.query(
+                    `
+                    select l.*, mpc.prefix as code_prefix from log_history_edit l 
+                    left join (
+                    select case when last_version - 1 < 0
+                    then last_version
+                    else last_version - 1
+                    end
+                    as last_version, ven_id from vendor
+                    ) v on v.ven_id = l.ven_id and v.last_version = l.version
+                    left join mst_phone_code mpc on mpc.territory = l.country
+                    where l.ven_id = $1 and l.version = v.last_version
+                    `,
+                    [ven_id]
+                );
+                const { rows: ven_file } = await client.query(
+                    `
+                        select
+                        lf.file_id as id,
+                        lf.file_id,
+                            mft.file_type as desc_file,
+                            lf.file_name,
+                            lf.file_type,
+                            v.last_version,
+                            lf.updated_at,
+                            'server' as source,
+                            changes as method
+                        from
+                            log_file lf
+                        left join mst_file_type mft on
+                            mft.file_code = lf.file_type
+                        left join vendor v on
+                            v.ven_id = lf.ven_id
+                        where
+                            lf.ven_id = $1 
+                            and lf."version" = v.last_version 
+                        `,
+                    [ven_id]
+                );
+                return {
+                    detail_staged: vendor_stage[0],
+                    detail: vendor[0],
+                    changes: vendor_stage[0].changes,
+                    files: ven_file,
+                };
+            } catch (error) {
+                throw error;
+            } finally {
+                client.release();
+            }
+        } catch (error) {
+            throw error;
+        }
+    },
+
+    async UploadStaging(ven_id, pgclient) {
+        try {
+            let psqlclient = pgclient;
+            if (!psqlclient) {
+                psqlclient = await db.connect();
+            }
+            const oraclient = await getConnection();
+            try {
+                const { rows: vendor_data } = await psqlclient.query(
+                    `
+                    select
+                        name_1,
+                        ven_code,
+                        title,
+                        local_ovs ,
+                        search_term,
+                        purch_org,
+                        mc.sap_code as company,
+                        street ,
+                        street2,
+                        street3,
+                        street4,
+                        street_npwp ,
+                        street2_npwp,
+                        street3_npwp,
+                        street4_npwp,
+                        v.country,
+                        postal ,
+                        city,
+                        telf1 ,
+                        email,
+                        npwp,
+                        pay_mthd ,
+                        pay_term,
+                        mpt.term_name,
+                        limit_vendor,
+                        lim_curr,
+                        ven_acc,
+                        mpc.prefix as phone_pref
+                    from
+                        vendor v
+                    left join mst_company mc on
+                        mc.comp_id = v.company
+                    left join mst_country mc2 on
+                        mc2.country_code = v.country
+                    left join mst_phone_code mpc on mpc.territory = v.country
+                    left join mst_pay_term mpt on
+                        mpt.term_code = v.pay_term
+                    where
+                        ven_id = $1                    
+                    `,
+                    [ven_id]
+                );
+                const ven = vendor_data[0];
+                let localovs;
+                let title = "";
+                if (ven.title === "COMPANY") {
+                    title = "0003";
+                }
+                // nontrade : 50, trade : 00
+                //
+                switch (ven.local_ovs) {
+                    case "LOCAL":
+                        if (ven.ven_acc == "TRADE") {
+                            localovs = "V100";
+                        } else {
+                            localovs = "V150";
+                        }
+                        break;
+                    case "OVS":
+                        if (ven.ven_acc == "TRADE") {
+                            localovs = "V200";
+                        } else {
+                            localovs = "V250";
+                        }
+                        break;
+                }
+
+                const { rows: ven_bank } = await psqlclient.query(
+                    `
+                    select
+                        bankv_id,
+                        mbs.bank_key ,
+                        mbs.bank_name ,
+                        bank_acc ,
+                        bank_curr ,
+                        acc_hold,
+                        vb.country
+                        from 
+                        ven_bank vb
+                    left join mst_bank_sap mbs on
+                        mbs.id = vb.bank_id::int
+                    left join mst_country mc on
+                        mc.country_code = vb.country
+                    where
+                        vb.ven_id = $1
+                    `,
+                    [ven_id]
+                );
+
+                const { rows: ven_file } = await psqlclient.query(
+                    `
+                    select mft.file_code, vfa.file_name from ven_file_atth vfa 
+                        left join mst_file_type mft on mft.file_code = vfa.file_type 
+                        where ven_id = $1 
+                    `,
+                    [ven_id]
+                );
+                const PayloadVenDet = {
+                    VEN_ID: ven_id,
+                    VEN_CODE: ven.ven_code,
+                    TITLE: title,
+                    NAME_1: ven.name_1,
+                    GROUPING: localovs,
+                    COMPANY: ven.company,
+                    STREET_1: ven.street,
+                    STREET_2: ven.street2,
+                    STREET_3: ven.street3,
+                    STREET_4: ven.street4,
+                    STREET_1_NPWP: ven.street_npwp,
+                    STREET_2_NPWP: ven.street2_npwp,
+                    STREET_3_NPWP: ven.street3_npwp,
+                    STREET_4_NPWP: ven.street4_npwp,
+                    CITY: ven.city,
+                    TELF_1: `${ven.phone_pref}${ven.telf1}`,
+                    EMAIL: ven.email,
+                    NPWP: ven.npwp,
+                    PAY_MTHD: ven.pay_mthd,
+                    PAY_TERM: ven.pay_term,
+                    SEARCH_TERM: ven.search_term,
+                    PUR_ORG: ven.purch_org,
+                    LIMIT: ven.limit_vendor,
+                    CURR: ven.lim_curr,
+                    POSTAL: ven.postal,
+                    COUNTRY: ven.country,
+                    ISRETRIEVEDBYSAP: 0,
+                };
+
+                const [insDet, valDet] = crud.insertItemOra(
+                    "VMS_VENDORDATA",
+                    PayloadVenDet
+                );
+                await oraclient.execute(insDet, valDet);
+                for (const bank of ven_bank) {
+                    const uid = uuid.uuid();
+                    const PayloadBank = {
+                        UUID: uid,
+                        VEN_ID: ven_id,
+                        BANK_COUNTRY: bank.country,
+                        BANK_ID: bank.bank_key,
+                        BANK_ACC: bank.bank_acc,
+                        ACC_HOLD: bank.acc_hold,
+                        ACC_NAME: bank.bank_name.slice(0, 40),
+                    };
+                    const [insBank, valBank] = crud.insertItemOra(
+                        "VMS_VENDORBANK",
+                        PayloadBank
+                    );
+                    await oraclient.execute(insBank, valBank);
+                }
+                for (const file of ven_file) {
+                    const uid = uuid.uuid();
+                    const PayloadFile = {
+                        UUID: uid,
+                        VEN_ID: ven_id,
+                        FILE_TYPE: file.file_code,
+                        FILE_NAME: file.file_name,
+                    };
+                    const [insFile, valFile] = crud.insertItemOra(
+                        "VMS_FILEATTACHMENT",
+                        PayloadFile
+                    );
+                    await oraclient.execute(insFile, valFile);
+                }
+                oraclient.commit();
+                return {
+                    ven_code: ven.ven_code,
+                };
+            } catch (error) {
+                oraclient.rollback();
+                throw error;
+            } finally {
+                if (pgclient && psqlclient) {
+                    psqlclient.release();
+                }
+                if (oraclient) {
+                    oraclient.release();
+                }
+            }
+        } catch (error) {
+            throw error;
+        }
+    },
+
+    async SyncStagingVendor() {
+        try {
+            const oraclient = await getConnection();
+            const psqlclient = await db.connect();
+            try {
+                await psqlclient.query(TRANS.BEGIN);
+                const ColORA = {
+                    VEN_ID: 0,
+                    VEN_CODE: 1,
+                    NAME_1: 2,
+                    ISRETRIEVEDBYSAP: 3,
+                    FLAG_CRT: 4,
+                    ERROR_MSG_CRT: 5,
+                    FLAG_EXT: 6,
+                    ERROR_MSG_EXT: 7,
+                };
+                const { rows } = await oraclient.execute(`
+                    SELECT ${Object.keys(ColORA).join(
+                        ", "
+                    )} FROM VMS_VENDORDATA WHERE ISRETRIEVEDBYSAP = 1 AND IS_SYNCWEB IS NULL
+                    `);
+                let VenSuccess = [];
+                let VenError = [];
+                for (const row of rows) {
+                    //if error in push sap
+                    if (
+                        [
+                            row[ColORA["FLAG_CRT"]],
+                            row[ColORA["FLAG_EXT"]],
+                        ].includes("E")
+                    ) {
+                        const payloadError = {
+                            error_msg:
+                                row[ColORA["ERROR_MSG_CRT"]] ??
+                                row[ColORA["ERROR_MSG_EX"]],
+                            error_code:
+                                row[ColORA["FLAG_CRT"]] == "E" ? "CRT" : "EXT",
+                        };
+                        const [upQue, valQue] = crud.updateItem(
+                            "vendor",
+                            payloadError,
+                            {
+                                ven_id: row[ColORA["VEN_ID"]],
+                            }
+                        );
+                        await psqlclient.query(upQue, valQue);
+                        VenError.push({
+                            VENDOR: row[ColORA["VEN_CODE"]],
+                            ERROR:
+                                row[ColORA["ERROR_MSG_CRT"]] ??
+                                row[ColORA["ERROR_MSG_EX"]],
+                        });
+                    }
+                    //else is flag S => Success
+                    else {
+                        const payloadSuccess = {
+                            is_pushsap: true,
+                        };
+                        const [upQue, valQue] = crud.updateItem(
+                            "vendor",
+                            payloadSuccess,
+                            {
+                                ven_id: row[ColORA["VEN_ID"]],
+                            }
+                        );
+                        await psqlclient.query(upQue, valQue);
+                        const payloadOraPulled = {
+                            IS_SYNCWEB: 1,
+                        };
+                        const [upOra, valOra] = crud.updateItemOra(
+                            "VMS_VENDORDATA",
+                            payloadOraPulled,
+                            {
+                                VEN_ID: row[ColORA["VEN_ID"]],
+                            }
+                        );
+                        await oraclient.execute(upOra, valOra);
+                        VenSuccess.push(row[ColORA["VEN_CODE"]]);
+                    }
+                }
+                console.log("-------");
+                console.log("Vendor Synced");
+                console.log("Success : ");
+                for (const ven of VenSuccess) {
+                    console.log(ven);
+                }
+                console.log("-------");
+                for (const ven of VenError) {
+                    console.log(ven.VENDOR);
+                    console.log("Error :" + ven.ERROR);
+                }
+                console.log("-------");
+                await oraclient.commit();
+                await psqlclient.query(TRANS.COMMIT);
+                return {
+                    VenSuccess,
+                    VenError,
+                };
+            } catch (error) {
+                oraclient.rollback();
+                psqlclient.query(TRANS.ROLLBACK);
+                throw error;
+            } finally {
+                if (oraclient) {
+                    oraclient.release();
+                }
+                if (psqlclient) {
+                    psqlclient.release();
+                }
+            }
+        } catch (error) {
+            console.error(error);
+            throw error;
+        }
+    },
+
+    // async UpdateVendorData(ticket_id, updated_data) {
+    //     try {
+    //         const client = await db.connect() ;
+    //         try {
+    //             //check if last ticket is active
+    //             const {rows : ticket_edit} = await client.query(`
+    //                 select
+
+    //                 `)
+    //         } catch (error) {
+
+    //         } finally {
+    //             client.release()
+    //         }
+    //     } catch (error) {
+
+    //     }
+    // }
 
     /*
      There will be :
