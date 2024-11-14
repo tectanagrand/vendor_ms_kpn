@@ -1494,6 +1494,72 @@ const Vendor = {
         }
     },
 
+    async ShowProgressSyncStagingSAP({ limit, offset, q }) {
+        try {
+            const client = await db.connect();
+            try {
+                let whereval = [];
+                if (q) {
+                    whereval.push(`%${q}%`);
+                }
+                if (limit && offset) {
+                    whereval.push(limit);
+                    whereval.push(offset);
+                }
+                const { rows } = await client.query(
+                    `select
+                    v.ven_code,
+                    v.name_1,
+                    v.is_pushsap,
+                    to_char(t.updated_at, 'yyyy-mm-dd T HH24:MI:SS') as updated_at,
+                    v.error_code,
+                    v.error_msg
+                from
+                    vendor v
+                left join ticket t on
+                    v.ven_id = t.ven_id
+                where
+                    (t.ticket_state = 'END'
+                        and is_pushsap is null)
+                    or
+                (is_pushsap is not null
+                        and error_code is null
+                        and now() < t.updated_at::date + interval '7 days' )
+                    ${
+                        q ? `and (v.name_1 like $1 or v.ven_code like $1)` : ""
+                    } ${limit && offset ? `limit $2 offset $3` : ""}
+                `,
+                    whereval
+                );
+                const { rows: ctr } = await client.query(
+                    `
+                    select count(v.name_1) as counter from vendor v
+                    left join ticket t on
+                    v.ven_id = t.ven_id
+                where
+                    (t.ticket_state = 'END'
+                        and is_pushsap is null)
+                    or
+                (is_pushsap is not null
+                        and error_code is null
+                        and now() < t.updated_at::date + interval '7 days' )
+                    ${q ? `and (v.name_1 like $1 or v.ven_code like $1)` : ""}`,
+                    whereval.slice(0, 1)
+                );
+                return {
+                    data: rows,
+                    count: ctr[0].counter,
+                };
+            } catch (error) {
+                throw error;
+            } finally {
+                client.release();
+            }
+        } catch (error) {
+            throw error;
+        }
+    },
+
     // async UpdateVendorData(ticket_id, updated_data) {
     //     try {
     //         const client = await db.connect() ;

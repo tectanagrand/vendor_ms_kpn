@@ -498,4 +498,21 @@ VendorController.SyncStagingVendor = async (req, res) => {
     }
 };
 
+VendorController.ShowProgressSyncSAP = async (req, res) => {
+    try {
+        const { limit, offset, q } = req.query;
+        const data = await Vendor.ShowProgressSyncStagingSAP({
+            limit,
+            offset,
+            q,
+        });
+        res.status(200).send(data);
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({
+            message: error.message,
+        });
+    }
+};
+
 module.exports = VendorController;
