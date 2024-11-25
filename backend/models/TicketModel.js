@@ -659,7 +659,7 @@ const Ticket = {
             } else if (!is_draft && ticket_state === "FINA") {
                 if (
                     ven_detail.ven_code == "" ||
-                    ven_detail.ven_code.length === 10
+                    ven_detail.ven_code.length != 10
                 ) {
                     throw new Error("Inputted Vendor Code is not allowed");
                 }

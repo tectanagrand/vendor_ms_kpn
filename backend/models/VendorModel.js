@@ -1320,6 +1320,8 @@ const Vendor = {
                     POSTAL: ven.postal,
                     COUNTRY: ven.country,
                     ISRETRIEVEDBYSAP: 0,
+                    FLAG_CRT: "N",
+                    FLAG_EXT: "N",
                 };
 
                 const [insDet, valDet] = crud.insertItemOra(
@@ -1366,7 +1368,7 @@ const Vendor = {
                 oraclient.rollback();
                 throw error;
             } finally {
-                if (pgclient && psqlclient) {
+                if (!pgclient && psqlclient) {
                     psqlclient.release();
                 }
                 if (oraclient) {
