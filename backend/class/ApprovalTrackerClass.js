@@ -30,8 +30,9 @@ class ApprovalTracker {
                     as3.id_role,
                     as2.step_appr,
                     as2.status,
-                    ar.id_user,
-                    ar.role_name
+                    aru.id_user,
+                    ar.role_name,
+                    tre.created_by
                 from
                     approval_stat as2
                 left join ticket_req_editdet tre on
@@ -40,6 +41,7 @@ class ApprovalTracker {
                     as3.id_doctype = tre.approval_type and as2.step_appr = as3.index_approval 
                 left join approval_role ar on
                     ar.id_role = as3.id_role
+                left join (select array_agg(id_user)as id_user, id_role from approval_role_user group by id_role) aru on aru.id_role = ar.id_role
                 where id_ticket = $1
                 order by as2.step_appr asc
                 `;
@@ -117,7 +119,9 @@ class ApprovalTracker {
                     where
                 );
                 await client.query(subTicQ, valSub);
-                return true;
+                return {
+                    next_step: this.current_step.role_name,
+                };
             } catch (error) {
                 console.error(error);
                 throw error;
@@ -261,11 +265,11 @@ class ApprovalTracker {
                     }
                 } else {
                     next_step = {
-                        step_appr: "END",
+                        role_name: "END",
                     };
                 }
                 return {
-                    next_step: next_step.step_appr,
+                    next_step: next_step.role_name,
                 };
             } catch (error) {
                 throw error;
@@ -312,7 +316,9 @@ class ApprovalTracker {
                 }
                 await client.query(upNext, valNext);
                 return {
-                    next_step: this.current_step.step_appr - 1,
+                    next_step:
+                        this.approval_step[this.current_step.step_appr - 1]
+                            .role_name,
                 };
             } catch (error) {
                 throw error;

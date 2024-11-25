@@ -8,5 +8,6 @@ router.post("/process", TicketEditReqController.ProcessVendor);
 router.get("/view", TicketEditReqController.GetByID);
 router.post("/delfiletemp", TicketEditReqController.DeleteFileTemp);
 router.post("/unflagdelete", TicketEditReqController.UnflagDelete);
+router.get("/getostic", TicketEditReqController.ShowAllOsTicket);
 
 module.exports = router;

@@ -148,4 +148,20 @@ TicketEditReqController.UnflagDelete = async (req, res) => {
     }
 };
 
+TicketEditReqController.ShowAllOsTicket = async (req, res) => {
+    try {
+        const { user_id } = req.cookies;
+        const { q } = req.query;
+        const data = await TicketEditReqModel.ShowAllOSTicket({ user_id, q });
+        res.status(200).send({
+            data,
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({
+            message: error.message,
+        });
+    }
+};
+
 module.exports = TicketEditReqController;

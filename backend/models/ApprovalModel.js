@@ -22,7 +22,6 @@ ApprovalModel.AddNewRole = async ({
             let result = "";
             let payload = {
                 role_name: role_name,
-                id_user: id_users,
                 cc_id_user: cc_users,
             };
             if (!id_role) {
@@ -50,6 +49,17 @@ ApprovalModel.AddNewRole = async ({
                         queIns,
                         valIns
                     );
+                    for (const usr of id_users) {
+                        let payload_user = {
+                            id_user: usr,
+                            id_role: payload.id_role,
+                        };
+                        const [insUsr, valUsr] = Crud.insertItem(
+                            "approval_role_user",
+                            payload_user
+                        );
+                        await client.query(insUsr, valUsr);
+                    }
                     result = `Role ${insert_role[0].role_name} successfully created`;
                     break;
 
@@ -68,6 +78,22 @@ ApprovalModel.AddNewRole = async ({
                         queUp,
                         valUp
                     );
+                    // clean iduser current and add updated one
+                    await client.query(
+                        `delete from approval_role_user where id_role = $1`,
+                        [id_role]
+                    );
+                    for (const usr of id_users) {
+                        let payload_user = {
+                            id_user: usr,
+                            id_role: id_role,
+                        };
+                        const [insUsr, valUsr] = Crud.insertItem(
+                            "approval_role_user",
+                            payload_user
+                        );
+                        await client.query(insUsr, valUsr);
+                    }
                     result = `Role ${update_role[0].role_name} successfully updated`;
                     break;
             }

@@ -464,7 +464,16 @@ TicketEditReqModel.ProcessVendor = async ({
         try {
             let result;
             await client.query(TRANS.BEGIN);
+            const ApprovalTrack = new ApprovalTracker(client, ticket_id);
+            await ApprovalTrack.init();
             if (action !== "reject") {
+                const current = ApprovalTrack.getCurrentStep();
+                if (
+                    !current.id_user.includes(user_id) ||
+                    (!current.submitted && user_id !== current.created_by)
+                ) {
+                    throw new Error("Action not allowed");
+                }
                 result = await TicketEditReqModel.SaveVendor({
                     psqlclient: client,
                     data_vendor,
@@ -510,6 +519,45 @@ TicketEditReqModel.ProcessVendor = async ({
     }
 };
 
+TicketEditReqModel.NextActionVendor = async ({
+    next_pos,
+    ven_id,
+    action,
+    approval_type,
+}) => {
+    /*
+        next_pos : next role in approval sequence
+        ven_id : related ven_id
+        action : approve | reject | submit
+        approval_type : approval type of document
+    */
+    switch (approval_type) {
+        case "EDIT_DETAIl_VENDOR":
+            switch (next_pos) {
+                case "END":
+                    await TicketEditReqModel.TicketReqEditDetailEnd({ ven_id });
+            }
+            break;
+    }
+};
+
+// TicketEditReqModel.TicketReqEditDetailEnd = async({ven_id}) => {
+//     try {
+//         const client = await db.connect() ;
+//         try {
+//             const {rows} = await client.query(`
+
+//                 `)
+//         } catch (error) {
+
+//         } finally {
+//             client.release()
+//         }
+//     } catch (error) {
+
+//     }
+// }
+
 TicketEditReqModel.GetById = async ({ ticket_id }) => {
     try {
         const client = await db.connect();
@@ -518,7 +566,7 @@ TicketEditReqModel.GetById = async ({ ticket_id }) => {
                 `
                 select
                     tre.ven_id, as2.last_step_appr, tre.submitted, ar.role_name as position,
-                    as3.disabled_input, v.last_version
+                    as3.disabled_input, v.last_version, tre.ticket_num, aru.id_user, tre.approval_type
                 from
                     ticket_req_editdet tre
                 left join 
@@ -538,6 +586,8 @@ TicketEditReqModel.GetById = async ({ ticket_id }) => {
                     tre.uuid = as2.id_ticket
                 left join approval_steps as3 on as3.id_doctype = tre.approval_type and as2.last_step_appr = as3.index_approval 
                 left join approval_role ar on ar.id_role = as3.id_role 
+                left join (select array_agg(id_user) as id_user, id_role from approval_role_user group by id_role) 
+                aru on aru.id_role = ar.id_role 
                 left join vendor v on v.ven_id = tre.ven_id
                 where tre.uuid = $1
                 `,
@@ -771,6 +821,72 @@ TicketEditReqModel.UnflagDelete = async ({ file_id }) => {
             };
         } catch (error) {
             await client.query(TRANS.ROLLBACK);
+            throw error;
+        } finally {
+            client.release();
+        }
+    } catch (error) {
+        throw error;
+    }
+};
+
+TicketEditReqModel.ShowAllOSTicket = async ({ user_id, q }) => {
+    try {
+        const client = await db.connect();
+        try {
+            let searchval = [user_id];
+            if (q) {
+                let qUp = q.toUpperCase();
+                searchval.push(`%${qUp}%`);
+            }
+            const que = `
+            select
+            tre.uuid as id,
+                tre.ticket_num,
+                tre.updated_at,
+                tre.updated_by,
+                case 
+		when cr.fullname  is not null then cr.fullname
+		when au.fullname is not null then au.fullname
+		else ''
+	end as created_by,
+                ar.role_name,
+                tre.submitted,
+                aru.id_user
+            from
+                ticket_req_editdet tre
+            left join
+            (
+                select
+                    min(step_appr) step_appr,
+                    id_ticket
+                from
+                    approval_stat
+                where
+                    status is null
+                    or status = 2
+                group by
+                    id_ticket
+            ) as2 on
+                tre.uuid = as2.id_ticket
+            left join approval_steps as3 on
+                as3.id_doctype = tre.approval_type
+                and as2.step_appr = as3.index_approval
+            left join approval_role ar on
+                ar.id_role = as3.id_role
+            left join approval_role_user aru on
+                ar.id_role = aru.id_role
+            left join mst_user cr on cr.user_id = tre.created_by 
+            left join a_uservendor au on au.user_id = tre.created_by 
+            where
+                tre.submitted = 1
+                and aru.id_user = $1
+                ${q ? `and ticket_num like $2` : ""}
+            `;
+            // console.log(que);
+            const { rows } = await client.query(que, searchval);
+            return rows;
+        } catch (error) {
             throw error;
         } finally {
             client.release();
