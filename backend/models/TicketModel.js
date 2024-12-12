@@ -664,7 +664,6 @@ const Ticket = {
                     throw new Error("Inputted Vendor Code is not allowed");
                 }
                 await client.query(TRANS.COMMIT);
-                await Vendor.UploadStaging(ven_detail.ven_id, client);
                 const { rows: hostname } = await client.query(
                     `
                     select hostname from hostname where mode_env = $1

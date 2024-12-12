@@ -705,6 +705,7 @@ const Vendor = {
             // console.log("returning value", result.rows[0]);
             // IF APPROVED
             if (verified == 1) {
+                await Vendor.UploadStaging(result.rows[0].ven_id, client);
                 const rand = generate4Digit();
                 const password = `Kpn#${rand}`;
                 const hashed = await hashPassword(password);
@@ -778,7 +779,7 @@ const Vendor = {
                                 set reject_by = 'VERIFIC',
                                 cur_pos = 'PROC',
                                 remarks= '${notes}',
-                                ticket_state = 'CREA',
+                                ticket_state = 'FINA',
                                 updated_at = DEFAULT
                                 where token = '${proc_email[0].token}'
                                 returning ticket_id`);

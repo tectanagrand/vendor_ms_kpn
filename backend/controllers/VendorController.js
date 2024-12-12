@@ -90,7 +90,7 @@ VendorController.setTempFile = async (req, res) => {
         const extensions = ["pdf", "doc", "docx", "img", "png", "jpg", "jpeg"];
         const form = new formidable.IncomingForm();
         form.options.multiples = true;
-        form.options.maxFileSize = 10 * 1024 * 1024;
+        form.options.maxFileSize = 2 * 1024 * 1024;
         [fields, items] = await form.parse(req);
         let files = items.file_atth;
         let uploaded_files = [];
@@ -147,7 +147,7 @@ VendorController.setTempFile = async (req, res) => {
         if (err.code === 1016) {
             res.status(500).send({
                 status: 500,
-                message: "File size (~10mb) exceeded",
+                message: "File size (~2mb) exceeded",
             });
         } else {
             res.status(500).send({
@@ -165,7 +165,7 @@ VendorController.setBankFile = async (req, res) => {
         const id_user = req.cookies.user_id;
         const extensions = ["pdf", "doc", "docx", "img", "png", "jpg", "jpeg"];
         const form = new formidable.IncomingForm();
-        form.options.maxFileSize = 10 * 1024 * 1024;
+        form.options.maxFileSize = 2 * 1024 * 1024;
         [fields, items] = await form.parse(req);
         // console.log(items);
         // console.log(fields);
@@ -238,7 +238,7 @@ VendorController.setBankFile = async (req, res) => {
         if (err.code === 1016) {
             res.status(500).send({
                 status: 500,
-                message: "File size (~10mb) exceeded",
+                message: "File size (~2mb) exceeded",
             });
         } else {
             res.status(500).send({
