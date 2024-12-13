@@ -822,22 +822,24 @@ const Ticket = {
             `);
             const ticket_type = rows[0].ticket_type;
             const ticket_curpos = rows[0].cur_pos;
-            if (ticket_curpos === "MGRPRC" && role === "MGRPRCDWS") {
-                throw new Error("Ticket is not valid");
-            }
-            if (ticket_type === "UPS" && role === "MGRDWS") {
+            if (
+                ticket_type === "UPS" &&
+                ["MGRDWS", "MGRPRCDWS"].includes(role)
+            ) {
                 throw new Error("Ticket is not valid");
             }
             if (ticket_type === "DWS" && role === "MGRPRC") {
                 throw new Error("Ticket is not valid");
             }
             if (!["MGRPRC", "MGRDWS", "MGRPRCDWS"].includes(role)) {
+                //role not allowed
                 throw new Error("Ticket is not valid");
             }
             if (
                 ticket_curpos === "PROC" &&
                 ["MGRPRC", "MGRDWS", "MGRPRCDWS"].includes(rows[0].reject_by)
             ) {
+                //ticket is rejected
                 return {
                     action: "rejected",
                     ven_id: rows[0].ven_id,
@@ -847,7 +849,8 @@ const Ticket = {
                     company: `${rows[0].code} - ${rows[0].name}`,
                 };
             }
-            if (ticket_curpos === "CEO") {
+            if (["CEO", "MDM"].includes(ticket_curpos)) {
+                // ticket already approved and on ceo / mdm
                 return {
                     action: "accept",
                     ven_id: rows[0].ven_id,
@@ -857,7 +860,8 @@ const Ticket = {
                     company: `${rows[0].code} - ${rows[0].name}`,
                 };
             }
-            if (["PROC", "VENDOR", "MDM"].includes(ticket_curpos)) {
+            if (["PROC", "VENDOR"].includes(ticket_curpos)) {
+                //ticket still on vendor or procurement
                 throw new Error("Ticket is not valid");
             }
             if (rowCount === 0 || !rows[0].is_active) {
@@ -880,7 +884,10 @@ const Ticket = {
             if (action === "accept") {
                 let itemup;
                 if (role === "MGRPRC" || role === "MGRPRCDWS") {
-                    if (rows[0].is_tender || rows[0].is_priority) {
+                    if (
+                        (rows[0].is_tender || rows[0].is_priority) &&
+                        role === "MGRPRC"
+                    ) {
                         itemup = {
                             cur_pos: "CEO",
                             ticket_state: "FINA",
