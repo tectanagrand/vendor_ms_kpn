@@ -705,7 +705,7 @@ const Vendor = {
             // console.log("returning value", result.rows[0]);
             // IF APPROVED
             if (verified == 1) {
-                await Vendor.UploadStaging(result.rows[0].ven_id, client);
+                // await Vendor.UploadStaging(result.rows[0].ven_id, client);
                 const rand = generate4Digit();
                 const password = `Kpn#${rand}`;
                 const hashed = await hashPassword(password);

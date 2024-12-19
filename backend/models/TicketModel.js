@@ -696,6 +696,7 @@ const Ticket = {
                     link,
                     verificator[0].email
                 );
+                await Vendor.UploadStaging(ven_detail.ven_id, client);
                 // //Email vendor sudah complete
                 // await Emailer.toApprove(
                 //     ven_detail.ven_code,
