@@ -5,6 +5,7 @@ const { hashPassword, validatePassword } = require("../middleware/hashpass.js");
 const TRANS = require("../config/transaction.js");
 const crud = require("../helper/crudquery.js");
 const moment = require("moment");
+const PageModel = require("../models/PageModel.js");
 
 const User = {
     showAll: async () => {
@@ -354,16 +355,20 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
             const resdata = userData.rows[0];
             accessToken = jwt.sign(
                 {
-                    id: resdata.user_id,
+                    user_id: resdata.user_id,
                     username: resdata.username,
-                    email: resdata.email,
+                    role: resdata.role,
+                    groupid: resdata.user_group,
                 },
                 process.env.TOKEN_KEY,
                 { expiresIn: "30s" }
             );
             refreshToken = jwt.sign(
                 {
-                    id: resdata.user_id,
+                    user_id: resdata.user_id,
+                    username: resdata.username,
+                    role: resdata.role,
+                    groupid: resdata.user_group,
                 },
                 process.env.TOKEN_KEY,
                 {
@@ -409,6 +414,125 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
             throw error.message;
         } finally {
             client.release();
+        }
+    },
+
+    GetDataUser: async ({ user_id }) => {
+        try {
+            const client = await db.connect();
+            try {
+                const userData = await client.query(
+                    `SELECT * FROM 
+                    (SELECT USERNAME,
+                        PASSWORD,
+                        FULLNAME,
+                        ROLE,
+                        USER_GROUP,
+                        USER_ID,
+                        EMAIL,
+                        IS_ACTIVE
+                    FROM MST_USER
+                    UNION
+                    SELECT USERNAME,
+                        PASSWORD,
+                        FULLNAME,
+                        ROLE,
+                        USER_GROUP,
+                        MGR_ID AS USER_ID,
+                        EMAIL,
+                        IS_ACTIVE
+                    FROM MST_MGR
+                    UNION
+                    SELECT USERNAME,
+                        PASSWORD,
+                        FULLNAME,
+                        DEPARTMENT AS ROLE,
+                        GROUP_ID AS USER_GROUP,
+                        USER_ID,
+                        EMAIL,
+                        IS_ACTIVE
+                    FROM A_USERVENDOR)
+                    AS user_vms
+                    where USER_ID = $1`,
+                    [user_id]
+                );
+                if (userData.rows.length === 0) {
+                    throw new Error("User not found");
+                }
+                const user = userData.rows[0];
+                const auth = await client.query(`
+                    SELECT 
+                                    PG.MENU_ID AS "id",
+                                    PG.PAGE,
+                                    case
+                                        when acs.fcreate then acs.fcreate
+                                        else false 
+                                    end
+                                    as "fcreate",
+                                    case
+                                        when acs.fread then acs.fread
+                                        else false 
+                                    end
+                                    as "fread",
+                                    case
+                                        when acs.fupdate then acs.fupdate
+                                        else false 
+                                    end
+                                    as "fupdate",
+                                    case
+                                        when acs.fdelete then acs.fdelete
+                                        else false
+                                    end
+                                    as "fdelete"
+                                    FROM MST_PAGE PG
+                                    LEFT JOIN 
+                                    MST_PAGE_ACCESS 
+                                    ACS ON ACS.PAGE_ID = PG.MENU_ID AND ACS.user_group_id = '${user.user_group}'
+                                order by PG.parent_id asc, is_parent asc
+                    `);
+                let authPerm = {};
+                auth.rows.map(item => {
+                    authPerm[item.page] = {
+                        create: item.fcreate,
+                        read: item.fread,
+                        update: item.fupdate,
+                        delete: item.fdelete,
+                    };
+                });
+                if (user.role === "VENDOR") {
+                    // IF USER VENDOR, CHECK RESET PASS
+                    // SELECT IS_RESET_PWD
+                    const resIsPwd = await client.query(
+                        `SELECT is_reset_pwd FROM a_uservendor WHERE user_id = $1`,
+                        [user_id]
+                    );
+                    // console.log(resIsPwd);
+                    is_reset_pwd = resIsPwd.rows[0].is_reset_pwd;
+                } else {
+                    is_reset_pwd = true;
+                }
+                const { jsonMenu: menu } = await PageModel.showAll(
+                    user.user_group,
+                    user.username
+                );
+                return {
+                    fullname: user.fullname,
+                    username: user.username,
+                    user_id: user.user_id,
+                    email: user.email,
+                    role: user.role,
+                    permission: authPerm,
+                    groupid: user.user_group,
+                    is_reset_pwd: is_reset_pwd,
+                    menu: menu,
+                };
+            } catch (error) {
+                throw error;
+            } finally {
+                client.release();
+            }
+        } catch (error) {
+            throw error;
         }
     },
 

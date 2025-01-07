@@ -48,6 +48,21 @@ const UserController = {
         }
     },
 
+    GetDataUser: async (req, res) => {
+        try {
+            const { user_id } = req.cookies;
+            const data_user = await User.GetDataUser({ user_id: user_id });
+            res.status(200).send({
+                ...data_user,
+            });
+        } catch (error) {
+            console.error(error);
+            res.status(500).send({
+                message: error.message,
+            });
+        }
+    },
+
     getAuthorization: async (req, res) => {
         try {
             const group_id = req.body.group_id;

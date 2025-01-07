@@ -34,7 +34,7 @@ const TokenManager = {
                 });
             }
             const decode = jwt.verify(token, process.env.TOKEN_KEY);
-            req.tokendecode = decode;
+            req.cookies = decode;
             next();
         } catch (error) {
             res.status(401).send({
@@ -46,6 +46,7 @@ const TokenManager = {
     authSession: async (req, res, next) => {
         let headers = req.headers.Authorization || req.headers.authorization;
         let token = headers?.split(" ")[1];
+        console.log(headers);
         let decode;
         if (!(req.headers.authorization || req.headers.Authorization)) {
             res.status(401).send({
@@ -67,6 +68,7 @@ const TokenManager = {
                     throw exception;
                 }
                 req.useridSess = decode.id;
+                req.cookies = decode;
                 next();
             } catch (err) {
                 if (err?.response?.status === 401) {

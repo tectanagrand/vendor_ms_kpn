@@ -26,6 +26,7 @@ router.post("/submit", AuthToken.authSession, controller.createNewUser);
 router.post("/resetpwd", controller.otpresetPassword);
 router.post("/updatestat", AuthToken.authSession, controller.updateStatUser);
 router.post("/resetpassven", AuthToken.authSession, controller.ResetPassVendor);
+router.post("/getsess", AuthToken.authSession, controller.GetDataUser);
 // router.put("/:id/edit", controller.editUser);
 // router.get("/:id/edit", controller.getUserById);
 // router.delete("/:id", controller.deleteUserId);
