@@ -677,6 +677,18 @@ const Vendor = {
             // const client = await db.connect();
             try {
                 // await client.query(TRANS.BEGIN);
+                const { rows: user_vendor } = await client.query(
+                    `
+                    select user_id, username from a_uservendor where user_id = $1
+                    `,
+                    [ven_id]
+                );
+                if (user_vendor.length > 0) {
+                    console.log(
+                        `User Vendor ${user_vendor[0].username} already created `
+                    );
+                    return true;
+                }
                 const { rows: data_ven } = await client.query(
                     `
                     select 
