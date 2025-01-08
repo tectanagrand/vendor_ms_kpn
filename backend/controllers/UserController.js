@@ -97,7 +97,7 @@ const UserController = {
                 const verif = jwt.verify(refToken, process.env.TOKEN_KEY);
                 const newAct = jwt.sign(
                     {
-                        id: cookies.user_id,
+                        user_id: cookies.user_id,
                         username: cookies.username,
                         email: cookies.email,
                     },
