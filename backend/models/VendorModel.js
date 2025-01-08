@@ -672,6 +672,62 @@ const Vendor = {
         }
     },
 
+    async CreateUserVendor(client, ven_id) {
+        try {
+            // const client = await db.connect();
+            try {
+                // await client.query(TRANS.BEGIN);
+                const { rows: data_ven } = await client.query(
+                    `
+                    select 
+                    ven_id, name_id, email_pic, ven_code
+                    where 
+                    ven_id = $1                    
+                    `,
+                    [ven_id]
+                );
+                const ven = data_ven[0];
+                const rand = generate4Digit();
+                const password = `Kpn#${rand}`;
+                const hashed = await hashPassword(password);
+                const refreshToken = jwt.sign(
+                    { id: ven.ven_id },
+                    process.env.TOKEN_KEY,
+                    { expiresIn: "6h" }
+                );
+                const userPayload = {
+                    user_id: ven.ven_id,
+                    fullname: ven.name_1,
+                    email: ven.email_pic,
+                    password: hashed,
+                    is_active: true,
+                    username: ven.ven_code,
+                    department: "VENDOR",
+                    token: refreshToken,
+                    group_id: "39bbc879-0e03-49d2-a16b-c19eecae313d",
+                    user_group_id: "1",
+                };
+                if (!userPayload.email || !userPayload.username)
+                    throw new Error("Bad Request");
+                // console.log(password);
+                // console.log(userPayload);
+                const [insertQue, insertVal] = crud.insertItem(
+                    "a_uservendor",
+                    userPayload,
+                    "user_id"
+                );
+                await client.query(insertQue, insertVal);
+                // await client.query(TRANS.COMMIT);
+                return true;
+            } catch (error) {
+                // await client.query(TRANS.ROLLBACK);
+                throw error;
+            }
+        } catch (error) {
+            throw error;
+        }
+    },
+
     async verifyVendor(verified, id, notes, session) {
         // STATUS: 1 === approved; 2 === rejected
         const client = await db.connect();
@@ -706,36 +762,36 @@ const Vendor = {
             // IF APPROVED
             if (verified == 1) {
                 // await Vendor.UploadStaging(result.rows[0].ven_id, client);
-                const rand = generate4Digit();
-                const password = `Kpn#${rand}`;
-                const hashed = await hashPassword(password);
-                const refreshToken = jwt.sign(
-                    { id: result.rows[0].ven_id },
-                    process.env.TOKEN_KEY,
-                    { expiresIn: "6h" }
-                );
-                const userPayload = {
-                    user_id: result.rows[0].ven_id,
-                    fullname: result.rows[0].name_1,
-                    email: result.rows[0].email_pic,
-                    password: hashed,
-                    is_active: true,
-                    username: result.rows[0].ven_code,
-                    department: "VENDOR",
-                    token: refreshToken,
-                    group_id: "39bbc879-0e03-49d2-a16b-c19eecae313d",
-                    user_group_id: "1",
-                };
-                if (!userPayload.email || !userPayload.username)
-                    throw new Error("Bad Request");
-                // console.log(password);
-                // console.log(userPayload);
-                const [insertQue, insertVal] = crud.insertItem(
-                    "a_uservendor",
-                    userPayload,
-                    "user_id"
-                );
-                const insertRes = await client.query(insertQue, insertVal);
+                // const rand = generate4Digit();
+                // const password = `Kpn#${rand}`;
+                // const hashed = await hashPassword(password);
+                // const refreshToken = jwt.sign(
+                //     { id: result.rows[0].ven_id },
+                //     process.env.TOKEN_KEY,
+                //     { expiresIn: "6h" }
+                // );
+                // const userPayload = {
+                //     user_id: result.rows[0].ven_id,
+                //     fullname: result.rows[0].name_1,
+                //     email: result.rows[0].email_pic,
+                //     password: hashed,
+                //     is_active: true,
+                //     username: result.rows[0].ven_code,
+                //     department: "VENDOR",
+                //     token: refreshToken,
+                //     group_id: "39bbc879-0e03-49d2-a16b-c19eecae313d",
+                //     user_group_id: "1",
+                // };
+                // if (!userPayload.email || !userPayload.username)
+                //     throw new Error("Bad Request");
+                // // console.log(password);
+                // // console.log(userPayload);
+                // const [insertQue, insertVal] = crud.insertItem(
+                //     "a_uservendor",
+                //     userPayload,
+                //     "user_id"
+                // );
+                // const insertRes = await client.query(insertQue, insertVal);
                 // console.log(insertRes);
                 // send approve email to proc
                 //Email vendor sudah complete
@@ -1458,6 +1514,10 @@ const Vendor = {
                             }
                         );
                         await oraclient.execute(upOra, valOra);
+                        await Vendor.CreateUserVendor(
+                            psqlclient,
+                            row[ColORA["VEN_ID"]]
+                        );
                         VenSuccess.push(row[ColORA["VEN_CODE"]]);
                     }
                 }
