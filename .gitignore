@@ -12,4 +12,5 @@ public/build
 .env*
 ssl
 Dockerfilebk.prod
+*.zip
 
