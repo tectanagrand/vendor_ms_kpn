@@ -77,12 +77,17 @@ const UserController = {
     refreshToken: async (req, res) => {
         try {
             const client = await db.connect();
-            const cookies = req.cookies;
-            if (!cookies?.accessToken) {
+            let headers =
+                req.headers.Authorization || req.headers.authorization;
+            let token = headers?.split(" ")[1];
+            console.log(token);
+            if (!token) {
                 return res.status(401).send({
                     message: "Unauthorized",
                 });
             }
+            let cookies;
+            cookies = jwt.decode(token, { complete: true }).payload;
             try {
                 let refToken_q = "";
                 if (cookies.role == "VENDOR") {

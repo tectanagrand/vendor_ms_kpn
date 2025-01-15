@@ -46,7 +46,7 @@ const TokenManager = {
     authSession: async (req, res, next) => {
         let headers = req.headers.Authorization || req.headers.authorization;
         let token = headers?.split(" ")[1];
-        console.log(headers);
+        // console.log(headers);
         let decode;
         if (!(req.headers.authorization || req.headers.Authorization)) {
             res.status(401).send({
