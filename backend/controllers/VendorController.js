@@ -514,5 +514,38 @@ VendorController.ShowProgressSyncSAP = async (req, res) => {
         });
     }
 };
+VendorController.UploadCutoffVendorUser = async (req, res) => {
+    try {
+        const extensions = ["xlsx"];
+        const form = new formidable.IncomingForm();
+        form.options.maxFileSize = 2 * 1024 * 1024;
+        [fields, items] = await form.parse(req);
+        const file = items.file_atth;
+        const ext = file[0].originalFilename.split(".");
+        if (!extensions.includes(ext[ext.length - 1].toLowerCase())) {
+            return res.status(403).send({
+                message: "Format file invalid",
+            });
+        }
+        const data = await Vendor.CutOffVendorUser(file[0]);
+        let today = moment().format("YYYY-MM-DD-HH-mm-ss");
+        res.setHeader(
+            "Content-Type",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        );
+        res.setHeader(
+            "Content-Disposition",
+            "attachment; filename=" + `UserVendor-${today}.xlsx`
+        );
+        await data.xlsx.write(res);
+        res.status(200);
+        res.end();
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({
+            message: error.message,
+        });
+    }
+};
 
 module.exports = VendorController;

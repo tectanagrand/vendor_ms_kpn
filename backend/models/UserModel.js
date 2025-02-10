@@ -346,6 +346,7 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
                 throw new Error("User is inactive");
             }
             const hashed = userData.rows[0].password;
+            // console.log(userData.rows[0]);
             const valid = await validatePassword({ password, hashed });
             if (valid === false) {
                 throw new Error("Password false");

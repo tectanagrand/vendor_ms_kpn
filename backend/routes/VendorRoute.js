@@ -22,5 +22,6 @@ route.delete("/clearfilebank", controller.deleteFileBank);
 route.get("/simple", AuthMiddleware.authSession, controller.GetSimpleData);
 route.get("/syncstage", controller.SyncStagingVendor);
 route.get("/getprogsync", controller.ShowProgressSyncSAP);
+route.post("/scriptcutoff", controller.UploadCutoffVendorUser);
 
 module.exports = route;

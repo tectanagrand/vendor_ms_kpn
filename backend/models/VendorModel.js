@@ -5,6 +5,7 @@ const crud = require("../helper/crudquery");
 const os = require("os");
 const path = require("path");
 const fs = require("fs");
+const Exceljs = require("exceljs");
 const jwt = require("jsonwebtoken");
 const moment = require("moment");
 const { hashPassword } = require("../middleware/hashpass");
@@ -692,7 +693,8 @@ const Vendor = {
                 const { rows: data_ven } = await client.query(
                     `
                     select 
-                    ven_id, name_id, email_pic, ven_code
+                    ven_id, name_1, email_pic, ven_code
+                    from vendor
                     where 
                     ven_id = $1                    
                     `,
@@ -717,7 +719,7 @@ const Vendor = {
                     department: "VENDOR",
                     token: refreshToken,
                     group_id: "39bbc879-0e03-49d2-a16b-c19eecae313d",
-                    user_group_id: "1",
+                    user_group_id: "2",
                 };
                 if (!userPayload.email || !userPayload.username)
                     throw new Error("Bad Request");
@@ -1351,7 +1353,7 @@ const Vendor = {
                     left join mst_country mc on
                         mc.country_code = vb.country
                     where
-                        vb.ven_id = $1
+                        vb.ven_id = $1 and vb.is_active = true
                     `,
                     [ven_id]
                 );
@@ -1629,6 +1631,381 @@ const Vendor = {
                     count: ctr[0].counter,
                 };
             } catch (error) {
+                throw error;
+            } finally {
+                client.release();
+            }
+        } catch (error) {
+            throw error;
+        }
+    },
+
+    async CutOffVendorUser(file) {
+        const colxl = {
+            acc_grp: 1,
+            ven_code: 2,
+            ctry: 3,
+            name: 5,
+            city: 6,
+            street: 7,
+            no_id_addr: 8,
+            telf: 9,
+            fax: 10,
+            email: 11,
+            npwp: 12,
+            pkp: 13,
+        };
+        // const alr_exs = [
+        //     "AT11000255",
+        //     "AT11000296",
+        //     "LN11000431",
+        //     "LN11000628",
+        //     "LN11001168",
+        //     "LN11001909",
+        //     "LN11003528",
+        //     "LN11004170",
+        //     "LN13000429",
+        //     "LN13001107",
+        //     "LN13004214",
+        // ];
+        try {
+            const client = await db.connect();
+            try {
+                await client.query(TRANS.BEGIN);
+                const workbook = new Exceljs.Workbook();
+                const exportwb = new Exceljs.Workbook();
+                const userlistSheet = exportwb.addWorksheet("ListUser");
+                await workbook.xlsx.readFile(file.filepath, {
+                    sheetStubs: true,
+                });
+                const tableHeader = new Map([
+                    [
+                        "A",
+                        {
+                            value: "name",
+                            label: "Nama",
+                            width: 20,
+                        },
+                    ],
+                    [
+                        "B",
+                        {
+                            value: "username",
+                            label: "Username",
+                            width: 20,
+                        },
+                    ],
+                    [
+                        "C",
+                        {
+                            value: "password",
+                            label: "Password",
+                            width: 10,
+                        },
+                    ],
+                ]);
+                const worksheet = workbook.getWorksheet("Sheet1");
+                let tableStart = 1;
+                for (const [cell, header] of tableHeader) {
+                    userlistSheet.getCell(cell + tableStart).value =
+                        header.label;
+                    userlistSheet.getColumn(cell).width = header.width;
+                    userlistSheet.getCell(cell + tableStart).fill = {
+                        type: "pattern",
+                        pattern: "solid",
+                        fgColor: { argb: "ffffcc00" },
+                    };
+                    userlistSheet.getCell(cell + tableStart).border = {
+                        top: { style: "thin" },
+                        left: { style: "thin" },
+                        bottom: { style: "thin" },
+                        right: { style: "thin" },
+                    };
+                }
+                tableStart += 1;
+                let promises_ven = [];
+                let list_user = [];
+                let today = new Date();
+                let now = moment(today).format("YYYY-MM-DD");
+                // let duplicate_ven = [];
+                const input_todb = data_ven => {
+                    return new Promise(async (resolve, reject) => {
+                        try {
+                            const { rows: vendor_dt, rowCount } =
+                                await client.query(
+                                    `
+                                select a_ven.username, a_ven.user_id, ven.ticket_num from a_uservendor a_ven
+                                left join vendor ven on a_ven.user_id = ven.ven_id
+                                where username = $1
+                                `,
+                                    [data_ven[colxl.ven_code]]
+                                );
+                            // console.log(rowCount);
+                            let exs_ven_id = vendor_dt[0]?.user_id;
+                            //kalau aada nomor ticketnya berarti sudah pernah ada dari vendor web
+                            let is_alr_ex =
+                                vendor_dt[0]?.ticket_num &&
+                                vendor_dt[0]?.ticket_num != ""
+                                    ? true
+                                    : false;
+                            let action = "update";
+                            if (rowCount == 0) {
+                                action = "insert";
+                            }
+                            // else {
+                            //     duplicate_ven.push(data_ven[colxl.ven_code]);
+                            // }
+
+                            //masukin data ke vendor
+                            let local_ovs = "";
+                            let ven_acc = "";
+                            let ven_grp = "";
+                            let pkp = null;
+                            let ven_id = uuid.uuid();
+                            if (exs_ven_id) {
+                                ven_id = exs_ven_id;
+                            }
+                            if (
+                                data_ven[colxl.pkp] &&
+                                data_ven[colxl.pkp] != ""
+                            ) {
+                                pkp = true;
+                            }
+                            let ac_grp = data_ven[colxl.acc_grp].toUpperCase();
+                            switch (ac_grp) {
+                                case "V100":
+                                    local_ovs = "LOCAL";
+                                    ven_acc = "TRADE";
+                                    ven_grp = "3RD_PARTY";
+                                    break;
+                                case "V150":
+                                    local_ovs = "LOCAL";
+                                    ven_acc = "NON_TRADE";
+                                    ven_grp = "3RD_PARTY";
+                                    break;
+                                case "V200":
+                                    local_ovs = "OVS";
+                                    ven_acc = "TRADE";
+                                    ven_grp = "3RD_PARTY";
+                                    break;
+                                case "V250":
+                                    local_ovs = "OVS";
+                                    ven_acc = "NON_TRADE";
+                                    ven_grp = "3RD_PARTY";
+                                    break;
+                                case "V071":
+                                    local_ovs = "LOCAL";
+                                    ven_acc = "NON_TRADE";
+                                    ven_grp = "";
+                                    break;
+                                case "V072":
+                                    local_ovs = "LOCAL";
+                                    ven_acc = "NON_TRADE";
+                                    ven_grp = "";
+                                    break;
+                                case "V075":
+                                    local_ovs = "LOCAL";
+                                    ven_acc = "NON_TRADE";
+                                    ven_grp = "";
+                                    break;
+                                case "V101":
+                                    local_ovs = "LOCAL";
+                                    ven_acc = "TRADE";
+                                    ven_grp = "INTERCO";
+                                    break;
+                                case "V151":
+                                    local_ovs = "LOCAL";
+                                    ven_acc = "NON_TRADE";
+                                    ven_grp = "INTERCO";
+                                    break;
+                            }
+                            const vendor_data = {
+                                ven_id: ven_id,
+                                local_ovs: local_ovs,
+                                ven_acc: ven_acc,
+                                ven_code: data_ven[colxl.ven_code] || "",
+                                name_1: data_ven[colxl.name] || "",
+                                country: data_ven[colxl.ctry] || "",
+                                city: data_ven[colxl.city] || "",
+                                street: data_ven[colxl.street] || "",
+                                telf1: data_ven[colxl.telf] || "",
+                                fax: data_ven[colxl.fax] || "",
+                                email: data_ven[colxl.email] || "",
+                                npwp: data_ven[colxl.npwp] || "",
+                                is_pkp: pkp,
+                                created_at: now,
+                            };
+                            // if (data_ven[colxl.npwp]?.length > 28) {
+                            //     console.log(data_ven);
+                            //     console.log(data_ven[colxl.ven_code]);
+                            //     console.log(data_ven[colxl.npwp]);
+                            //     console.log(data_ven[colxl.npwp].trim().length);
+                            // }
+                            let queDet, valDet;
+                            //bukan data duplikat sebelumnya, bisa diupdate atau diinsert
+                            if (!is_alr_ex) {
+                                switch (action) {
+                                    case "insert":
+                                        [queDet, valDet] = crud.insertItem(
+                                            "vendor",
+                                            vendor_data
+                                        );
+                                        break;
+                                    case "update":
+                                        [queDet, valDet] = crud.updateItem(
+                                            "vendor",
+                                            vendor_data,
+                                            { ven_id: ven_id }
+                                        );
+                                        break;
+                                }
+                                await client.query(queDet, valDet);
+                            }
+                            // const [insQue, insVal] = crud.insertItem(
+                            //     "vendor",
+                            //     vendor_data
+                            // );
+                            //masukin data ke a_uservendor
+                            // const rand = generate4Digit();
+                            const password = `Kpn#2025`;
+                            const hashed = await hashPassword(password);
+                            const refreshToken = jwt.sign(
+                                { id: ven_id },
+                                process.env.TOKEN_KEY,
+                                { expiresIn: "6h" }
+                            );
+                            const userPayload = {
+                                user_id: ven_id,
+                                fullname: data_ven[colxl.name] ?? "",
+                                email: data_ven[colxl.email] ?? "",
+                                password: hashed,
+                                is_active: true,
+                                username: data_ven[colxl.ven_code],
+                                department: "VENDOR",
+                                token: refreshToken,
+                                group_id:
+                                    "39bbc879-0e03-49d2-a16b-c19eecae313d",
+                                user_group_id: "2",
+                            };
+                            let uQue, uVal;
+                            if (!is_alr_ex) {
+                                switch (action) {
+                                    case "insert":
+                                        [uQue, uVal] = crud.insertItem(
+                                            "a_uservendor",
+                                            userPayload
+                                        );
+                                        break;
+                                    case "update":
+                                        [uQue, uVal] = crud.updateItem(
+                                            "a_uservendor",
+                                            userPayload,
+                                            { user_id: ven_id }
+                                        );
+                                        break;
+                                }
+                                await client.query(uQue, uVal);
+                            }
+                            // const [uQue, uVal] = crud.insertItem(
+                            //     "a_uservendor",
+                            //     userPayload
+                            // );
+                            //masukin data ke ven_file_atth untuk kode A005
+                            const file_id = uuid.uuid();
+                            const filepayload = {
+                                file_id: file_id,
+                                ven_id: ven_id,
+                                file_name: "Dummy.pdf",
+                                file_type: "A006",
+                                desc_file: "SPPKP / Surat Pernyataan NPKP",
+                                created_at: now,
+                            };
+                            let fileQue, fileVal;
+                            if (!is_alr_ex) {
+                                const { rowCount } = await client.query(
+                                    `select ven_id from ven_file_atth where ven_id = $1 and file_type = 'A006'`,
+                                    [ven_id]
+                                );
+                                let action_file = "update";
+                                if (rowCount == 0) {
+                                    action_file = "insert";
+                                }
+
+                                switch (action_file) {
+                                    case "insert":
+                                        [fileQue, fileVal] = crud.insertItem(
+                                            "ven_file_atth",
+                                            filepayload
+                                        );
+                                        break;
+                                    case "update":
+                                        [fileQue, fileVal] = crud.updateItem(
+                                            "ven_file_atth",
+                                            filepayload,
+                                            { ven_id: ven_id }
+                                        );
+                                        break;
+                                }
+                                await client.query(fileQue, fileVal);
+                            }
+                            // const [fileQue, fileVal] = crud.insertItem(
+                            //     "ven_file_atth",
+                            //     filepayload
+                            // );
+                            if (!is_alr_ex) {
+                                list_user.push({
+                                    name: data_ven[colxl.name],
+                                    username: data_ven[colxl.ven_code],
+                                    password: password,
+                                });
+                            }
+                            resolve(true);
+                        } catch (error) {
+                            reject(error);
+                        }
+                    });
+                };
+                worksheet.eachRow((row, rowNumber) => {
+                    const datarow = row.values;
+                    if (datarow[colxl.ven_code] && rowNumber != 1) {
+                        const promise_cekdup = input_todb(datarow);
+                        promises_ven.push(promise_cekdup);
+                    }
+                });
+                await Promise.all(promises_ven);
+                //print result users
+                // console.log(list_user);
+                // console.log(duplicate_ven);
+                for (
+                    let i = tableStart;
+                    i <= list_user.length + tableStart - 1;
+                    i++
+                ) {
+                    const dataRow = list_user[i - tableStart];
+                    for (const [cell, header] of tableHeader) {
+                        userlistSheet.getCell(cell + i).value = {
+                            richText: [
+                                {
+                                    text:
+                                        typeof dataRow[header.value] !==
+                                        "string"
+                                            ? dataRow[header.value].toString()
+                                            : dataRow[header.value],
+                                },
+                            ],
+                        };
+                        userlistSheet.getCell(cell + i).border = {
+                            top: { style: "thin" },
+                            left: { style: "thin" },
+                            bottom: { style: "thin" },
+                            right: { style: "thin" },
+                        };
+                    }
+                }
+                await client.query(TRANS.COMMIT);
+                return exportwb;
+            } catch (error) {
+                await client.query(TRANS.ROLLBACK);
                 throw error;
             } finally {
                 client.release();
