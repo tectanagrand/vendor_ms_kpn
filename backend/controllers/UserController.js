@@ -80,7 +80,6 @@ const UserController = {
             let headers =
                 req.headers.Authorization || req.headers.authorization;
             let token = headers?.split(" ")[1];
-            console.log(token);
             if (!token) {
                 return res.status(401).send({
                     message: "Unauthorized",
