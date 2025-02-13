@@ -938,6 +938,9 @@ const Vendor = {
                     and (v.ven_code is not null and trim(v.ven_code) <> '') 
                 `;
                 const { rows: data_ven } = await client.query(baseq);
+                if (data_ven.length < 1) {
+                    throw new Error("List is empty");
+                }
                 data_ven.forEach(value => {
                     vendors.set(value.ven_id, value);
                 });
