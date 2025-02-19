@@ -55,11 +55,7 @@ app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
 app.use(routers);
 app.use(express.static(path.join(__dirname, "public/build")));
-app.use(
-    "/static",
-    VerifyLogin.verif,
-    express.static(path.join(__dirname, "backend/public"))
-);
+app.use("/static", express.static(path.join(__dirname, "backend/public")));
 app.get("/*$", (req, res) => {
     res.sendFile(path.join(__dirname, "public/build", "index.html"));
 });
