@@ -702,7 +702,7 @@ const Vendor = {
                 );
                 const ven = data_ven[0];
                 const rand = generate4Digit();
-                const password = `Kpn#${rand}`;
+                const password = `Kpn#2025`;
                 const hashed = await hashPassword(password);
                 const refreshToken = jwt.sign(
                     { id: ven.ven_id },
