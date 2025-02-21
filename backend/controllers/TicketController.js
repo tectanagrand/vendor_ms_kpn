@@ -12,15 +12,15 @@ const TicketController = {};
 
 TicketController.openNew = async (req, res) => {
     try {
-        let result = await Ticket.openNew(req.body);
+        let result = await Ticket.openNewv2(req.body, req.cookies);
         res.status(200).send({
             status: 200,
             message: `Ticket ${result.ticket_id} successfully created`,
             data: result,
         });
     } catch (err) {
+        console.log(err);
         res.status(500).send({
-            status: 400,
             message: err.stack,
         });
     }
@@ -200,6 +200,23 @@ TicketController.submitTicket = async (req, res) => {
     }
 };
 
+TicketController.submitTicketv2 = async (req, res) => {
+    try {
+        const { ticket_id, ven_detail } = req.body;
+        const data = await Ticket.submitVendorv2({
+            ticket_id,
+            session: req.cookies,
+            ven_detail,
+        });
+        res.status(200).send(data);
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({
+            message: error.message,
+        });
+    }
+};
+
 TicketController.submitVendor = async (req, res) => {
     try {
         const { ven_detail, is_draft } = req.body;
@@ -314,6 +331,26 @@ TicketController.processMgr = async (req, res) => {
         }
     } catch (error) {
         res.render("notvalid");
+    }
+};
+
+TicketController.processMgrv2 = async (req, res) => {
+    try {
+        const { token_appr } = req.query;
+        const data = await Ticket.processByLink(token_appr);
+        res.render("response", {
+            ven_name: data.name_1,
+            ven_type: data.ven_type,
+            company: data.company,
+            reason: "has approved by you",
+            rejected: "approved",
+        });
+    } catch (error) {
+        console.error(error);
+        res.render("notvalid");
+        // res.status(500).send({
+        //     message: error.message,
+        // });
     }
 };
 

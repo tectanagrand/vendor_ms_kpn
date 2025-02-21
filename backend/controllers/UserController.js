@@ -103,7 +103,10 @@ const UserController = {
                     {
                         user_id: cookies.user_id,
                         username: cookies.username,
-                        email: cookies.email,
+                        role: cookies.role,
+                        emp_role_id: cookies.emp_role_id,
+                        bu_id: cookies.bu_id,
+                        dept_id: cookies.dept_id,
                     },
                     process.env.TOKEN_KEY,
                     {

@@ -99,7 +99,7 @@ const Vendor = {
         return promise;
     },
 
-    async setDetailVen(detail, client, is_draft, ticket_state, edited_fields) {
+    async setDetailVen(detail, client) {
         /*Flow :
     - file temporary already stored in temp_ven_file_atth, delete after move
     - bank could be multiple, map through bank object
@@ -125,19 +125,6 @@ const Vendor = {
             detail.updated_at = moment(today).format("YYYY-MM-DD");
             detail.created_at = moment(today).format("YYYY-MM-DD");
             if (isExist.rowCount != 0) {
-                if (is_draft === false && ticket_state === "FINA") {
-                    detail.is_active = true;
-                }
-                // if (!is_draftdb) {
-                //     detail.last_version = parseInt(last_ver) + 1;
-                //     payloadEdit.version = parseInt(last_ver) + 1;
-                // } else {
-                //     payloadEdit.version = parseInt(last_ver);
-                // }
-
-                // for(const edited of edited_fields) {
-
-                // }
                 [q, value] = crud.updateItem(
                     "VENDOR",
                     detail,

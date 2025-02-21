@@ -4,14 +4,12 @@ const ApprovalController = {};
 
 ApprovalController.AddNewRole = async (req, res) => {
     try {
-        const { id_role, role_name, id_users, cc_users } = req.body;
+        const { role_name, role_code } = req.body;
         const { user_id } = req.cookies;
         const result = await ApprovalModel.AddNewRole({
-            id_role,
             role_name,
-            id_users,
-            cc_users,
-            user_id: user_id,
+            role_code,
+            user_id,
         });
         res.status(200).send({
             message: result,
@@ -26,8 +24,8 @@ ApprovalController.AddNewRole = async (req, res) => {
 
 ApprovalController.DeleteRole = async (req, res) => {
     try {
-        const { id_role } = req.body;
-        const result = await ApprovalModel.DeleteRole({ id_role });
+        const { role_code } = req.body;
+        const result = await ApprovalModel.DeleteRole({ role_code });
         res.status(200).send({
             data: result,
         });
@@ -38,6 +36,12 @@ ApprovalController.DeleteRole = async (req, res) => {
         });
     }
 };
+
+/**
+ *
+ * @param {import("express").Request} req
+ * @param {*} res
+ */
 
 ApprovalController.CreateNewFlow = async (req, res) => {
     /*
@@ -54,7 +58,8 @@ ApprovalController.CreateNewFlow = async (req, res) => {
     user_id : current session 
     */
     try {
-        const { flow, id_doctype, method } = req.body;
+        const { flow, id_doctype } = req.body;
+        const method = req.method == "POST" ? "insert" : "update";
         const { user_id } = req.cookies;
         const result = await ApprovalModel.CreateApprovalFlow({
             flow,
@@ -65,6 +70,21 @@ ApprovalController.CreateNewFlow = async (req, res) => {
         res.status(200).send({
             data: result,
         });
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({
+            message: error.message,
+        });
+    }
+};
+
+ApprovalController.GetTicketFlow = async (req, res) => {
+    try {
+        const { ticket_id, doctype } = req.query;
+        console.log(req.query);
+        const data = await ApprovalModel.GetTicketFlow({ ticket_id, doctype });
+        res.status(200).send({ data: data });
+        return;
     } catch (error) {
         console.error(error);
         res.status(500).send({

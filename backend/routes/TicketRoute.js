@@ -9,11 +9,12 @@ router.get("/form/:id", AuthToken.authSession, controller.getTicketById);
 router.get("/newform/:id", controller.getTicketById); // get ticket by id ;
 router.post("/form/submit", AuthToken.authSession, controller.submitVendor);
 router.post("/newform/submit", controller.submitVendor);
+router.post("/form/submitv2", AuthToken.authSession, controller.submitTicketv2);
 router.post("/form/v1/submit", controller.singleSubmit);
 router.get("/", AuthToken.authSession, controller.showAll);
 router.patch("/reject", AuthToken.authSession, controller.rejectTicket);
 router.delete("/:ticket_id", controller.deleteTicket);
-router.get("/mgrappr", controller.processMgr);
+router.get("/mgrappr", controller.processMgrv2);
 router.get("/mgrapprprc", controller.processMgrPrc);
 // router.get("/mgrapprdws",)
 router.get("/mgrtest", controller.testmgr);

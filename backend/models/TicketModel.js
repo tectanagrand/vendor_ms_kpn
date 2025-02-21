@@ -6,6 +6,8 @@ const jwt = require("jsonwebtoken");
 const Vendor = require("../models/VendorModel");
 const Emailer = require("../models/EmailModel");
 const moment = require("moment");
+const ApprovalTracker = require("../class/ApprovalTrackerClass");
+const ApprovalModel = require("./ApprovalModel");
 
 const Ticket = {
     async showAll({ is_active, ticket_state }) {
@@ -152,6 +154,84 @@ const Ticket = {
         }
     },
 
+    async openNewv2(params, session) {
+        try {
+            const client = await db.connect();
+            const { emp_role_id, dept_id, bu_id } = session;
+            const { type_ticket } = params;
+            console.log(emp_role_id, dept_id, bu_id);
+            try {
+                let headerTicket = "";
+                switch (type_ticket) {
+                    case "new_vendor":
+                        headerTicket = "VEN";
+                        break;
+                    case "new_vendor_fr_usr":
+                        headerTicket = "PRC";
+                        break;
+                }
+                const { rows: doctype } = await client.query(
+                    `select doctype from ticket_rule
+                    where
+                    emp_role_id = $1 and bu_id = $2 and dept_id = $3 and type_ticket = $4`,
+                    [emp_role_id, bu_id, dept_id, type_ticket]
+                );
+                const dtype = doctype[0].doctype;
+                const today = new Date();
+                const until = new Date();
+                const year = today.getFullYear().toString().substr(-2);
+                const month = ("0" + (today.getMonth() + 1).toString()).substr(
+                    -2
+                );
+                const f_today = today.toLocaleDateString();
+                until.setDate(today.getDate() + 3);
+                const f_until = until.toLocaleDateString();
+                const ticketid = await client.query(
+                    "select last_value + 1 as next_value from ticket_id_seq"
+                );
+                const ven_id = uuid.uuid();
+                const token = uuid.uuid();
+                const latestnum = ticketid.rows[0].next_value;
+                const ticketNumber =
+                    headerTicket +
+                    "-" +
+                    year +
+                    month +
+                    String(latestnum).padStart(4, "0");
+                // insert into ticket
+                await client.query("BEGIN");
+                const ticket = {
+                    ticket_id: ticketNumber,
+                    ven_id: ven_id,
+                    proc_id: session.user_id,
+                    valid_until: until,
+                    cur_pos: null,
+                    ticket_type: doctype[0].doctype,
+                    approval_pos: "0",
+                    is_active: true,
+                    token: token,
+                };
+                const [q, val] = crud.insertItem(
+                    "TICKET",
+                    ticket,
+                    "ticket_id, token"
+                );
+                const result = await client.query(q, val);
+                await client.query("COMMIT");
+                return {
+                    ticket_id: result.rows[0].ticket_id,
+                    link: `frm/newform/${result.rows[0].token}`,
+                    token: result.rows[0].token,
+                };
+            } catch (error) {
+                throw error;
+            } finally {
+                client.release();
+            }
+        } catch (error) {
+            throw error;
+        }
+    },
     async getTicketById(ticket_num) {
         const client = await db.connect();
         try {
@@ -484,6 +564,22 @@ const Ticket = {
         }
     },
 
+    async RejectTicketv2(ticket_id, remarks, session) {
+        try {
+            const client = await db.connect();
+            try {
+                const ApprovalTrack = new ApprovalTracker(client, ticket_id);
+                await ApprovalTrack.init();
+                if (!ApprovalTrack.checkIsApproverAllowed(session)) {
+                    throw new Error("User is not allowed");
+                }
+            } catch (error) {
+            } finally {
+                client.release();
+            }
+        } catch (error) {}
+    },
+
     async ticketTarget(ticket_id) {
         const client = await db.connect();
         try {
@@ -537,13 +633,7 @@ const Ticket = {
                 [ticket_id]
             );
             const ticket_type = getdtTType[0].ticket_type;
-            const client1 = await Vendor.setDetailVen(
-                ven_detail,
-                client,
-                is_draft,
-                ticket_state,
-                edited_fields
-            );
+            const client1 = await Vendor.setDetailVen(ven_detail, client);
             const client2 = await Vendor.setBankRfctr(
                 ven_banks,
                 client,
@@ -728,6 +818,170 @@ const Ticket = {
             throw error;
         } finally {
             client.release();
+        }
+    },
+
+    async submitVendorv2({ ticket_id, session, ven_detail }) {
+        try {
+            const client = await db.connect();
+            let result;
+            try {
+                let misc = {};
+                await client.query(TRANS.BEGIN);
+                const ApprovalTrack = new ApprovalTracker(client, ticket_id);
+                let sess = session;
+                await ApprovalTrack.init();
+                const currentApprovalStep = ApprovalTrack.getCurrentStep();
+                if (Object.keys(session).length < 1) {
+                    sess = {
+                        emp_role_id: "VENDOR",
+                        bu_id: "",
+                        dept_id: "",
+                    };
+                    1;
+                }
+                if (!ApprovalTrack.checkIsApproverAllowed(sess)) {
+                    throw new Error("User not allowed to process");
+                }
+
+                // //set detail vendor
+                // await Vendor.setDetailVen(ven_detail, client);
+
+                // //set bank vendor
+                // await Vendor.setBankRfctr(ven_banks, client, ven_detail.ven_id);
+
+                // //set file vendor
+                // if (is_draft === false) {
+                //     await Vendor.setFileRfctr(
+                //         ven_detail.ven_id,
+                //         ven_files,
+                //         client
+                //     );
+                // }
+
+                //get updated vendor
+                const { rows: res_updated_vendor } = await client.query(
+                    `
+                    select v.* from vendor v 
+                    left join ticket t on v.ven_id = t.ven_id
+                    where t.token = $1
+                    `,
+                    [ticket_id]
+                );
+                let next_ap = await ApprovalModel.GetNextIndexApproval(
+                    res_updated_vendor[0],
+                    ticket_id,
+                    client
+                );
+                let next_step = ApprovalTrack.getApprovalStep(
+                    next_ap.next_index
+                );
+
+                //if next_step is wo_auth, create token approval link
+                if (next_ap.next_index != "END") {
+                    misc = await ApprovalModel.CreateTokenApprovalLink(
+                        client,
+                        next_step,
+                        ticket_id
+                    );
+                }
+
+                if (next_ap.next_index == "END") {
+                    result = await ApprovalModel.EndApproval(client, ticket_id);
+                } else {
+                    result = await ApprovalModel.ProcessApproval(
+                        client,
+                        next_step,
+                        currentApprovalStep,
+                        ticket_id,
+                        next_ap.submit_email,
+                        misc
+                    );
+                }
+                await client.query(TRANS.COMMIT);
+                return result;
+            } catch (error) {
+                await client.query(TRANS.ROLLBACK);
+                throw error;
+            } finally {
+                client.release();
+            }
+        } catch (error) {
+            throw error;
+        }
+    },
+
+    async processByLink(token_appr) {
+        try {
+            const client = await db.connect();
+            try {
+                await client.query(TRANS.BEGIN);
+                /**
+                 * @type {{emp_role_id : string, bu_id : string, dept_id : string, ticket_id : string}}
+                 */
+                const decoded = jwt.decode(token_appr, process.env.TOKEN_KEY);
+                const ApprovalTrack = new ApprovalTracker(
+                    client,
+                    decoded.ticket_id
+                );
+                await ApprovalTrack.init();
+                let currentApprovalStep = ApprovalTrack.current_step;
+                let emp_role_id = ApprovalTrack.current_step.emp_role_id;
+                let bu_id = ApprovalTrack.current_step.bu_id;
+                let dept_id = ApprovalTrack.current_step.dept_id;
+                if (
+                    !(
+                        emp_role_id == decoded.emp_role_id &&
+                        bu_id == decoded.bu_id &&
+                        dept_id == decoded.dept_id
+                    )
+                ) {
+                    throw new Error("Forbidden");
+                }
+                const { rows: res_updated_vendor } = await client.query(
+                    `
+                    select v.* from vendor v 
+                    left join ticket t on v.ven_id = t.ven_id
+                    where t.token = $1
+                    `,
+                    [decoded.ticket_id]
+                );
+                let next_ap = ApprovalModel.GetNextIndexApproval(
+                    res_updated_vendor[0],
+                    decoded.ticket_id,
+                    client
+                );
+                let next_step = ApprovalTrack.getApprovalStep(
+                    next_ap.next_index.toString()
+                );
+                const misc = await ApprovalModel.CreateTokenApprovalLink(
+                    client,
+                    next_step,
+                    decoded.ticket_id
+                );
+                if (next_ap.next_index == "END") {
+                    await ApprovalModel.EndApproval(client, decoded.ticket_id);
+                } else {
+                    result = await ApprovalModel.ProcessApproval(
+                        client,
+                        next_step,
+                        currentApprovalStep,
+                        decoded.ticket_id,
+                        next_ap.submit_email,
+                        misc
+                    );
+                }
+                await client.query(TRANS.COMMIT);
+                return result;
+                // await ApprovalTrack.init();
+            } catch (error) {
+                await client.query(TRANS.ROLLBACK);
+                throw error;
+            } finally {
+                client.release();
+            }
+        } catch (error) {
+            throw error;
         }
     },
 
