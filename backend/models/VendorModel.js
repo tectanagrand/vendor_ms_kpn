@@ -776,58 +776,66 @@ const Vendor = {
             // IF APPROVED
             if (verified == 1) {
                 // await Vendor.UploadStaging(result.rows[0].ven_id, client);
-                // const rand = generate4Digit();
-                // const password = `Kpn#${rand}`;
-                // const hashed = await hashPassword(password);
-                // const refreshToken = jwt.sign(
-                //     { id: result.rows[0].ven_id },
-                //     process.env.TOKEN_KEY,
-                //     { expiresIn: "6h" }
-                // );
-                // const userPayload = {
-                //     user_id: result.rows[0].ven_id,
-                //     fullname: result.rows[0].name_1,
-                //     email: result.rows[0].email_pic,
-                //     password: hashed,
-                //     is_active: true,
-                //     username: result.rows[0].ven_code,
-                //     department: "VENDOR",
-                //     token: refreshToken,
-                //     group_id: "39bbc879-0e03-49d2-a16b-c19eecae313d",
-                //     user_group_id: "1",
-                // };
-                // if (!userPayload.email || !userPayload.username)
-                //     throw new Error("Bad Request");
-                // // console.log(password);
-                // // console.log(userPayload);
-                // const [insertQue, insertVal] = crud.insertItem(
-                //     "a_uservendor",
-                //     userPayload,
-                //     "user_id"
-                // );
-                // const insertRes = await client.query(insertQue, insertVal);
+                const rand = generate4Digit();
+                const password = `Kpn#2025`;
+                const hashed = await hashPassword(password);
+                const { rows: check_is_exist } = await client.query(
+                    `
+                    select * from a_uservendor where username = $1                    
+                    `,
+                    [result.rows[0].ven_code]
+                );
+                if (check_is_exist.length < 1) {
+                    const refreshToken = jwt.sign(
+                        { id: result.rows[0].ven_id },
+                        process.env.TOKEN_KEY,
+                        { expiresIn: "6h" }
+                    );
+                    const userPayload = {
+                        user_id: result.rows[0].ven_id,
+                        fullname: result.rows[0].name_1,
+                        email: result.rows[0].email_pic,
+                        password: hashed,
+                        is_active: true,
+                        username: result.rows[0].ven_code,
+                        department: "VENDOR",
+                        token: refreshToken,
+                        group_id: "39bbc879-0e03-49d2-a16b-c19eecae313d",
+                        user_group_id: "1",
+                    };
+                    if (!userPayload.email || !userPayload.username)
+                        throw new Error("Bad Request");
+                    // console.log(password);
+                    // console.log(userPayload);
+                    const [insertQue, insertVal] = crud.insertItem(
+                        "a_uservendor",
+                        userPayload,
+                        "user_id"
+                    );
+                    const insertRes = await client.query(insertQue, insertVal);
+                }
                 // console.log(insertRes);
                 // send approve email to proc
                 //Email vendor sudah complete
-                await Emailer.toApprove(
-                    result.rows[0].ven_code,
-                    result.rows[0].name_1,
-                    dataTrg.proc_email,
-                    [
-                        dataTrg.mgr_pr_email,
-                        dataTrg.mgr_md_email,
-                        dataTrg.mdm_email,
-                    ]
-                );
-                //Email vendor ke orang pajak
-                await Emailer.NotifPajak(result.rows[0]);
-                await Emailer.approvedVerif(
-                    result.rows[0].ven_code,
-                    result.rows[0].name_1,
-                    result.rows[0].ven_code,
-                    proc_email[0].email,
-                    password
-                );
+                // await Emailer.toApprove(
+                //     result.rows[0].ven_code,
+                //     result.rows[0].name_1,
+                //     dataTrg.proc_email,
+                //     [
+                //         dataTrg.mgr_pr_email,
+                //         dataTrg.mgr_md_email,
+                //         dataTrg.mdm_email,
+                //     ]
+                // );
+                // //Email vendor ke orang pajak
+                // await Emailer.NotifPajak(result.rows[0]);
+                // await Emailer.approvedVerif(
+                //     result.rows[0].ven_code,
+                //     result.rows[0].name_1,
+                //     result.rows[0].ven_code,
+                //     proc_email[0].email,
+                //     password
+                // );
             }
             // IF REJECTED
             else {
