@@ -70,7 +70,9 @@ const Emailer = {
                 v.lim_curr ,
                 v.limit_vendor ,
                 v.description,
-                t.token
+                t.token,
+                requestor.fullname,
+                requestor.email
             from
                 vendor v
             left join ticket t on
@@ -81,6 +83,7 @@ const Emailer = {
                 mc.country_code = v.country
             left join mst_company mc2 on
                 mc2.comp_id = v.company
+            left join mst_user requestor on requestor.user_id = t.proc_id
             where t.token = $1
             `,
             [ticket_id]
@@ -421,7 +424,9 @@ const Emailer = {
                         v.description,
                         t.token,
                         t.cur_pos,
-                        t.ticket_type
+                        t.ticket_type,
+                        requestor.fullname,
+                        requestor.email
                     from
                         vendor v
                     left join ticket t on
@@ -432,6 +437,7 @@ const Emailer = {
                         mc.country_code = v.country
                     left join mst_company mc2 on
                         mc2.comp_id = v.company
+                    left join mst_user requestor on requestor.user_id = t.proc_id
                     where t.token = $1
                     `,
                     [ticket_id]

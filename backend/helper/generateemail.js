@@ -3986,6 +3986,17 @@ const Email = {
                         <table class="bg_white" width="100%">
                             <tr class="detail">
                                 <td width="20%" style="padding: 0.1em 2.5em">
+                                    Requestor
+                                </td>
+                                <td style="padding: 0.1em 2.5em" width="1%">
+                                    :
+                                </td>
+                                <td style="padding: 0.1em 2.5em">
+                                    ${detail.fullname} (${detail.email})
+                                </td>
+                            </tr>
+                            <tr class="detail">
+                                <td width="20%" style="padding: 0.1em 2.5em">
                                     Title
                                 </td>
                                 <td style="padding: 0.1em 2.5em" width="1%">
