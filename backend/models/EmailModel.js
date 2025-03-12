@@ -21,8 +21,11 @@ const tp = mailer.createTransport({
 });
 
 const Emailer = {
-    toManager: async (ven_name, comp, ticket_id, state) => {
-        const client = await db.connect();
+    toManager: async (ven_name, comp, ticket_id, state, clientpg = null) => {
+        let client = clientpg;
+        if (!client) {
+            client = await db.connect();
+        }
         const { rows: getHostname } = await client.query(
             "SELECT hostname from hostname where mode_env = $1",
             [process.env.NODE_ENV]
@@ -206,7 +209,9 @@ const Emailer = {
             console.log(error);
             throw error;
         } finally {
-            client.release();
+            if (!clientpg) {
+                client.release();
+            }
         }
     },
     newRequest: async (title, local_ovs, ven_name, ticket_num, target, cc) => {
@@ -224,7 +229,6 @@ const Emailer = {
             return send;
         } catch (error) {
             console.error(error);
-            throw error;
         }
     },
 
@@ -235,10 +239,14 @@ const Emailer = {
         ven_group,
         ven_account,
         comp,
-        target
+        target,
+        clientpg = null
     ) => {
         const transporter = tp;
-        const client = await db.connect();
+        let client = clientpg;
+        if (!client) {
+            client = await db.connect();
+        }
         try {
             const { rows: data } = await client.query(
                 `select name, sap_code as code, group_comp from mst_company where comp_id = '${comp}'`
@@ -261,9 +269,10 @@ const Emailer = {
             return send;
         } catch (error) {
             console.log(error);
-            throw error;
         } finally {
-            client.release();
+            if (!clientpg) {
+                client.release();
+            }
         }
     },
     toApprove: async (ven_code, ven_name, target, cc) => {
@@ -324,8 +333,18 @@ const Emailer = {
             throw error;
         }
     },
-    toMDM: async (ven_name, ticket_token, ticket_num, title, local_ovs) => {
-        const client = await db.connect();
+    toMDM: async (
+        ven_name,
+        ticket_token,
+        ticket_num,
+        title,
+        local_ovs,
+        clientpg = null
+    ) => {
+        let client = clientpg;
+        if (!client) {
+            client = await db.connect();
+        }
         try {
             const transporter = tp;
             const getmdm_emails = await client.query(
@@ -371,12 +390,17 @@ const Emailer = {
             console.log(error);
             throw error;
         } finally {
-            client.release();
+            if (!clientpg) {
+                client.release();
+            }
         }
     },
-    toMGRPRC: async (ven_detail, ticket_id, role) => {
+    toMGRPRC: async (ven_detail, ticket_id, role, clientpg = null) => {
         try {
-            const client = await db.connect();
+            let client = clientpg;
+            if (!client) {
+                client = await db.connect();
+            }
             try {
                 const { rows: getHostname } = await client.query(
                     "SELECT hostname from hostname where mode_env = $1",
@@ -535,7 +559,9 @@ const Emailer = {
             } catch (error) {
                 throw error;
             } finally {
-                client.release();
+                if (!clientpg) {
+                    client.release();
+                }
             }
         } catch (error) {
             console.error(error);

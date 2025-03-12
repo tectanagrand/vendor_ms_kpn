@@ -576,20 +576,30 @@ const Ticket = {
             let cc_emailCREA = [dataTrg.mgr_pr_email];
             if (!is_draft && ticket_state === "CREA") {
                 if (cur_pos === "PROC") {
-                    await client.query(TRANS.COMMIT);
-                    await Emailer.toRequest(
+                    Emailer.toRequest(
                         ven_detail.ticket_num,
                         dataTrg.proc_fname,
                         ven_detail.name_1,
                         ven_detail.ven_group,
                         ven_detail.ven_acc,
                         ven_detail.company,
-                        dataTrg.proc_email
+                        dataTrg.proc_email,
+                        client
                     );
                     if (ticket_type === "UPS") {
-                        await Emailer.toMGRPRC(ven_detail, ticket_id, "MGRPRC");
+                        await Emailer.toMGRPRC(
+                            ven_detail,
+                            ticket_id,
+                            "MGRPRC",
+                            client
+                        );
                     } else {
-                        await Emailer.toMGRPRC(ven_detail, ticket_id, "MGRDWS");
+                        await Emailer.toMGRPRC(
+                            ven_detail,
+                            ticket_id,
+                            "MGRDWS",
+                            client
+                        );
                     }
                 } else if (cur_pos === "MGRPRC") {
                     if (
@@ -611,7 +621,8 @@ const Ticket = {
                             ven_detail.name_1,
                             ven_detail.company,
                             ticket_id,
-                            state
+                            state,
+                            client
                         );
                     } else {
                         await Emailer.toMDM(
@@ -619,11 +630,17 @@ const Ticket = {
                             ticket_id,
                             ven_detail.ticket_num,
                             ven_detail.title,
-                            ven_detail.local_ovs
+                            ven_detail.local_ovs,
+                            client
                         );
                     }
                 } else if (cur_pos === "MGRDWS") {
-                    await Emailer.toMGRPRC(ven_detail, ticket_id, "MGRPRCDWS");
+                    await Emailer.toMGRPRC(
+                        ven_detail,
+                        ticket_id,
+                        "MGRPRCDWS",
+                        client
+                    );
                 } else if (cur_pos === "MGRPRCDWS") {
                     if (
                         ven_detail.is_tender === true ||
@@ -644,7 +661,8 @@ const Ticket = {
                             ven_detail.name_1,
                             ven_detail.company,
                             ticket_id,
-                            state
+                            state,
+                            client
                         );
                     } else {
                         await Emailer.toMDM(
@@ -652,7 +670,8 @@ const Ticket = {
                             ticket_id,
                             ven_detail.ticket_num,
                             ven_detail.title,
-                            ven_detail.local_ovs
+                            ven_detail.local_ovs,
+                            client
                         );
                     }
                 }
@@ -663,7 +682,6 @@ const Ticket = {
                 ) {
                     throw new Error("Inputted Vendor Code is not allowed");
                 }
-                await client.query(TRANS.COMMIT);
                 const { rows: hostname } = await client.query(
                     `
                     select hostname from hostname where mode_env = $1
@@ -711,7 +729,7 @@ const Ticket = {
                 // //Email vendor ke orang pajak
                 // await Emailer.NotifPajak(ven_detail);
             } else if (!is_draft && ticket_state === "INIT") {
-                await Emailer.newRequest(
+                Emailer.newRequest(
                     ven_detail.title,
                     ven_detail.local_ovs,
                     ven_detail.name_1,
