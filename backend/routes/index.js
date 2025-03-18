@@ -21,10 +21,5 @@ router.use("/api/approval", Approval);
 router.use("/api/ticeddet", Ticeddet);
 
 //check env var
-router.use("/api/env", (req, res) => {
-    res.status(200).send({
-        env: process.env,
-    });
-});
 
 module.exports = router;
