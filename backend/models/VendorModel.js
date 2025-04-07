@@ -1660,8 +1660,9 @@ const Vendor = {
             telf: 9,
             fax: 10,
             email: 11,
-            npwp: 12,
-            pkp: 13,
+            pic: 12,
+            npwp: 13,
+            pkp: 14,
         };
         // const alr_exs = [
         //     "AT11000255",
@@ -1837,8 +1838,10 @@ const Vendor = {
                                 city: data_ven[colxl.city] || "",
                                 street: data_ven[colxl.street] || "",
                                 telf1: data_ven[colxl.telf] || "",
+                                postal: data_ven[colxl.no_id_addr] || "",
                                 fax: data_ven[colxl.fax] || "",
                                 email: data_ven[colxl.email] || "",
+                                nama_pic: data_ven[colxl.pic] || "",
                                 npwp: data_ven[colxl.npwp] || "",
                                 is_pkp: pkp,
                                 created_at: now,
