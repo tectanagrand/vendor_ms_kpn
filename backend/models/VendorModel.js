@@ -1769,7 +1769,7 @@ const Vendor = {
                             let local_ovs = "";
                             let ven_acc = "";
                             let ven_grp = "";
-                            let pkp = null;
+                            let pkp = false;
                             let ven_id = uuid.uuid();
                             if (exs_ven_id) {
                                 ven_id = exs_ven_id;
@@ -1780,7 +1780,11 @@ const Vendor = {
                             ) {
                                 pkp = true;
                             }
-                            let ac_grp = data_ven[colxl.acc_grp].toUpperCase();
+                            let ac_grp_data_ven = data_ven[colxl.acc_grp];
+                            let ac_grp = "";
+                            if (ac_grp_data_ven) {
+                                ac_grp = ac_grp_data_ven.toUpperCase();
+                            }
                             switch (ac_grp) {
                                 case "V100":
                                     local_ovs = "LOCAL";
@@ -1847,7 +1851,7 @@ const Vendor = {
                                 created_at: now,
                             };
                             Object.keys(vendor_data).map(key => {
-                                if (!vendor_data[key]) {
+                                if (key != "is_pkp" && !vendor_data[key]) {
                                     delete vendor_data[key];
                                 }
                             });
@@ -1970,7 +1974,7 @@ const Vendor = {
                             // );
                             if (!is_alr_ex) {
                                 list_user.push({
-                                    name: data_ven[colxl.name],
+                                    name: data_ven[colxl.name] ?? "",
                                     username: data_ven[colxl.ven_code],
                                     password: password,
                                 });
@@ -1990,7 +1994,7 @@ const Vendor = {
                 });
                 await Promise.all(promises_ven);
                 //print result users
-                // console.log(list_user);
+                console.log(list_user);
                 // console.log(duplicate_ven);
                 for (
                     let i = tableStart;
