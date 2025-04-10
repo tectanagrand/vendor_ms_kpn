@@ -73,6 +73,7 @@ const Emailer = {
                 v.lim_curr ,
                 v.limit_vendor ,
                 v.description,
+                vat.ppn_desc as ppn,
                 t.token,
                 requestor.fullname,
                 requestor.email
@@ -87,6 +88,7 @@ const Emailer = {
             left join mst_company mc2 on
                 mc2.comp_id = v.company
             left join mst_user requestor on requestor.user_id = t.proc_id
+            left join mst_ppn vat on vat.ppn_code = v.ppn_type
             where t.token = $1
             `,
             [ticket_id]
@@ -449,6 +451,7 @@ const Emailer = {
                         t.token,
                         t.cur_pos,
                         t.ticket_type,
+                        vat.ppn_desc as ppn,
                         requestor.fullname,
                         requestor.email
                     from
@@ -462,6 +465,7 @@ const Emailer = {
                     left join mst_company mc2 on
                         mc2.comp_id = v.company
                     left join mst_user requestor on requestor.user_id = t.proc_id
+                    left join mst_ppn vat on vat.ppn_code = v.ppn_type
                     where t.token = $1
                     `,
                     [ticket_id]

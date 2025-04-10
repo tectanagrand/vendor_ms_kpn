@@ -4138,6 +4138,17 @@ const Email = {
                                     ${detail.pay_term}
                                 </td>
                             </tr>
+                            <tr class="detail">
+                                <td width="20%" style="padding: 0.1em 2.5em">
+                                    PPN
+                                </td>
+                                <td style="padding: 0.1em 2.5em" width="1%">
+                                    :
+                                </td>
+                                <td style="padding: 0.1em 2.5em">
+                                    ${detail.ppn}
+                                </td>
+                            </tr>
                             <tr>
                                 <td style="padding-top: 1rem"></td>
                             </tr>

@@ -18,5 +18,6 @@ router.post("/deletebank", controller.deleteBank);
 router.get("/filetype", controller.getFileType);
 router.get("/phonecode", controller.getPhoneCode);
 router.get("/getporg", controller.getPurOrg);
+router.get("/getvat", controller.getVatType);
 
 module.exports = router;

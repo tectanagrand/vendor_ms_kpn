@@ -213,6 +213,24 @@ const Master = {
             client.release();
         }
     },
+
+    async getVAT() {
+        try {
+            const client = await db.connect();
+            try {
+                const { rows: vat_data } = await client.query(`
+                    select ppn_code, ppn_desc, ppn_value from mst_ppn                    
+                    `);
+                return vat_data;
+            } catch (error) {
+                throw error;
+            } finally {
+                client.release();
+            }
+        } catch (error) {
+            throw error;
+        }
+    },
 };
 
 module.exports = Master;
