@@ -1828,7 +1828,7 @@ const Vendor = {
                                     ven_grp = "INTERCO";
                                     break;
                             }
-                            const vendor_data = {
+                            let vendor_data = {
                                 ven_id: ven_id,
                                 local_ovs: local_ovs,
                                 ven_acc: ven_acc,
@@ -1846,6 +1846,11 @@ const Vendor = {
                                 is_pkp: pkp,
                                 created_at: now,
                             };
+                            Object.keys(vendor_data).map(key => {
+                                if (!vendor_data[key]) {
+                                    delete vendor_data[key];
+                                }
+                            });
                             // if (data_ven[colxl.npwp]?.length > 28) {
                             //     console.log(data_ven);
                             //     console.log(data_ven[colxl.ven_code]);
