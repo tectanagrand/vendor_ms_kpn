@@ -7,20 +7,22 @@ const crud = require("../helper/crudquery");
 const moment = require("moment");
 const fa = require("speakeasy");
 const path = require("path");
+const jwt = require("jsonwebtoken");
+const { isAxiosError } = require("axios");
 
 const TicketController = {};
 
 TicketController.openNew = async (req, res) => {
     try {
-        let result = await Ticket.openNew(req.body);
+        let result = await Ticket.openNewv2(req.body, req.cookies);
         res.status(200).send({
             status: 200,
             message: `Ticket ${result.ticket_id} successfully created`,
             data: result,
         });
     } catch (err) {
+        console.log(err);
         res.status(500).send({
-            status: 400,
             message: err.stack,
         });
     }
@@ -59,11 +61,30 @@ TicketController.showAll = async (req, res) => {
     }
 };
 
+TicketController.ShowAllv2 = async (req, res) => {
+    const { emp_role_id, dept_id, bu_id } = req.cookies;
+    const { ticket_num, is_active } = req.query;
+    try {
+        const result = await Ticket.ShowAllv2({
+            bu_id,
+            dept_id,
+            emp_role_id,
+            ticket_num,
+            is_active,
+        });
+        res.status(200).send(result);
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({
+            message: error.message,
+        });
+    }
+};
+
 TicketController.getTicketById = async (req, res) => {
     try {
         const result = await Ticket.getTicketById(req.params.id);
         res.status(200).send({
-            status: 200,
             data: result,
         });
     } catch (err) {
@@ -200,6 +221,31 @@ TicketController.submitTicket = async (req, res) => {
     }
 };
 
+TicketController.submitTicketv2 = async (req, res) => {
+    try {
+        const { ticket_id, ven_detail, ven_banks, ven_files, is_draft } =
+            req.body;
+        const data = await Ticket.submitVendorv2({
+            ticket_id,
+            session: req.cookies,
+            ven_detail,
+            ven_banks,
+            ven_files,
+            is_draft,
+        });
+        res.status(200).send(data);
+    } catch (error) {
+        console.error(error);
+        let message = error?.message;
+        if (isAxiosError(error)) {
+            message = error.response.data.message;
+        }
+        res.status(500).send({
+            message,
+        });
+    }
+};
+
 TicketController.submitVendor = async (req, res) => {
     try {
         const { ven_detail, is_draft } = req.body;
@@ -280,6 +326,18 @@ TicketController.rejectTicket = async (req, res) => {
     }
 };
 
+TicketController.RejectTicketv2 = async (req, res) => {
+    const { remarks, ticket_id } = req.body;
+    const session = req.cookies;
+    try {
+        const result = await Ticket.RejectTicketv2(ticket_id, remarks, session);
+        res.status(200).send(result);
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: error.message });
+    }
+};
+
 TicketController.processMgr = async (req, res) => {
     const ticket_id = req.query.ticket_id;
     const action = req.query.action;
@@ -314,6 +372,87 @@ TicketController.processMgr = async (req, res) => {
         }
     } catch (error) {
         res.render("notvalid");
+    }
+};
+
+TicketController.processMgrv2 = async (req, res) => {
+    try {
+        const { token_appr } = req.query;
+        const data = await Ticket.processByLink(token_appr);
+        if (data.bu_type == "NON_CG") {
+            res.render("response", {
+                ven_name: data.name_1,
+                ven_type: data.ven_type,
+                company: data.company,
+                reason: "has approved by you",
+                rejected: "approved",
+            });
+        } else {
+            res.render("response_cg", {
+                ven_name: data.name_1,
+                ven_type: data.ven_type,
+                ven_class: data.ven_class,
+                reason: "has approved by you",
+                rejected: "approved",
+            });
+        }
+    } catch (error) {
+        console.error(error);
+        res.render("notvalid");
+        // res.status(500).send({
+        //     message: error.message,
+        // });
+    }
+};
+
+TicketController.rejectMgrv2 = async (req, res) => {
+    try {
+        const { token_appr } = req.query;
+        const result = await Ticket.renderRejectForm(token_appr);
+        if (result.bu_type == "NON_CG") {
+            res.render("rejectform", {
+                ven_name: result.name,
+                ven_type: result.type,
+                company: result.company,
+                token: token_appr,
+                reason: "has rejected by you",
+            });
+        } else {
+            res.render("rejectform_cg", {
+                ven_name: result.name,
+                ven_type: result.type,
+                ven_class: result.ven_class,
+                token: token_appr,
+                reason: "has rejected by you",
+            });
+        }
+    } catch (error) {
+        console.error(error);
+        res.render("notvalid");
+    }
+};
+
+TicketController.RejectMgrbyLink = async (req, res) => {
+    const { reason, token } = req.body;
+    const decoded = jwt.decode(token, process.env.TOKEN_KEY);
+    const getCurrentSession = await Ticket.getSessionApprbyLink(
+        decoded.ticket_id
+    );
+    const session = getCurrentSession;
+    try {
+        const result = await Ticket.RejectTicketv2(
+            decoded.ticket_id,
+            reason,
+            session
+        );
+        res.status(200).send({
+            message: "Ticket rejected",
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({
+            message: error.message,
+        });
     }
 };
 
@@ -667,7 +806,7 @@ TicketController.rejectLog = async (req, res) => {
         try {
             const { ticket_state, ticket_id } = req.query;
             const q = `select lr.remarks, lr.create_at, coalesce(mu.fullname, lr.create_by) as create_by, lr.id from log_rejection lr
-            left join mst_user mu on mu.user_id = lr.create_by 
+            left join all_users mu on mu.user_id = lr.create_by 
             where ticket_id = $1  order by create_at desc`;
             const { rows } = await client.query(q, [ticket_id]);
             const results = rows.map(item => ({

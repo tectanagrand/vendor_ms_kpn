@@ -103,7 +103,10 @@ const UserController = {
                     {
                         user_id: cookies.user_id,
                         username: cookies.username,
-                        email: cookies.email,
+                        role: cookies.role,
+                        emp_role_id: cookies.emp_role_id,
+                        bu_id: cookies.bu_id,
+                        dept_id: cookies.dept_id,
                     },
                     process.env.TOKEN_KEY,
                     {
@@ -202,17 +205,7 @@ const UserController = {
     },
 
     createNewUser: async (req, res) => {
-        const Dt = {
-            user_id: req.body.user_id,
-            username: req.body.username,
-            fullname: req.body.fullname,
-            email: req.body.email,
-            mgr_id: req.body.mgr_id,
-            createddate: req.body.createddate,
-            expireddate: req.body.expireddate,
-            role: req.body.role,
-            usergroup: req.body.usergroup,
-        };
+        const Dt = req.body;
         if (req.body.hasOwnProperty("password")) {
             Dt.password = req.body.password;
         }

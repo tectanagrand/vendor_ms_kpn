@@ -6,6 +6,7 @@ const TRANS = require("../config/transaction.js");
 const crud = require("../helper/crudquery.js");
 const moment = require("moment");
 const PageModel = require("../models/PageModel.js");
+const { param } = require("../routes/UserRoute.js");
 
 const User = {
     showAll: async () => {
@@ -78,6 +79,9 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
             user_id: user_id,
             mgr_id: mgr_id,
             token: token,
+            bu_id: params.bu_id,
+            dept_id: params.dept_id,
+            emp_role_id: params.emp_role_id,
         };
         if (params.hasOwnProperty("password")) {
             userSubmit.password = pass;
@@ -116,8 +120,11 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
             USER_GROUP AS USERGROUP,
             USER_ID,
             MGR_ID,
-            CREATED_AT AS DATECREATED,
-            EXPIRED_DATE AS EXPIREDDATE ,
+            TO_CHAR(CREATED_AT, 'yyyy-mm-dd') AS DATECREATED,
+            TO_CHAR(EXPIRED_DATE, 'yyyy-mm-dd') AS EXPIREDDATE ,
+            BU_ID,
+            DEPT_ID, 
+            EMP_ROLE_ID,
             EMAIL
         FROM MST_USER
         UNION
@@ -128,12 +135,15 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
             USER_GROUP AS USERGROUP,
             MGR_ID AS USER_ID,
             '' AS MGR_ID,
-            CREATED_AT AS DATECREATED,
-            EXPIRED_DATE AS EXPIREDDATE ,
+            TO_CHAR(CREATED_AT, 'yyyy-mm-dd') AS DATECREATED,
+            TO_CHAR(EXPIRED_DATE, 'yyyy-mm-dd') AS EXPIREDDATE ,
+            BU_ID,
+            DEPT_ID, 
+            EMP_ROLE_ID,
             EMAIL
-        FROM MST_MGR) AS userdata where user_id = '${idUser}'`;
+        FROM MST_MGR) AS userdata where user_id = $1`;
         try {
-            const showUserbyId = await client.query(q);
+            const showUserbyId = await client.query(q, [idUser]);
             return {
                 data: showUserbyId.rows[0],
             };
@@ -185,6 +195,9 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
             department: department,
             user_group: userGroup,
             mgr_id: user_id,
+            bu_id: params.bu_id,
+            dept_id: params.dept_id,
+            emp_role_id: params.emp_role_id,
             token: token,
         };
         if (params.hasOwnProperty("password")) {
@@ -275,6 +288,9 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
                     USER_GROUP,
                     USER_ID,
                     EMAIL,
+                    EMP_ROLE_ID,
+                    BU_ID,
+                    DEPT_ID,
                     IS_ACTIVE
                 FROM MST_USER
                 UNION
@@ -285,6 +301,9 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
                     USER_GROUP,
                     MGR_ID AS USER_ID,
                     EMAIL,
+                    EMP_ROLE_ID,
+                    BU_ID,
+                    DEPT_ID,
                     IS_ACTIVE
                 FROM MST_MGR
                 UNION
@@ -295,6 +314,9 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
                     GROUP_ID AS USER_GROUP,
                     USER_ID,
                     EMAIL,
+                    'VENDOR' as EMP_ROLE_ID,
+                    '' as BU_ID,
+                    '' as DEPT_ID,
                     IS_ACTIVE
                 FROM A_USERVENDOR)
                 AS user_vms
@@ -358,6 +380,9 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
                     user_id: resdata.user_id,
                     username: resdata.username,
                     role: resdata.role,
+                    emp_role_id: resdata.emp_role_id,
+                    bu_id: resdata.bu_id,
+                    dept_id: resdata.dept_id,
                     groupid: resdata.user_group,
                 },
                 process.env.TOKEN_KEY,
@@ -368,6 +393,9 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
                     user_id: resdata.user_id,
                     username: resdata.username,
                     role: resdata.role,
+                    emp_role_id: resdata.emp_role_id,
+                    bu_id: resdata.bu_id,
+                    dept_id: resdata.dept_id,
                     groupid: resdata.user_group,
                 },
                 process.env.TOKEN_KEY,
@@ -405,6 +433,9 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
                 accessToken: accessToken,
                 permission: authPerm,
                 groupid: userGroup,
+                emp_role_id: resdata.emp_role_id,
+                bu_id: resdata.bu_id,
+                dept_id: resdata.dept_id,
                 is_reset_pwd: is_reset_pwd,
             };
         } catch (error) {
@@ -422,35 +453,50 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
             try {
                 const userData = await client.query(
                     `SELECT * FROM 
-                    (SELECT USERNAME,
-                        PASSWORD,
+                    (select
+                        USERNAME,
+                        password,
                         FULLNAME,
-                        ROLE,
+                        role,
                         USER_GROUP,
                         USER_ID,
                         EMAIL,
+                        emp_role_id,
+                        dept_id,
+                        bu_id,
                         IS_ACTIVE
-                    FROM MST_USER
-                    UNION
-                    SELECT USERNAME,
-                        PASSWORD,
+                    from
+                        MST_USER
+                    union
+                                        select
+                        USERNAME,
+                        password,
                         FULLNAME,
-                        ROLE,
+                        role,
                         USER_GROUP,
-                        MGR_ID AS USER_ID,
+                        MGR_ID as USER_ID,
                         EMAIL,
+                        emp_role_id,
+                        dept_id,
+                        bu_id,
                         IS_ACTIVE
-                    FROM MST_MGR
-                    UNION
-                    SELECT USERNAME,
-                        PASSWORD,
+                    from
+                        MST_MGR
+                    union
+                                        select
+                        USERNAME,
+                        password,
                         FULLNAME,
-                        DEPARTMENT AS ROLE,
-                        GROUP_ID AS USER_GROUP,
+                        DEPARTMENT as role,
+                        GROUP_ID as USER_GROUP,
                         USER_ID,
                         EMAIL,
+                        'VENDOR' as emp_role_id,
+                        '' as dept_id,
+                        '' as bu_id,
                         IS_ACTIVE
-                    FROM A_USERVENDOR)
+                    from
+                        A_USERVENDOR)
                     AS user_vms
                     where USER_ID = $1`,
                     [user_id]
@@ -520,6 +566,9 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
                     user_id: user.user_id,
                     email: user.email,
                     role: user.role,
+                    emp_role_id: user.emp_role_id,
+                    dept_id: user.dept_id,
+                    bu_id: user.bu_id,
                     permission: authPerm,
                     groupid: user.user_group,
                     is_reset_pwd: is_reset_pwd,

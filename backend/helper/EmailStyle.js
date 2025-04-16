@@ -1,9 +1,8 @@
-<!doctype html>
-<html lang="en">
+const EmailStyle = `
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width" />
-        <title>Processed Request</title>
+        <title>Email Notification</title>
         <link
             href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;700&display=swap"
             rel="stylesheet"
@@ -42,6 +41,38 @@
                 border-collapse: collapse !important;
                 table-layout: fixed !important;
                 margin: 0 auto !important;
+            }
+
+            #tabledet {
+                width: 100%;
+                overflow: scroll;
+                background-color: #f2f2f2;
+            }
+
+            #tabledet th {
+                padding-top: 12px;
+                padding-bottom: 12px;
+                padding-left: 10px;
+                padding-right: 10px;
+                text-align: left;
+                font-size: 8pt;
+                background-color: #800000;
+                color: white;
+            }
+
+            #tabledet td {
+                font-size: 8pt;
+                padding: 1rem;
+                font-weight: 800;
+                color: rgb(0, 0, 0);
+                width: 100px;
+                border: 1px solid white;
+                background-color: #ffd1d1;
+                border-collapse: collapse;
+            }
+
+            #tabledet tr {
+                background-color: #f2f2f2;
             }
 
             /* What it does: Uses a better rendering method when resizing images in IE. */
@@ -140,6 +171,11 @@
                 background: #2f89fc;
                 color: #ffffff;
             }
+            .btn.btn-primary:hover {
+                border-radius: 5px;
+                background: #509cff;
+                color: #ffffff;
+            }
             .btn.btn-white {
                 border-radius: 5px;
                 background: #ffffff;
@@ -166,11 +202,6 @@
 
             h4 span.approved {
                 color: green;
-                font-weight: 700;
-            }
-
-            h4 span.rejected {
-                color: red;
                 font-weight: 700;
             }
 
@@ -321,130 +352,6 @@
             }
         </style>
     </head>
-    <body
-        width="100%"
-        style="
-            margin: 0;
-            padding: 0 !important;
-            mso-line-height-rule: exactly;
-            background-color: #222222;
-        "
-    >
-        <center style="width: 100%; background-color: #f1f1f1">
-            <div
-                style="max-width: 600px; margin: 0 auto"
-                class="email-container"
-            >
-                <table
-                    align="center"
-                    role="presentation"
-                    cellspacing="0"
-                    cellpadding="0"
-                    border="0"
-                    width="100%"
-                    style="margin: auto"
-                    class="bg_white"
-                >
-                    <tr>
-                        <td
-                            valign="top"
-                            class="bg_white"
-                            style="padding: 1em 2.5em"
-                        >
-                            <table
-                                role="presentation"
-                                border="0"
-                                cellpadding="0"
-                                cellspacing="0"
-                                width="100%"
-                            >
-                                <tr>
-                                    <td class="logo" style="text-align: left">
-                                        <img
-                                            width="40%"
-                                            src="https://safetyfirstindonesia.co.id/assets/uploads/images/9f09b-kpn-corp.png"
-                                        />
-                                    </td>
-                                </tr>
-                            </table>
-                        </td>
-                    </tr>
-                    <tr>
-                        <table>
-                            <tr>
-                                <td
-                                    valign="top"
-                                    class="bg_white"
-                                    style="padding: 1em 2.5em"
-                                >
-                                    <h4>
-                                        Vendor mentioned below
-                                        <span class="<%= rejected%>"
-                                            ><%= reason%></span
-                                        >
-                                        as Vendor at KPN Corp :
-                                    </h4>
-                                </td>
-                            </tr>
-                        </table>
-                    </tr>
-                    <tr>
-                        <table class="bg_white" width="100%">
-                            <tr>
-                                <td width="20%" style="padding: 0.1em 2.5em">
-                                    Vendor Name
-                                </td>
-                                <td style="padding: 0.1em 2.5em">
-                                    : <%= ven_name%>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td width="20%" style="padding: 0.1em 2.5em">
-                                    Vendor Type
-                                </td>
-                                <td style="padding: 0.1em 2.5em">
-                                    : <%= ven_type%>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td width="20%" style="padding: 0.1em 2.5em">
-                                    Company
-                                </td>
-                                <td style="padding: 0.1em 2.5em">
-                                    : <%= company%>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td syle="padding-bottom: 5em">
-                                    <div style="height: 14em"></div>
-                                </td>
-                            </tr>
-                        </table>
-                    </tr>
-                </table>
-                <table
-                    align="center"
-                    role="presentation"
-                    cellspacing="0"
-                    cellpadding="0"
-                    border="0"
-                    width="100%"
-                    style="margin: auto"
-                >
-                    <tr>
-                        <td
-                            valign="middle"
-                            class="bg_black footer email-section"
-                        >
-                            <table>
-                                <tr>
-                                    <td>KPN Corp Copyright 2023</td>
-                                </tr>
-                            </table>
-                        </td>
-                    </tr>
-                </table>
-            </div>
-        </center>
-    </body>
-</html>
+`;
+
+module.exports = EmailStyle;

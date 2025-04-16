@@ -99,7 +99,7 @@ const Vendor = {
         return promise;
     },
 
-    async setDetailVen(detail, client, is_draft, ticket_state, edited_fields) {
+    async setDetailVen(detail, client) {
         /*Flow :
     - file temporary already stored in temp_ven_file_atth, delete after move
     - bank could be multiple, map through bank object
@@ -108,7 +108,6 @@ const Vendor = {
             const isExist = await client.query(
                 `SELECT * FROM VENDOR WHERE ven_id = '${detail.ven_id}'`
             );
-            let payloadEdit;
             const { rows: getStatusTicket } = await client.query(
                 `select reject_by, is_draft from ticket where ven_id = $1`,
                 [detail.ven_id]
@@ -125,19 +124,6 @@ const Vendor = {
             detail.updated_at = moment(today).format("YYYY-MM-DD");
             detail.created_at = moment(today).format("YYYY-MM-DD");
             if (isExist.rowCount != 0) {
-                if (is_draft === false && ticket_state === "FINA") {
-                    detail.is_active = true;
-                }
-                // if (!is_draftdb) {
-                //     detail.last_version = parseInt(last_ver) + 1;
-                //     payloadEdit.version = parseInt(last_ver) + 1;
-                // } else {
-                //     payloadEdit.version = parseInt(last_ver);
-                // }
-
-                // for(const edited of edited_fields) {
-
-                // }
                 [q, value] = crud.updateItem(
                     "VENDOR",
                     detail,
@@ -204,6 +190,39 @@ const Vendor = {
         } finally {
             client.release();
         }
+    },
+
+    async setTempv2({ fields, uploaded_files }) {
+        try {
+            const client = await db.connect();
+            try {
+                await client.query(TRANS.BEGIN);
+                let payload = {
+                    file_id: uuid.uuid(),
+                    ven_id: fields.ven_id[0],
+                    file_name: uploaded_files[0],
+                    file_type: fields.file_type[0],
+                    created_by: fields.created_by[0],
+                    desc_file: fields.desc_file[0],
+                };
+                if (fields.expired_date) {
+                    payload.expired_date = fields.expired_date[0];
+                }
+                const [queIns, valIns] = crud.insertItem(
+                    "temp_ven_file_atth",
+                    payload,
+                    "ven_id, file_id, file_name, desc_file, file_type, coalesce(to_char(expired_date, 'dd-mm-yyyy'), '') as expired_date,'temp_ven_file_atth' as source, 'insert' as method"
+                );
+                const { rows: result } = await client.query(queIns, valIns);
+                await client.query(TRANS.COMMIT);
+                return result[0];
+            } catch (error) {
+                await client.query(TRANS.ROLLBACK);
+                throw error;
+            } finally {
+                client.release();
+            }
+        } catch (error) {}
     },
 
     async deleteTemp({ id, ven_id }) {
@@ -302,11 +321,26 @@ const Vendor = {
     async getFiles(ven_id) {
         const client = await db.connect();
         try {
-            const items =
-                await client.query(`select file_id as id, file_id, file_name, ty.file_type as desc_file, tmp.file_type, created_at, 'temp_ven_file_atth' as source from temp_ven_file_atth tmp
+            const items = await client.query(`select 
+                    file_id as id, 
+                    file_id,    
+                    file_name, 
+                    ty.file_type as desc_file, 
+                    tmp.file_type,
+                    coalesce(to_char(tmp.expired_date, 'DD-MM-YYYY'), '') as expired_date,
+                    created_at, 
+                    'temp_ven_file_atth' as source 
+                    from temp_ven_file_atth tmp
                 left join mst_file_type ty on ty.file_code = tmp.file_type
                 where ven_id = '${ven_id}' and tmp.file_type not in ('A001', 'A002') 
-            union select file_id as id, file_id, file_name,ty.file_type as desc_file, fl.file_type, created_at, 'ven_file_atth' as source from ven_file_atth fl
+            union 
+            select file_id as id, 
+            file_id, 
+            file_name,ty.file_type as desc_file, 
+            fl.file_type,
+            coalesce(to_char(fl.expired_date, 'DD-MM-YYYY'), '') as expired_date,
+            created_at, 
+            'ven_file_atth' as source from ven_file_atth fl
             left join mst_file_type ty on ty.file_code = fl.file_type
             where ven_id = '${ven_id}' and fl.file_type not in ('A001', 'A002')`);
             // console.log(items);
@@ -326,7 +360,22 @@ const Vendor = {
         try {
             const items = await client.query(
                 `SELECT distinct v.id as order_id, v.bankv_id as id, v.bank_id, v.bank_acc, v.acc_hold, v.acc_name, 
-                b.id as bank_id, b.bank_name, b.bank_code, b.bank_key, v.bank_curr, v.country, b.source,
+                case
+                    when tr.bu_id = 'CG' then cgb.bank_code
+                    else b.id::char
+                    end as bank_id,
+                case
+                    when tr.bu_id = 'CG' then cgb.bank_code
+                    else b.bank_code
+                    end as bank_code,
+                case
+                    when tr.bu_id = 'CG' then cgb.bank_name
+                    else b.bank_name
+                    end as bank_name,
+               case
+                    when tr.bu_id = 'CG' then cgb.bank_code
+                    else b.bank_key
+                    end as bank_key,v.bank_curr, v.country, b.source, cgb.is_new,
                 case
                     when acl.file_type = 'A001' then acl.file_name
                     else ''
@@ -344,11 +393,15 @@ const Vendor = {
                     else ''
                     end as passbook_id
                 FROM VEN_BANK V
+                LEFT JOIN ticket t on v.ven_id = t.ven_id
+                left join ticket_rule tr on tr.doctype = t.approval_type
+                left join cg_mst_bank cgb on cgb.bank_code = v.bank_id
                 LEFT JOIN MST_BANK_SAP B ON v.bank_id = b.id::varchar
                 LEFT JOIN ven_file_atth acl on acl.bank_id = v.bankv_id and acl.file_type = 'A001'
                 LEFT JOIN ven_file_atth pbk on pbk.bank_id = v.bankv_id and pbk.file_type = 'A002'
-                WHERE v.is_active = true and v.VEN_ID = '${ven_id}'
-                order by order_id asc`
+                WHERE v.is_active = true and v.VEN_ID = $1
+                order by order_id asc`,
+                [ven_id]
             );
             // console.log(items);
             let result = {
@@ -408,7 +461,7 @@ const Vendor = {
                     ven_id: ven_id,
                     bank_id: bank.bank_id,
                     bank_acc: bank.bank_acc,
-                    country: bank.bank_country,
+                    country: bank.bank_country ?? null,
                     bank_curr: bank.bank_curr,
                     acc_hold: bank.acc_hold,
                 };
@@ -555,6 +608,7 @@ const Vendor = {
                 created_at, 
                 created_by, 
                 desc_file,
+                expired_date,
                 'insert' as method 
                 from temp_ven_file_atth where ven_id = '${vendor_id}' ${restfile}`
         );
@@ -574,7 +628,7 @@ const Vendor = {
                             ven_id = file.ven_id;
                         }
                         data = await client.query(
-                            `SELECT file_id, ven_id, file_name, file_type, created_at, created_by, desc_file FROM TEMP_VEN_FILE_ATTH WHERE file_id = '${file.file_id}'`
+                            `SELECT file_id, ven_id, file_name, file_type, created_at, created_by, desc_file, expired_date FROM TEMP_VEN_FILE_ATTH WHERE file_id = '${file.file_id}'`
                         );
                         if (data.rowCount === 0) {
                             break;
@@ -2033,6 +2087,32 @@ const Vendor = {
         } catch (error) {
             throw error;
         }
+    },
+
+    async EditExpiryDateFile(file_id, date, source) {
+        try {
+            const client = await db.connect();
+            try {
+                await client.query(TRANS.BEGIN);
+                const payload = {
+                    expired_date: date,
+                };
+                const [upQue, upVal] = crud.updateItem(
+                    source,
+                    payload,
+                    { file_id: file_id },
+                    "file_name"
+                );
+                const { rows: result } = await client.query(upQue, upVal);
+                await client.query(TRANS.COMMIT);
+                return result[0];
+            } catch (error) {
+                await client.query(TRANS.ROLLBACK);
+                throw error;
+            } finally {
+                client.release();
+            }
+        } catch (error) {}
     },
 
     // async UpdateVendorData(ticket_id, updated_data) {
