@@ -42,7 +42,7 @@ EmailModel.GetDataDetailVendor = async (client, ticket_id) => {
                 v.ven_acc,
                 v.ven_type,
                 v.title,
-                v.name_1,
+                v.name_1 || ' ' || mbu.badan_usaha as name_1,
                 v.street,
                 v.street2,
                 v.street3,
@@ -107,6 +107,7 @@ EmailModel.GetDataDetailVendor = async (client, ticket_id) => {
             left join cg_mst_payterm cgpt on cgpt.pay_term_code = v.pay_term
             left join cg_mst_venclass cmv on cmv.class_code = v.ven_class
             left join cg_mst_used_tax cut on cut.used_tax_code = v.used_tax
+            left join mst_badan_usaha mbu on mbu.id_badan_usaha = v.badan_usaha
       where t.token = $1
       `,
             [ticket_id]
@@ -312,7 +313,7 @@ EmailModel.SendManager = async (
         }
 
         const { rows: getFiles } = await client.query(
-            `select mft.file_type , vfa.file_name from  ven_file_atth vfa 
+            `select distinct mft.file_type , vfa.file_name from  ven_file_atth vfa 
                       left join mst_file_type mft on vfa.file_type = mft.file_code 
                       where vfa.ven_id = $1`,
             [detail_vendor.ven_id]
@@ -475,7 +476,7 @@ EmailModel.SendCLevel = async (
         }
 
         const { rows: getFiles } = await client.query(
-            `select mft.file_type , vfa.file_name from  ven_file_atth vfa 
+            `select distinct mft.file_type , vfa.file_name from  ven_file_atth vfa 
                       left join mst_file_type mft on vfa.file_type = mft.file_code 
                       where vfa.ven_id = $1`,
             [detail_vendor.ven_id]

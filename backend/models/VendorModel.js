@@ -342,7 +342,7 @@ const Vendor = {
             created_at, 
             'ven_file_atth' as source from ven_file_atth fl
             left join mst_file_type ty on ty.file_code = fl.file_type
-            where ven_id = '${ven_id}' and fl.file_type not in ('A001', 'A002')`);
+            where ven_id = '${ven_id}' and fl.file_type not in ('A001', 'A002', 'A012')`);
             // console.log(items);
             let result = {
                 count: items.rowCount,
@@ -391,7 +391,15 @@ const Vendor = {
                     case
                     when pbk.file_type = 'A002' then pbk.file_id
                     else ''
-                    end as passbook_id
+                    end as passbook_id,
+                case
+                    when fgt.file_type = 'A012' then fgt.file_name
+                    else ''
+                    end as form_dgt,
+                case
+                    when pbk.file_type = 'A012' then fgt.file_id
+                    else ''
+                    end as form_dgt_id
                 FROM VEN_BANK V
                 LEFT JOIN ticket t on v.ven_id = t.ven_id
                 left join ticket_rule tr on tr.doctype = t.approval_type
@@ -399,6 +407,7 @@ const Vendor = {
                 LEFT JOIN MST_BANK_SAP B ON v.bank_id = b.id::varchar
                 LEFT JOIN ven_file_atth acl on acl.bank_id = v.bankv_id and acl.file_type = 'A001'
                 LEFT JOIN ven_file_atth pbk on pbk.bank_id = v.bankv_id and pbk.file_type = 'A002'
+                LEFT JOIN ven_file_atth fgt on fgt.bank_id = v.bankv_id and fgt.file_type = 'A012'
                 WHERE v.is_active = true and v.VEN_ID = $1
                 order by order_id asc`,
                 [ven_id]
@@ -593,12 +602,6 @@ const Vendor = {
         let promises = [];
         let files_id = [];
         let restfile = "";
-        for (let file of files) {
-            files_id.push(`'${file.file_id}'`);
-        }
-        if (files.length > 0) {
-            restfile = `and file_id not in (${files_id.join(", ")})`;
-        }
         getTempFiles = await client.query(
             `select 
                 file_id, 
@@ -614,9 +617,6 @@ const Vendor = {
         );
         tempFiles = getTempFiles.rows;
         let file_toUp = [...files, ...tempFiles];
-        if (files.length === 0) {
-            return client;
-        }
         try {
             for (let file of file_toUp) {
                 method = file.method;
@@ -640,18 +640,14 @@ const Vendor = {
                         promises.push(client.query(q, val));
                         break;
                     case "delete":
-                        if (os.platform === "win32") {
-                            await fs.promises.unlink(
-                                path.join(path.resolve(), "backend\\public") +
-                                    "\\" +
-                                    file.file_name
-                            );
-                        } else {
+                        try {
                             await fs.promises.unlink(
                                 path.join(path.resolve(), "backend/public") +
                                     "/" +
                                     file.file_name
                             );
+                        } catch (error) {
+                            throw error;
                         }
                         q = crud.deleteItem(
                             "VEN_FILE_ATTH",
@@ -662,7 +658,9 @@ const Vendor = {
                         break;
                 }
             }
+            // console.log(promises);
             const promise = await Promise.all(promises);
+            // throw new Error("error");
             q = crud.deleteItem("TEMP_VEN_FILE_ATTH", "ven_id", ven_id);
             const deleteTemp = await client.query(q);
             return promise;

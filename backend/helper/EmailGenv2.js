@@ -484,7 +484,7 @@ const EmailGen = {
                                 <th>Bank Account</th>
                                 <th>Account Holder</th>
                             </tr>
-                            ${banks_html}
+                            ${banks_html.join(" ")}
                         </table>
                     </tr>
                     <tr>
@@ -1267,7 +1267,7 @@ const EmailGen = {
                                 <th>Bank Account</th>
                                 <th>Account Holder</th>
                             </tr>
-                            ${banks_html}
+                            ${banks_html.join(" ")}
                         </table>
                     </tr>
                     <tr>

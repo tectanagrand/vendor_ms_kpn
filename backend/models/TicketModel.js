@@ -61,7 +61,14 @@ const Ticket = {
             client.release();
         }
     },
-    async ShowAllv2({ bu_id, dept_id, emp_role_id, ticket_num, is_active }) {
+    async ShowAllv2({
+        bu_id,
+        dept_id,
+        emp_role_id,
+        ticket_num,
+        is_active,
+        user_id,
+    }) {
         try {
             const client = await db.connect();
             try {
@@ -102,6 +109,11 @@ const Ticket = {
                         }
                     }
                     where_que_arr.push(`(${where_ttype_arr.join(" or ")})`);
+                }
+                if (emp_role_id == "STAFF" && is_active) {
+                    where_que_arr.push(`proc_id = $${idx}`);
+                    where_val.push(user_id);
+                    idx++;
                 }
                 if (ticket_num) {
                     where_que_arr.push(`ticket_id = $${idx}`);
@@ -164,6 +176,8 @@ const Ticket = {
                     left join ticket_rule tr on tr.doctype = t.approval_type ${where_que}
                     ORDER BY T.UPDATED_AT DESC, T.CREATED_AT DESC, T.TICKET_ID desc
                 `;
+                console.log(que);
+                console.log(where_val);
                 const { rows: results_data, rowCount } = await client.query(
                     que,
                     where_val
@@ -358,7 +372,7 @@ const Ticket = {
             throw error;
         }
     },
-    async getTicketById(ticket_num) {
+    async getTicketById(ticket_num, session) {
         const client = await db.connect();
         try {
             const q = `select
@@ -1061,14 +1075,14 @@ const Ticket = {
                 await Vendor.setBankRfctr(ven_banks, client, ven_detail.ven_id);
 
                 //set file vendor
-                if (is_draft === false) {
-                    await Vendor.setFileRfctr(
+                if (is_draft == false) {
+                    const result_upfile = await Vendor.setFileRfctr(
                         ven_detail.ven_id,
                         ven_files,
                         client
                     );
+                    // console.log(result_upfile);
                 }
-
                 //get updated vendor
                 const { rows: res_updated_vendor } = await client.query(
                     `

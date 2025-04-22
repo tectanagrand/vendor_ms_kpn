@@ -368,7 +368,7 @@ const Master = {
                     where.push(`approval_role = $${index}`);
                     whereval.push(curpos);
                     index++;
-                } else if (curpos == "STAFF" || curpos == "MDM") {
+                } else {
                     where.push(
                         `(approval_role = $${index} or approval_role = $${
                             index + 1
@@ -377,8 +377,6 @@ const Master = {
                     whereval.push("VENDOR");
                     whereval.push("STAFF");
                     index += 2;
-                } else {
-                    throw new Error("Provide current form position");
                 }
                 const { rows } = await client.query(
                     `
@@ -542,6 +540,42 @@ const Master = {
                 const { rows } = await client.query(
                     `select bank_code, bank_name, is_new from cg_mst_bank where is_active = true`
                 );
+                return rows;
+            } catch (error) {
+                throw error;
+            } finally {
+                client.release();
+            }
+        } catch (error) {
+            throw error;
+        }
+    },
+
+    async GetMasterBadanUsaha() {
+        try {
+            const client = await db.connect();
+            try {
+                const { rows } = await client.query(`
+                    select id_badan_usaha, badan_usaha from mst_badan_usaha where is_active = true                    
+                    `);
+                return rows;
+            } catch (error) {
+                throw error;
+            } finally {
+                client.release();
+            }
+        } catch (error) {
+            throw error;
+        }
+    },
+
+    async GetMasterTitle() {
+        try {
+            const client = await db.connect();
+            try {
+                const { rows } = await client.query(`
+                    select title_code, title_name from mst_title where is_active = true                    
+                    `);
                 return rows;
             } catch (error) {
                 throw error;

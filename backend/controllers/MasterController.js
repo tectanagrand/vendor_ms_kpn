@@ -199,6 +199,7 @@ const MasterController = {
             });
             res.status(200).send({ data: result });
         } catch (error) {
+            console.error(error);
             res.status(500).send({
                 message: error.message,
             });
@@ -421,6 +422,33 @@ const MasterController = {
     CGBank: async (req, res) => {
         try {
             const data = await Master.CGBank();
+            res.status(200).send({
+                data: data,
+            });
+        } catch (error) {
+            console.error(error);
+            res.status(500).send({
+                message: error.message,
+            });
+        }
+    },
+    GetBadanUsaha: async (req, res) => {
+        try {
+            const data = await Master.GetMasterBadanUsaha();
+            res.status(200).send({
+                data: data,
+            });
+        } catch (error) {
+            console.error(error);
+            res.status(500).send({
+                message: error.message,
+            });
+        }
+    },
+
+    GetTitle: async (req, res) => {
+        try {
+            const data = await Master.GetMasterTitle();
             res.status(200).send({
                 data: data,
             });

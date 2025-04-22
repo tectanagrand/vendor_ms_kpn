@@ -22,6 +22,8 @@ router.get("/getvat", controller.getVatType);
 router.get("/bu", controller.getBU);
 router.get("/dept", controller.getDept);
 router.get("/emprole", controller.getEmpRole);
+router.get("/title", controller.GetTitle);
+router.get("/badanus", controller.GetBadanUsaha);
 
 //CG Master Data
 router.get("/cg/venclass", controller.CGVenClass);
@@ -33,4 +35,5 @@ router.get("/cg/country", controller.CGCountry);
 router.get("/cg/area", controller.CGArea);
 router.get("/cg/ventype", controller.CGVenType);
 router.get("/cg/banks", controller.CGBank);
+
 module.exports = router;
