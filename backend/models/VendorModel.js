@@ -321,28 +321,58 @@ const Vendor = {
     async getFiles(ven_id) {
         const client = await db.connect();
         try {
-            const items = await client.query(`select 
-                    file_id as id, 
-                    file_id,    
-                    file_name, 
-                    ty.file_type as desc_file, 
-                    tmp.file_type,
-                    coalesce(to_char(tmp.expired_date, 'DD-MM-YYYY'), '') as expired_date,
-                    created_at, 
-                    'temp_ven_file_atth' as source 
-                    from temp_ven_file_atth tmp
-                left join mst_file_type ty on ty.file_code = tmp.file_type
-                where ven_id = '${ven_id}' and tmp.file_type not in ('A001', 'A002') 
+            const items = await client.query(
+                `select
+                file_id as id,
+                file_id,
+                file_name,
+                ty.file_type as desc_file,
+                tmp.file_type,
+                coalesce(to_char(tmp.expired_date,
+                'DD-MM-YYYY'),
+                '') as expired_date,
+                tmp.created_at,
+                'temp_ven_file_atth' as source
+            from
+                temp_ven_file_atth tmp
+            left join ticket t on
+                t.ven_id = tmp.ven_id
+            left join approval_steps as2 on
+                as2.id_doctype = t.approval_type
+                and as2.index_approval = '0'
+            left join mst_file_type ty on
+                ty.file_code = tmp.file_type
+                and as2.bu_id = ty.bu_id
+            where
+                tmp.ven_id = $1
+                and tmp.file_type not in ('A001', 'A002', 'A012')
             union 
-            select file_id as id, 
-            file_id, 
-            file_name,ty.file_type as desc_file, 
-            fl.file_type,
-            coalesce(to_char(fl.expired_date, 'DD-MM-YYYY'), '') as expired_date,
-            created_at, 
-            'ven_file_atth' as source from ven_file_atth fl
-            left join mst_file_type ty on ty.file_code = fl.file_type
-            where ven_id = '${ven_id}' and fl.file_type not in ('A001', 'A002', 'A012')`);
+                        select
+                file_id as id,
+                file_id,
+                file_name,
+                ty.file_type as desc_file,
+                fl.file_type,
+                coalesce(to_char(fl.expired_date,
+                'DD-MM-YYYY'),
+                '') as expired_date,
+                fl.created_at,
+                'ven_file_atth' as source
+            from
+                ven_file_atth fl
+            left join ticket t on
+                t.ven_id = fl.ven_id
+            left join approval_steps as2 on
+                as2.id_doctype = t.approval_type
+                and as2.index_approval = '0'
+            left join mst_file_type ty on
+                ty.file_code = fl.file_type
+                and as2.bu_id = ty.bu_id
+            where
+                fl.ven_id = $1
+                and fl.file_type not in ('A001', 'A002', 'A012')`,
+                [ven_id]
+            );
             // console.log(items);
             let result = {
                 count: items.rowCount,

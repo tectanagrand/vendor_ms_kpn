@@ -63,13 +63,13 @@ TicketController.showAll = async (req, res) => {
 
 TicketController.ShowAllv2 = async (req, res) => {
     const { emp_role_id, dept_id, bu_id, user_id } = req.cookies;
-    const { ticket_num, is_active } = req.query;
+    const { q, is_active } = req.query;
     try {
         const result = await Ticket.ShowAllv2({
             bu_id,
             dept_id,
             emp_role_id,
-            ticket_num,
+            q,
             is_active,
             user_id,
         });

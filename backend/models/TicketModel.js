@@ -61,14 +61,7 @@ const Ticket = {
             client.release();
         }
     },
-    async ShowAllv2({
-        bu_id,
-        dept_id,
-        emp_role_id,
-        ticket_num,
-        is_active,
-        user_id,
-    }) {
+    async ShowAllv2({ bu_id, dept_id, emp_role_id, q, is_active, user_id }) {
         try {
             const client = await db.connect();
             try {
@@ -115,9 +108,11 @@ const Ticket = {
                     where_val.push(user_id);
                     idx++;
                 }
-                if (ticket_num) {
-                    where_que_arr.push(`ticket_id = $${idx}`);
-                    where_val.push(ticket_num);
+                if (q) {
+                    where_que_arr.push(
+                        `t.ticket_id like $${idx} or v.ven_code like $${idx}`
+                    );
+                    where_val.push(`%${q}%`);
                     idx++;
                 }
                 if (is_active) {
@@ -158,7 +153,6 @@ const Ticket = {
                         as2.emp_role_id as cur_pos,
                         as2.dept_id as dept_id_ticket,
                         as2.bu_id,
-                        tr.bu_id,
                         tr.dept_id,
                         CASE 
                             WHEN T.VALID_UNTIL < NOW() THEN true
@@ -755,6 +749,7 @@ const Ticket = {
                 await client.query(TRANS.BEGIN);
                 const ApprovalTrack = new ApprovalTracker(client, ticket_id);
                 await ApprovalTrack.init();
+                console.log(ApprovalTrack.current_step);
                 if (ApprovalTrack.current_step.index_approval == "END") {
                     throw new Error("Ticket already end, cannot be processed");
                 }

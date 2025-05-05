@@ -400,11 +400,14 @@ ApprovalModel.ProcessApproval = async (
             await client.query(insVal, insQue);
         }
         // throw new Error("test");
-        const up_payload = {
+        let up_payload = {
             approval_pos: next_step.index_approval,
             updated_by: session.user_id,
             reject_by: null,
         };
+        if ((current_step.emp_role_id = "MDM")) {
+            up_payload.mdm_id = session.user_id;
+        }
         const [upVal, upQue] = Crud.updateItem(
             "ticket",
             up_payload,
@@ -663,8 +666,6 @@ ApprovalModel.RejectApproval = async (client, ticket_id, remarks, session) => {
                     : ven_detail.email,
             cc: current_step.email,
         };
-        // console.log(config_email);
-        // throw new Error("test");
         await EmailModel.RejectTicket(ven_detail, remarks, config_email);
         return {
             message: `Ticket ${ven_detail.ticket_num} is rejected`,

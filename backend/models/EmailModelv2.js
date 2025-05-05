@@ -42,7 +42,10 @@ EmailModel.GetDataDetailVendor = async (client, ticket_id) => {
                 v.ven_acc,
                 v.ven_type,
                 v.title,
-                v.name_1 || ' ' || mbu.badan_usaha as name_1,
+                case
+                	when mbu.badan_usaha is not null then v.name_1 || ' ' || mbu.badan_usaha 
+                	else v.name_1
+                end as name_1,
                 v.street,
                 v.street2,
                 v.street3,
@@ -314,7 +317,9 @@ EmailModel.SendManager = async (
 
         const { rows: getFiles } = await client.query(
             `select distinct mft.file_type , vfa.file_name from  ven_file_atth vfa 
-                      left join mst_file_type mft on vfa.file_type = mft.file_code 
+                      left join ticket t on t.ven_id = vfa.ven_id
+                      left join approval_steps as2 on as2.id_doctype = t.approval_type and as2.index_approval = '0'
+                      left join mst_file_type mft on vfa.file_type = mft.file_code and as2.bu_id = mft.bu_id
                       where vfa.ven_id = $1`,
             [detail_vendor.ven_id]
         );
@@ -477,7 +482,9 @@ EmailModel.SendCLevel = async (
 
         const { rows: getFiles } = await client.query(
             `select distinct mft.file_type , vfa.file_name from  ven_file_atth vfa 
-                      left join mst_file_type mft on vfa.file_type = mft.file_code 
+                      left join ticket t on t.ven_id = vfa.ven_id
+                      left join approval_steps as2 on as2.id_doctype = t.approval_type and as2.index_approval = '0'
+                      left join mst_file_type mft on vfa.file_type = mft.file_code and as2.bu_id = mft.bu_id
                       where vfa.ven_id = $1`,
             [detail_vendor.ven_id]
         );

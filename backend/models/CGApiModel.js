@@ -151,7 +151,10 @@ CGApi.SubmitToTiptop = async (client, ven_id, user_id) => {
         const { rows } = await client.query(
             `
             select
-            v.name_1,
+            case
+                when v.badan_usaha is not null then v.name_1 || ' ' || v.badan_usaha 
+                else v.name_1
+            end as name_1,
             v.ven_class,
             v.ven_type,
             v.npwp as uniform,
