@@ -532,12 +532,11 @@ ApprovalModel.EndApproval = async (client, ticket_id, user_id) => {
         vendor_code = data_vendor[0].ven_code;
         vendor_name = data_vendor[0].name_1;
         const first_step = ApprovalTrack.getApprovalStep("0");
-        console.log(first_step);
         let to = first_step.email;
         if (first_step.emp_role_id == "VENDOR") {
             to = data_vendor[0].email_pic;
         }
-        let cc = ApprovalTrack.getEmailFromSteps(1);
+        let cc = ApprovalTrack.getEmailLastSteps();
         let additionalcc = ApprovalTrack.current_step.cc_email;
         cc.push(additionalcc);
         let config = {

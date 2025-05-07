@@ -170,8 +170,6 @@ const Ticket = {
                     left join ticket_rule tr on tr.doctype = t.approval_type ${where_que}
                     ORDER BY T.UPDATED_AT DESC, T.CREATED_AT DESC, T.TICKET_ID desc
                 `;
-                console.log(que);
-                console.log(where_val);
                 const { rows: results_data, rowCount } = await client.query(
                     que,
                     where_val

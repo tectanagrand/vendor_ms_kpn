@@ -1556,9 +1556,7 @@ const EmailGen = {
                                         >
                                             <h4>
                                                 Kepada Yth. Bapak/Ibu <br />
-                                                Permintaan registrasi vendor anda adalah <span class="approved">Approved</span> dengan detail
-                                                sebagai berikut :
-                                                <br />
+                                                Permintaan registrasi kode vendor anda telah di setujui dengan kode sebagai berikut:
                                                 <br />
                                                 ${ven_code} - ${ven_name}
                                             </h4>

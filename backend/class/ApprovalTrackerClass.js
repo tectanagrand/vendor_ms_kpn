@@ -263,6 +263,12 @@ class ApprovalTracker {
         });
         return emails;
     }
+
+    getEmailLastSteps() {
+        const arr_steps = Object.fromEntries(this.approval_step);
+        let last_item = Object.values(arr_steps).slice(-1)[0];
+        return [last_item];
+    }
 }
 
 module.exports = ApprovalTracker;
