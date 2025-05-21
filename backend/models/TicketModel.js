@@ -110,7 +110,7 @@ const Ticket = {
                 }
                 if (q) {
                     where_que_arr.push(
-                        `t.ticket_id like $${idx} or v.ven_code like $${idx}`
+                        `t.ticket_id like $${idx} or v.ven_code like $${idx} or v.name_1 like $${idx}`
                     );
                     where_val.push(`%${q}%`);
                     idx++;

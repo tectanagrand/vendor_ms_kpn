@@ -47,6 +47,7 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
             submitState = "insert";
         }
         const client = await db.connect();
+        console.log(params);
         client.query(TRANS.BEGIN);
         if (params.hasOwnProperty("password")) {
             pass = await hashPassword(params.password);
@@ -56,7 +57,6 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
             process.env.TOKEN_KEY,
             { expiresIn: "1d" }
         );
-        const currentdate = new Date().toLocaleDateString();
         const startDate = params.createddate;
         const validDate = params.expireddate;
         const user_id = uidExist != "" ? uidExist : uuid.uuid();
@@ -71,9 +71,7 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
             username: username,
             email: email,
             role: role,
-            created_at: moment(startDate).format("YYYY-MM-DD"),
-            expired_date: moment(validDate).format("YYYY-MM-DD"),
-            updated_at: moment(currentdate).format("YYYY-MM-DD"),
+            updated_at: moment().format("YYYY-MM-DD"),
             is_active: true,
             user_group: userGroup,
             user_id: user_id,
@@ -86,6 +84,12 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
             dept_id: params.dept_id,
             emp_role_id: params.emp_role_id,
         };
+        if (startDate) {
+            userSubmit.created_at = moment(validDate).format("YYYY-MM-DD");
+        }
+        if (validDate) {
+            userSubmit.expired_date = moment(validDate).format("YYYY-MM-DD");
+        }
         if (params.hasOwnProperty("password")) {
             userSubmit.password = pass;
         }
@@ -114,6 +118,40 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
         }
     },
 
+    updateVendor: async params => {
+        try {
+            const client = await db.connect();
+            try {
+                await client.query(TRANS.BEGIN);
+                const newpass = await hashPassword(params.password);
+                const payload = {
+                    fullname: params.fullname,
+                    username: params.username,
+                    password: newpass,
+                    email: params.email,
+                    updated_at: moment().format("YYYY-MM-DD"),
+                };
+                const [upque, upval] = crud.updateItem(
+                    "a_uservendor",
+                    payload,
+                    { user_id: params.user_id }
+                );
+                await client.query(upque, upval);
+                await client.query(TRANS.COMMIT);
+                return {
+                    name: params.fullname,
+                };
+            } catch (error) {
+                await client.query(TRANS.ROLLBACK);
+                throw error;
+            } finally {
+                client.release();
+            }
+        } catch (error) {
+            throw error;
+        }
+    },
+
     showUserData: async idUser => {
         const client = await db.connect();
         const q = `SELECT * FROM (SELECT FULLNAME,
@@ -133,7 +171,7 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
             EMP_ROLE_ID,
             EMAIL
         FROM MST_USER
-        UNION
+        UNION ALL
         SELECT FULLNAME,
             USERNAME,
             PASSWORD,
@@ -150,7 +188,26 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
             DEPT_ID, 
             EMP_ROLE_ID,
             EMAIL
-        FROM MST_MGR) AS userdata where user_id = $1`;
+        FROM MST_MGR
+        UNION ALL
+        SELECT FULLNAME,
+            USERNAME,
+            PASSWORD,
+            'VENDOR' as ROLE,
+            null AS USERGROUP,
+            user_id AS USER_ID,
+            '' AS MGR_ID,
+              TO_CHAR(CREATED_AT, 'yyyy-mm-dd') AS DATECREATED,
+            TO_CHAR(EXPIRED_DATE, 'yyyy-mm-dd') AS EXPIREDDATE ,
+            null as GENDER,
+            null as BU_ID,
+            null as BU_ID_1,
+            null as BU_ID_2,
+            null as DEPT_ID, 
+            null as EMP_ROLE_ID,
+            EMAIL
+        FROM a_uservendor
+        ) AS userdata where user_id = $1`;
         try {
             const showUserbyId = await client.query(q, [idUser]);
             return {

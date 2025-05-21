@@ -389,10 +389,10 @@ const Vendor = {
         const client = await db.connect();
         try {
             const items = await client.query(
-                `SELECT distinct v.id as order_id, v.bankv_id as id, v.bank_id, v.bank_acc, v.acc_hold, v.acc_name, 
+                `SELECT distinct v.id as order_id, v.bankv_id as id, v.bank_acc, v.acc_hold, v.acc_name, 
                 case
                     when tr.bu_id = 'CG' then cgb.bank_code
-                    else b.id::char
+                    else cast(b.id as varchar)
                     end as bank_id,
                 case
                     when tr.bu_id = 'CG' then cgb.bank_code
@@ -434,7 +434,7 @@ const Vendor = {
                 LEFT JOIN ticket t on v.ven_id = t.ven_id
                 left join ticket_rule tr on tr.doctype = t.approval_type
                 left join cg_mst_bank cgb on cgb.bank_code = v.bank_id
-                LEFT JOIN MST_BANK_SAP B ON v.bank_id = b.id::varchar
+                LEFT JOIN MST_BANK_SAP B ON v.bank_id = cast(b.id as varchar)
                 LEFT JOIN ven_file_atth acl on acl.bank_id = v.bankv_id and acl.file_type = 'A001'
                 LEFT JOIN ven_file_atth pbk on pbk.bank_id = v.bankv_id and pbk.file_type = 'A002'
                 LEFT JOIN ven_file_atth fgt on fgt.bank_id = v.bankv_id and fgt.file_type = 'A012'

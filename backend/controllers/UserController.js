@@ -206,12 +206,15 @@ const UserController = {
 
     createNewUser: async (req, res) => {
         const Dt = req.body;
+        console.log(Dt);
         if (req.body.hasOwnProperty("password")) {
             Dt.password = req.body.password;
         }
         try {
             let submitDt;
-            if (Dt.mgr_id === "") {
+            if (Dt.role == "VENDOR") {
+                submitDt = await User.updateVendor(Dt);
+            } else if (Dt.mgr_id === "") {
                 submitDt = await User.createManager(Dt);
             } else {
                 submitDt = await User.createUser(Dt);
