@@ -513,17 +513,24 @@ TicketController.deleteTicket = async (req, res) => {
         });
     }
     try {
-        const deleteTicket = await client.query(
-            `delete from ticket where token = '${ticket_id}' returning ticket_id`
+        const [upque, upval] = crud.updateItem(
+            "ticket",
+            { is_close: true },
+            { token: ticket_id },
+            "ticket_id"
         );
+        const deleteTicket = await client.query(upque, upval);
         const deletedTicket = deleteTicket.rows[0].ticket_id;
         const checkVen = await client.query(
             `select ven_id from vendor where ven_id = '${ven_id}'`
         );
         if (checkVen.rowCount > 0) {
-            const deleteVendor = await client.query(
-                `delete from vendor where ven_id = '${ven_id}' returning ven_id`
+            const [venque, venval] = crud.updateItem(
+                "vendor",
+                { is_active: false },
+                { ven_id: ven_id }
             );
+            await client.query(venque, venval);
         }
         await client.query(TRANS.COMMIT);
         res.status(200).send({

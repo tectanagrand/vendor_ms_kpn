@@ -121,7 +121,7 @@ const Ticket = {
                     idx++;
                 }
                 if (where_que_arr.length > 0) {
-                    where_que = "where " + where_que_arr.join(" and ");
+                    where_que = where_que_arr.join(" and ");
                 }
                 let que = `
                 SELECT T.token,
@@ -167,7 +167,8 @@ const Ticket = {
                     left join approval_steps as2 on as2.index_approval = t.approval_pos and as2.id_doctype = t.approval_type
                     left join mst_emp_role mer on mer.role_code = as2.emp_role_id
                     left join mst_department md on md.dept_code = as2.dept_id
-                    left join ticket_rule tr on tr.doctype = t.approval_type ${where_que}
+                    left join ticket_rule tr on tr.doctype = t.approval_type
+                    where t.is_close is null and ${where_que}
                     ORDER BY T.UPDATED_AT DESC, T.CREATED_AT DESC, T.TICKET_ID desc
                 `;
                 const { rows: results_data, rowCount } = await client.query(
