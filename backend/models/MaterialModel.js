@@ -70,7 +70,7 @@ const Material = {
                         mis.name as "subGroupName",
                         mig.code as "groupCode",
                         mig.name as "groupName",
-                        CONCAT(mig.code, '.', mis.code) as "fullCode"
+                        m.code as "fullCode"
                     FROM mat_sap_data m
                     JOIN mat_item_sub_group mis ON m.material_sub_group_id = mis.id
                     JOIN mat_item_group mig ON mis.item_group_id = mig.id
@@ -228,7 +228,7 @@ const Material = {
                         mis.name as "subGroupName",
                         mig.code as "groupCode",
                         mig.name as "groupName",
-                        CONCAT(mig.code, '.', mis.code) as "fullCode"
+                        m.code as "fullCode"
                     FROM mat_sap_data m
                     JOIN mat_item_sub_group mis ON m.material_sub_group_id = mis.id
                     JOIN mat_item_group mig ON mis.item_group_id = mig.id
@@ -396,9 +396,11 @@ const Material = {
                         mis.name as "subGroupName",
                         mig.code as "groupCode",
                         mig.name as "groupName",
-                        mig.id as group_id
+                        mig.id as group_id,
+                        m.code as "fullCode"
                     FROM mat_item_sub_group mis
                     JOIN mat_item_group mig ON mis.item_group_id = mig.id
+                    JOIN mat_sap_data m ON m.material_sub_group_id = mis.id
                     WHERE mis.id = ANY($1)
                     `,
                     [subGroupIds]
@@ -412,7 +414,7 @@ const Material = {
                         subGroupName: row.subGroupName,
                         groupCode: row.groupCode,
                         groupName: row.groupName,
-                        fullCode: `${row.groupCode}.${row.subGroupCode}`,
+                        fullCode: row.fullCode,
                     };
                 });
 
@@ -493,7 +495,7 @@ const Material = {
                         mig.id as "groupId",
                         mig.code as "groupCode",
                         mig.name as "groupName",
-                        CONCAT(mig.code, '.', mis.code) as "fullCode"
+                        m.code as "fullCode"
                     FROM mat_sap_data m
                     JOIN mat_item_sub_group mis ON m.material_sub_group_id = mis.id
                     JOIN mat_item_group mig ON mis.item_group_id = mig.id
