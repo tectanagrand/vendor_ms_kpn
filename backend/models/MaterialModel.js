@@ -1,5 +1,9 @@
 const db = require("../config/connection.js");
 const Crud = require("../helper/crudquery.js");
+const fs = require("fs");
+const path = require("path");
+const DBClientWrapper = require("../helper/DBClientWrapper.js");
+const getMimeType = require("../helper/mimetype.js");
 
 const Material = {
     // Get all material groups
@@ -522,26 +526,82 @@ const Material = {
         }
     },
 
-    addAttachment: async (materialId, attachment, type) => {
+    addAttachment: async (materialId, fileInfoArray, updatedBy) => {
+        const uploadedFiles = [];
+        const cleanupFiles = [];
+
         try {
-            const connection = await db.connect();
+            return await DBClientWrapper(async client => {
+                await client.query("BEGIN");
 
-            const result = await connection.query(
-                `INSERT INTO mat_attachment (material_id, attachment, type, created_at, updated_at)
-                VALUES ($1, $2, $3, NOW(), NOW()) RETURNING id`,
-                [materialId, attachment, type]
-            );
+                try {
+                    // 1. Add attachments to database
+                    for (const file of fileInfoArray) {
+                        // Determine MIME type from extension
+                        const mimeType = getMimeType(file.extension);
 
-            connection.release();
+                        const result = await client.query(
+                            `INSERT INTO mat_attachment (material_id, attachment, type, created_at, updated_at)
+                            VALUES ($1, $2, $3, NOW(), NOW()) RETURNING id`,
+                            [materialId, file.newName, mimeType]
+                        );
 
-            return {
-                id: result.rows[0].id,
-                materialId,
-                attachment,
-                type,
-            };
+                        uploadedFiles.push({
+                            id: result.rows[0].id,
+                            originalName: file.originalName,
+                            savedAs: file.newName,
+                            type: mimeType,
+                        });
+                    }
+
+                    // 2. Update material timestamp
+                    await client.query(
+                        `UPDATE mat_sap_data
+                        SET updated_at = NOW(), updated_by = $1
+                        WHERE id = $2`,
+                        [updatedBy || null, materialId]
+                    );
+
+                    // Commit transaction
+                    await client.query("COMMIT");
+
+                    // 3. After successful database operations, save files to disk
+                    for (const file of fileInfoArray) {
+                        const publicDir = path.join(
+                            path.resolve(),
+                            "./backend/public"
+                        );
+
+                        // Ensure public directory exists
+                        if (!fs.existsSync(publicDir)) {
+                            fs.mkdirSync(publicDir, { recursive: true });
+                        }
+
+                        const finalPath = path.join(publicDir, file.newName);
+                        cleanupFiles.push(finalPath);
+
+                        // Read from temp location and write to final location
+                        const rawData = fs.readFileSync(file.tempPath);
+                        fs.writeFileSync(finalPath, rawData);
+                    }
+
+                    return {
+                        success: true,
+                        files: uploadedFiles,
+                    };
+                } catch (error) {
+                    // Rollback transaction on error
+                    await client.query("ROLLBACK");
+
+                    for (const filePath of cleanupFiles) {
+                        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+                    }
+
+                    throw error;
+                }
+            });
         } catch (error) {
-            console.error("Error adding attachment:", error);
+            console.error("Error processing attachment upload:", error);
             throw error;
         }
     },

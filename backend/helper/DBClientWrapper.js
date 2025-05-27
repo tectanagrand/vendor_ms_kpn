@@ -1,13 +1,14 @@
 const db = require("../config/connection");
 
 const DBClientWrapper = async callback => {
+    let client;
     try {
-        const client = await db.connect();
+        client = await db.connect();
         return callback(client);
     } catch (error) {
         throw error;
     } finally {
-        client.release();
+        if (client) client.release();
     }
 };
 

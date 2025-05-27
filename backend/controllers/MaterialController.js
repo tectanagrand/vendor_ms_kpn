@@ -170,7 +170,6 @@ const MaterialController = {
     uploadAttachment: async (req, res) => {
         // Track the temporary files and paths to handle cleanup on failure
         const tempFilePaths = [];
-        const finalFilePaths = [];
 
         try {
             const { materialId } = req.params;
@@ -204,7 +203,6 @@ const MaterialController = {
                 });
             }
 
-            // Process files but don't save to final destination yet
             const filesToProcess = [];
 
             for (const file of files) {
@@ -230,37 +228,11 @@ const MaterialController = {
                     // Save the temporary file path for later
                     tempFilePaths.push(file.filepath);
 
-                    const newPath = path.join(__dirname, "../public", newName);
-
-                    finalFilePaths.push(newPath);
-
-                    // Determine MIME type based on extension
-                    let mimeType;
-                    switch (extension) {
-                        case "pdf":
-                            mimeType = "application/pdf";
-                            break;
-                        case "doc":
-                        case "docx":
-                            mimeType = "application/msword";
-                            break;
-                        case "png":
-                            mimeType = "image/png";
-                            break;
-                        case "jpg":
-                        case "jpeg":
-                            mimeType = "image/jpeg";
-                            break;
-                        default:
-                            mimeType = "application/octet-stream";
-                    }
-
-                    // Add to list of files to process
+                    // Add to list of files to process (let model determine MIME type)
                     filesToProcess.push({
                         tempPath: file.filepath,
-                        finalPath: newPath,
                         newName,
-                        mimeType,
+                        extension,
                         originalName: file.originalFilename,
                     });
                 } catch (error) {
@@ -276,72 +248,19 @@ const MaterialController = {
                 }
             }
 
-            const uploadedFiles = [];
-
-            for (const fileInfo of filesToProcess) {
-                // Add to database
-                const attachmentResult = await Material.addAttachment(
-                    materialId,
-                    fileInfo.newName,
-                    fileInfo.mimeType
-                );
-
-                uploadedFiles.push({
-                    originalName: fileInfo.originalName,
-                    savedAs: fileInfo.newName,
-                    id: attachmentResult.id,
-                    type: fileInfo.mimeType,
-                });
-            }
-
-            await Material.updateMaterialTimestamp(materialId, updatedBy);
-
-            const publicDir = path.join(__dirname, "../public");
-
-            if (!fs.existsSync(publicDir)) {
-                fs.mkdirSync(publicDir, { recursive: true });
-            }
-
-            for (const fileInfo of filesToProcess) {
-                const dir = path.dirname(fileInfo.finalPath);
-
-                if (!fs.existsSync(dir)) {
-                    fs.mkdirSync(dir, { recursive: true });
-                }
-
-                try {
-                    let rawData = fs.readFileSync(fileInfo.tempPath);
-
-                    fs.writeFileSync(fileInfo.finalPath, rawData);
-                } catch (error) {
-                    console.error(
-                        `Error writing file to ${fileInfo.finalPath}:`,
-                        error
-                    );
-                }
-            }
+            // Use the addAttachment method that handles both database and file operations
+            const result = await Material.addAttachment(
+                materialId,
+                filesToProcess,
+                updatedBy
+            );
 
             res.status(200).json({
                 success: true,
-                message: `${uploadedFiles.length} file(s) uploaded successfully`,
-                files: uploadedFiles,
+                files: result.files,
             });
         } catch (error) {
             console.error("Upload error:", error);
-
-            // Clean up any files that may have been written
-            for (const filePath of finalFilePaths) {
-                try {
-                    if (fs.existsSync(filePath)) {
-                        fs.unlinkSync(filePath);
-                    }
-                } catch (cleanupError) {
-                    console.error(
-                        `Failed to clean up file: ${filePath}`,
-                        cleanupError
-                    );
-                }
-            }
 
             if (error.code === 1016) {
                 return res.status(400).json({
