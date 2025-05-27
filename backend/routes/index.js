@@ -9,6 +9,7 @@ const Otp = require("./OTPRoute");
 const Approval = require("./ApprovalRoute");
 const Ticeddet = require("./TicketEditReqDetRoute");
 const CGApi = require("./CGApiRoute");
+const Material = require("./MaterialRoute");
 const router = express.Router();
 
 router.use("/api/user", User);
@@ -21,5 +22,6 @@ router.use("/api/otp", Otp);
 router.use("/api/approval", Approval);
 router.use("/api/ticeddet", Ticeddet);
 router.use("/api/cg", CGApi);
+router.use("/api/material", Material);
 
 module.exports = router;
