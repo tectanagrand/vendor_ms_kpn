@@ -506,6 +506,12 @@ const seedMaterials = async (subGroupMap, userId) => {
         let totalMaterials = 0;
         let totalAttachments = 0;
 
+        // Track used codes to ensure uniqueness
+        const usedCodes = new Set();
+
+        // Track the number of materials per subgroup to generate unique third parts
+        const subgroupCounter = {};
+
         // Insert materials into mat_sap_data
         for (const material of materials) {
             // Validate subgroup mapping
@@ -524,9 +530,44 @@ const seedMaterials = async (subGroupMap, userId) => {
                 3,
                 "0"
             );
-            const thirdPart = "001"; // Default for the third part
 
-            const fullCode = `${groupCodePadded}.${subgroupCodePadded}.${thirdPart}`;
+            // Initialize counter for this subgroup if not exists
+            if (!subgroupCounter[material.subgroupKey]) {
+                subgroupCounter[material.subgroupKey] = 1;
+            }
+
+            // Generate unique third part based on counter for this subgroup
+            const thirdPart = subgroupCounter[material.subgroupKey]
+                .toString()
+                .padStart(3, "0");
+
+            // Increment counter for next material in this subgroup
+            subgroupCounter[material.subgroupKey]++;
+
+            let fullCode = `${groupCodePadded}.${subgroupCodePadded}.${thirdPart}`;
+
+            // Check if code is already used (shouldn't happen with our counter approach, but just to be safe)
+            if (usedCodes.has(fullCode)) {
+                console.warn(
+                    `⚠️ Code ${fullCode} already exists. Generating alternative code.`
+                );
+                // Generate a random number between 100-999 to ensure uniqueness
+                const randomThirdPart = (
+                    100 + Math.floor(Math.random() * 900)
+                ).toString();
+                fullCode = `${groupCodePadded}.${subgroupCodePadded}.${randomThirdPart}`;
+
+                // If still duplicate (very unlikely), skip this material
+                if (usedCodes.has(fullCode)) {
+                    console.warn(
+                        `⚠️ Cannot generate unique code for "${material.name}". Skipping.`
+                    );
+                    continue;
+                }
+            }
+
+            // Mark this code as used
+            usedCodes.add(fullCode);
 
             console.log(
                 `   - Inserting material: ${material.name} (code: ${fullCode})`
@@ -606,6 +647,12 @@ const seedMaterials = async (subGroupMap, userId) => {
 // Seed Client Materials (not from SAP)
 const seedClientMaterials = async (defaultSubgroupId, userId) => {
     try {
+        // Query for existing material codes to avoid duplicates
+        const { rows: existingCodes } = await pool.query(
+            `SELECT code FROM mat_sap_data`
+        );
+        const usedCodes = new Set(existingCodes.map(row => row.code));
+
         // Add a couple client-created items (not assigned to any subgroup)
         const clientMaterials = [
             {
@@ -652,6 +699,37 @@ const seedClientMaterials = async (defaultSubgroupId, userId) => {
 
         for (const material of clientMaterials) {
             try {
+                // Check if code already exists, if so generate a new one
+                let materialCode = material.code;
+                if (usedCodes.has(materialCode)) {
+                    const baseParts = materialCode.split(".");
+                    let counter = 1;
+
+                    // Try to find an unused code by incrementing the third part
+                    while (usedCodes.has(materialCode) && counter < 1000) {
+                        const newThirdPart = counter
+                            .toString()
+                            .padStart(3, "0");
+                        materialCode = `${baseParts[0]}.${baseParts[1]}.${newThirdPart}`;
+                        counter++;
+                    }
+
+                    console.log(
+                        `⚠️ Original code ${material.code} already exists. Using ${materialCode} instead.`
+                    );
+
+                    // If we couldn't find a unique code, skip this material
+                    if (usedCodes.has(materialCode)) {
+                        console.warn(
+                            `⚠️ Cannot generate unique code for "${material.name}". Skipping.`
+                        );
+                        continue;
+                    }
+                }
+
+                // Mark this code as used
+                usedCodes.add(materialCode);
+
                 // For client materials, we don't require a subgroup but use a default one
                 const { rows } = await pool.query(
                     `
@@ -676,7 +754,7 @@ const seedClientMaterials = async (defaultSubgroupId, userId) => {
                 RETURNING id
               `,
                     [
-                        material.code,
+                        materialCode,
                         material.name,
                         material.description,
                         material.alias1,
@@ -703,7 +781,9 @@ const seedClientMaterials = async (defaultSubgroupId, userId) => {
                     totalClientAttachments += material.attachments.length;
                 }
 
-                console.log(`   - Inserted client material: ${material.name}`);
+                console.log(
+                    `   - Inserted client material: ${material.name} (code: ${materialCode})`
+                );
             } catch (error) {
                 console.error(
                     `❌ Error inserting client material "${material.name}":`,

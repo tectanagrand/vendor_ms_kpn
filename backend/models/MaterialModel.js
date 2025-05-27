@@ -1,4 +1,5 @@
 const db = require("../config/connection.js");
+const Crud = require("../helper/crudquery.js");
 
 const Material = {
     // Get all material groups
@@ -39,13 +40,16 @@ const Material = {
             const totalCount = parseInt(countQuery.rows[0].total);
             const totalPages = Math.ceil(totalCount / pageSize);
 
-            const result = await client.query(
+            // Get group info
+            const groupQuery = await client.query(
+                `SELECT id, code, name FROM mat_item_group WHERE id = $1`,
+                [groupId]
+            );
+            const groupDetails = groupQuery.rows[0] || null;
+
+            // Get materials without attachments first
+            const materialsQuery = await client.query(
                 `
-                WITH group_info AS (
-                    SELECT id, code, name
-                    FROM mat_item_group
-                    WHERE id = $1
-                )
                 SELECT
                     m.id,
                     m.code,
@@ -62,43 +66,53 @@ const Material = {
                     mis.name as "subGroupName",
                     mig.code as "groupCode",
                     mig.name as "groupName",
-                    CONCAT(mig.code, '.', mis.code) as "fullCode",
-                    COALESCE(
-                        JSON_AGG(
-                            CASE
-                                WHEN ma.id IS NOT NULL
-                                THEN JSON_BUILD_OBJECT('id', ma.id, 'attachment', ma.attachment, 'type', ma.type)
-                                ELSE NULL
-                            END
-                        ) FILTER (WHERE ma.id IS NOT NULL),
-                        '[]'::json
-                    ) as attachments,
-                    (SELECT JSON_BUILD_OBJECT('id', g.id, 'code', g.code, 'name', g.name) FROM group_info g) as group_details
+                    CONCAT(mig.code, '.', mis.code) as "fullCode"
                 FROM mat_sap_data m
                 JOIN mat_item_sub_group mis ON m.material_sub_group_id = mis.id
                 JOIN mat_item_group mig ON mis.item_group_id = mig.id
-                LEFT JOIN mat_attachment ma ON m.id = ma.material_id
                 WHERE mig.id = $1
-                GROUP BY m.id, m.name, m.description, m.alias1, m.alias2, m.alias3, m.code,
-                         m.filter_code_1, m.filter_code_2, m.created_at, m.updated_at,
-                         mis.code, mis.name, mig.code, mig.name
                 ORDER BY m.name
                 LIMIT $2 OFFSET $3
-            `,
+                `,
                 [groupId, pageSize, offset]
             );
+
+            // Get all material IDs to fetch attachments
+            const materialIds = materialsQuery.rows.map(m => m.id);
+
+            // Get attachments for these materials in a separate query
+            const attachmentsQuery = await client.query(
+                `SELECT material_id, id, attachment, type
+                 FROM mat_attachment
+                 WHERE material_id = ANY($1)`,
+                [materialIds]
+            );
+
+            // Create a map of attachments by material_id
+            const attachmentsByMaterialId = {};
+            attachmentsQuery.rows.forEach(attachment => {
+                if (!attachmentsByMaterialId[attachment.material_id]) {
+                    attachmentsByMaterialId[attachment.material_id] = [];
+                }
+                attachmentsByMaterialId[attachment.material_id].push({
+                    id: attachment.id,
+                    attachment: attachment.attachment,
+                    type: attachment.type,
+                });
+            });
+
+            // Add attachments to each material
+            const materialsWithAttachments = materialsQuery.rows.map(
+                material => ({
+                    ...material,
+                    attachments: attachmentsByMaterialId[material.id] || [],
+                })
+            );
+
             client.release();
 
-            // Extract group details from the first row
-            const groupDetails =
-                result.rows.length > 0 ? result.rows[0].group_details : null;
-
             return {
-                materials: result.rows.map(row => {
-                    // Remove the group_details from each row before returning
-                    const { group_details, ...material } = row;
-                    return material;
-                }),
+                materials: materialsWithAttachments,
                 group: groupDetails,
                 pagination: {
                     page,
@@ -154,21 +168,47 @@ const Material = {
             const totalCount = parseInt(countQuery.rows[0].total);
             const totalPages = Math.ceil(totalCount / pageSize);
 
-            const result = await client.query(
+            // Get subgroup and group info
+            const groupInfoQuery = await client.query(
                 `
-                WITH subgroup_info AS (
-                    SELECT
-                        mis.id,
-                        mis.code as subgroup_code,
-                        mis.name as subgroup_name,
-                        mis.item_group_id,
-                        mig.id as group_id,
-                        mig.code as group_code,
-                        mig.name as group_name
-                    FROM mat_item_sub_group mis
-                    JOIN mat_item_group mig ON mis.item_group_id = mig.id
-                    WHERE mis.id = $1
-                )
+                SELECT
+                    mis.id,
+                    mis.code as subgroup_code,
+                    mis.name as subgroup_name,
+                    mis.item_group_id,
+                    mig.id as group_id,
+                    mig.code as group_code,
+                    mig.name as group_name
+                FROM mat_item_sub_group mis
+                JOIN mat_item_group mig ON mis.item_group_id = mig.id
+                WHERE mis.id = $1
+                `,
+                [subGroupId]
+            );
+
+            // Build group and subgroup objects
+            const groupInfo = groupInfoQuery.rows[0] || null;
+            const groupAndSubgroup = groupInfo
+                ? {
+                      subGroup: {
+                          id: groupInfo.id,
+                          code: groupInfo.subgroup_code,
+                          name: groupInfo.subgroup_name,
+                      },
+                      group: {
+                          id: groupInfo.group_id,
+                          code: groupInfo.group_code,
+                          name: groupInfo.group_name,
+                      },
+                  }
+                : {
+                      subGroup: { id: null, code: null, name: null },
+                      group: { id: null, code: null, name: null },
+                  };
+
+            // Get materials without attachments first
+            const materialsQuery = await client.query(
+                `
                 SELECT
                     m.id,
                     m.code,
@@ -185,55 +225,55 @@ const Material = {
                     mis.name as "subGroupName",
                     mig.code as "groupCode",
                     mig.name as "groupName",
-                    CONCAT(mig.code, '.', mis.code) as "fullCode",
-                    COALESCE(
-                        JSON_AGG(
-                            CASE
-                                WHEN ma.id IS NOT NULL
-                                THEN JSON_BUILD_OBJECT('id', ma.id, 'attachment', ma.attachment, 'type', ma.type)
-                                ELSE NULL
-                            END
-                        ) FILTER (WHERE ma.id IS NOT NULL),
-                        '[]'::json
-                    ) as attachments,
-                    (
-                        SELECT JSON_BUILD_OBJECT(
-                            'subGroup', JSON_BUILD_OBJECT('id', s.id, 'code', s.subgroup_code, 'name', s.subgroup_name),
-                            'group', JSON_BUILD_OBJECT('id', s.group_id, 'code', s.group_code, 'name', s.group_name)
-                        )
-                        FROM subgroup_info s
-                    ) as group_info
+                    CONCAT(mig.code, '.', mis.code) as "fullCode"
                 FROM mat_sap_data m
                 JOIN mat_item_sub_group mis ON m.material_sub_group_id = mis.id
                 JOIN mat_item_group mig ON mis.item_group_id = mig.id
-                LEFT JOIN mat_attachment ma ON m.id = ma.material_id
                 WHERE m.material_sub_group_id = $1
-                GROUP BY m.id, m.name, m.description, m.alias1, m.alias2, m.alias3, m.code,
-                         m.filter_code_1, m.filter_code_2, m.created_at, m.updated_at, mis.code, mis.name, mig.code, mig.name
                 ORDER BY m.name
                 LIMIT $2 OFFSET $3
-            `,
+                `,
                 [subGroupId, pageSize, offset]
             );
+
+            // Get all material IDs to fetch attachments
+            const materialIds = materialsQuery.rows.map(m => m.id);
+
+            // Get attachments for these materials in a separate query
+            const attachmentsQuery = await client.query(
+                `SELECT material_id, id, attachment, type
+                 FROM mat_attachment
+                 WHERE material_id = ANY($1)`,
+                [materialIds]
+            );
+
+            // Create a map of attachments by material_id
+            const attachmentsByMaterialId = {};
+            attachmentsQuery.rows.forEach(attachment => {
+                if (!attachmentsByMaterialId[attachment.material_id]) {
+                    attachmentsByMaterialId[attachment.material_id] = [];
+                }
+                attachmentsByMaterialId[attachment.material_id].push({
+                    id: attachment.id,
+                    attachment: attachment.attachment,
+                    type: attachment.type,
+                });
+            });
+
+            // Add attachments to each material
+            const materialsWithAttachments = materialsQuery.rows.map(
+                material => ({
+                    ...material,
+                    attachments: attachmentsByMaterialId[material.id] || [],
+                })
+            );
+
             client.release();
 
-            // Extract group and subgroup details from the first row
-            const groupInfo =
-                result.rows.length > 0
-                    ? result.rows[0].group_info
-                    : {
-                          subGroup: { id: null, code: null, name: null },
-                          group: { id: null, code: null, name: null },
-                      };
-
             return {
-                materials: result.rows.map(row => {
-                    // Remove the group_info from each row before returning
-                    const { group_info, ...material } = row;
-                    return material;
-                }),
-                subGroup: groupInfo.subGroup,
-                group: groupInfo.group,
+                materials: materialsWithAttachments,
+                subGroup: groupAndSubgroup.subGroup,
+                group: groupAndSubgroup.group,
                 pagination: {
                     page,
                     pageSize,
@@ -286,8 +326,8 @@ const Material = {
                 "Executing search query with ILIKE for case-insensitivity"
             );
 
-            // First, get the materials that match the search term
-            const result = await client.query(
+            // First, get the materials that match the search term without attachments
+            const materialsQuery = await client.query(
                 `
                 SELECT
                     m.id,
@@ -313,16 +353,16 @@ const Material = {
                     m.code ILIKE $1
                 ORDER BY m.name
                 LIMIT $2 OFFSET $3
-            `,
+                `,
                 [pattern, pageSize, offset]
             );
 
             console.log(
-                `Found ${result.rows.length} materials matching search term (page ${page})`
+                `Found ${materialsQuery.rows.length} materials matching search term (page ${page})`
             );
 
             // If no materials found, return empty array
-            if (result.rows.length === 0) {
+            if (materialsQuery.rows.length === 0) {
                 client.release();
                 return {
                     materials: [],
@@ -335,9 +375,11 @@ const Material = {
                 };
             }
 
-            // Get the subgroup and group information for these materials
-            const materialIds = result.rows.map(m => m.id);
-            const subGroupIds = result.rows.map(m => m.material_sub_group_id);
+            // Get the material IDs and subgroup IDs
+            const materialIds = materialsQuery.rows.map(m => m.id);
+            const subGroupIds = materialsQuery.rows.map(
+                m => m.material_sub_group_id
+            );
 
             // Get subgroup and group information
             const groupInfoQuery = await client.query(
@@ -390,7 +432,7 @@ const Material = {
             });
 
             // Combine all data into final results
-            const finalResults = result.rows.map(material => {
+            const finalResults = materialsQuery.rows.map(material => {
                 const subgroupInfo =
                     subgroupInfoMap[material.material_sub_group_id] || {};
                 return {
@@ -405,9 +447,6 @@ const Material = {
             });
 
             client.release();
-            console.log(
-                `Final result: ${finalResults.length} materials for search: ${safeSearchTerm}`
-            );
 
             return {
                 materials: finalResults,
@@ -461,6 +500,131 @@ const Material = {
             return result.rows[0];
         } catch (error) {
             console.error(error);
+            throw error;
+        }
+    },
+
+    getMaterialAttachments: async materialId => {
+        try {
+            const connection = await db.connect();
+            const result = await connection.query(
+                `SELECT id, attachment, type, material_id
+                FROM mat_attachment
+                WHERE material_id = $1
+                ORDER BY id`,
+                [materialId]
+            );
+            connection.release();
+            return result.rows;
+        } catch (error) {
+            console.error("Error fetching material attachments:", error);
+            throw error;
+        }
+    },
+
+    addAttachment: async (materialId, attachment, type) => {
+        try {
+            const connection = await db.connect();
+
+            const result = await connection.query(
+                `INSERT INTO mat_attachment (material_id, attachment, type, created_at, updated_at)
+                VALUES ($1, $2, $3, NOW(), NOW()) RETURNING id`,
+                [materialId, attachment, type]
+            );
+
+            connection.release();
+
+            return {
+                id: result.rows[0].id,
+                materialId,
+                attachment,
+                type,
+            };
+        } catch (error) {
+            console.error("Error adding attachment:", error);
+            throw error;
+        }
+    },
+
+    updateMaterialTimestamp: async (materialId, updatedBy) => {
+        try {
+            const connection = await db.connect();
+
+            // Create data object for update
+            const updateData = {
+                updated_at: "NOW()",
+                updated_by: updatedBy || null,
+            };
+
+            // Create where condition
+            const whereCondition = {
+                id: materialId,
+            };
+
+            // Use Crud helper to generate query
+            const [query, values] = Crud.updateItem(
+                "mat_sap_data",
+                updateData,
+                whereCondition
+            );
+
+            const result = await connection.query(query, values);
+            connection.release();
+
+            if (result.rowCount === 0) {
+                throw new Error("Material not found or no changes made");
+            }
+
+            return {
+                materialId,
+                updatedBy: updatedBy || null,
+                updated: true,
+            };
+        } catch (error) {
+            console.error("Error updating material timestamp:", error);
+            throw error;
+        }
+    },
+
+    updateAliasesOnly: async (materialId, alias1, alias2, alias3) => {
+        try {
+            const connection = await db.connect();
+
+            // Create data object for update
+            const updateData = {
+                alias1: alias1 || null,
+                alias2: alias2 || null,
+                alias3: alias3 || null,
+            };
+
+            // Create where condition
+            const whereCondition = {
+                id: materialId,
+            };
+
+            // Use Crud helper to generate query
+            const [query, values] = Crud.updateItem(
+                "mat_sap_data",
+                updateData,
+                whereCondition
+            );
+
+            const result = await connection.query(query, values);
+            connection.release();
+
+            if (result.rowCount === 0) {
+                throw new Error("Material not found or no changes made");
+            }
+
+            return {
+                materialId,
+                alias1: alias1 || null,
+                alias2: alias2 || null,
+                alias3: alias3 || null,
+                updated: true,
+            };
+        } catch (error) {
+            console.error("Error updating aliases:", error);
             throw error;
         }
     },

@@ -1,4 +1,8 @@
 const Material = require("../models/MaterialModel");
+const formidable = require("formidable");
+const fs = require("fs");
+const path = require("path");
+const os = require("os");
 
 const MaterialController = {
     // Get all material groups
@@ -157,6 +161,330 @@ const MaterialController = {
             res.status(500).json({
                 success: false,
                 message: "Failed to fetch material details",
+                error: error.message,
+            });
+        }
+    },
+
+    // Upload attachment for a material
+    uploadAttachment: async (req, res) => {
+        // Track the temporary files and paths to handle cleanup on failure
+        const tempFilePaths = [];
+        const finalFilePaths = [];
+
+        try {
+            const { materialId } = req.params;
+            const updatedBy = req.cookies.user_id;
+
+            // Check if material exists
+            const material = await Material.getMaterialById(materialId);
+            if (!material) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Material not found",
+                });
+            }
+
+            // Allowed file extensions
+            const extensions = ["pdf", "doc", "docx", "png", "jpg", "jpeg"];
+
+            // Configure formidable
+            const form = new formidable.IncomingForm();
+            form.options.multiples = true;
+            form.options.maxFileSize = 5 * 1024 * 1024; // 5MB max file size
+
+            // Store files temporarily but don't move them yet
+            const [fields, items] = await form.parse(req);
+            const files = items.files || items.file;
+
+            if (!files || files.length === 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: "No files uploaded",
+                });
+            }
+
+            // Process files but don't save to final destination yet
+            const filesToProcess = [];
+
+            for (const file of files) {
+                try {
+                    // Generate timestamp for unique filename
+                    const timestamp = Date.now().toString();
+
+                    // Split filename to get extension
+                    let name = file.originalFilename.split(".");
+                    name[0] = name[0].replace(/ /g, "_");
+                    const extension = name[name.length - 1].toLowerCase();
+
+                    // Check if extension is allowed
+                    if (!extensions.includes(extension)) {
+                        throw new Error("File format invalid");
+                    }
+
+                    // Create new filename with timestamp
+                    const newName = `${name
+                        .slice(0, -1)
+                        .join(".")}_${timestamp}.${extension}`;
+
+                    // Save the temporary file path for later
+                    tempFilePaths.push(file.filepath);
+
+                    const newPath = path.join(__dirname, "../public", newName);
+
+                    finalFilePaths.push(newPath);
+
+                    // Determine MIME type based on extension
+                    let mimeType;
+                    switch (extension) {
+                        case "pdf":
+                            mimeType = "application/pdf";
+                            break;
+                        case "doc":
+                        case "docx":
+                            mimeType = "application/msword";
+                            break;
+                        case "png":
+                            mimeType = "image/png";
+                            break;
+                        case "jpg":
+                        case "jpeg":
+                            mimeType = "image/jpeg";
+                            break;
+                        default:
+                            mimeType = "application/octet-stream";
+                    }
+
+                    // Add to list of files to process
+                    filesToProcess.push({
+                        tempPath: file.filepath,
+                        finalPath: newPath,
+                        newName,
+                        mimeType,
+                        originalName: file.originalFilename,
+                    });
+                } catch (error) {
+                    if (error.message === "File format invalid") {
+                        return res.status(400).json({
+                            success: false,
+                            message:
+                                "Invalid file format. Please upload files with valid extensions: " +
+                                extensions.join(", "),
+                        });
+                    }
+                    throw error;
+                }
+            }
+
+            const uploadedFiles = [];
+
+            for (const fileInfo of filesToProcess) {
+                // Add to database
+                const attachmentResult = await Material.addAttachment(
+                    materialId,
+                    fileInfo.newName,
+                    fileInfo.mimeType
+                );
+
+                uploadedFiles.push({
+                    originalName: fileInfo.originalName,
+                    savedAs: fileInfo.newName,
+                    id: attachmentResult.id,
+                    type: fileInfo.mimeType,
+                });
+            }
+
+            await Material.updateMaterialTimestamp(materialId, updatedBy);
+
+            const publicDir = path.join(__dirname, "../public");
+
+            if (!fs.existsSync(publicDir)) {
+                fs.mkdirSync(publicDir, { recursive: true });
+            }
+
+            for (const fileInfo of filesToProcess) {
+                const dir = path.dirname(fileInfo.finalPath);
+
+                if (!fs.existsSync(dir)) {
+                    fs.mkdirSync(dir, { recursive: true });
+                }
+
+                try {
+                    let rawData = fs.readFileSync(fileInfo.tempPath);
+
+                    fs.writeFileSync(fileInfo.finalPath, rawData);
+                } catch (error) {
+                    console.error(
+                        `Error writing file to ${fileInfo.finalPath}:`,
+                        error
+                    );
+                }
+            }
+
+            res.status(200).json({
+                success: true,
+                message: `${uploadedFiles.length} file(s) uploaded successfully`,
+                files: uploadedFiles,
+            });
+        } catch (error) {
+            console.error("Upload error:", error);
+
+            // Clean up any files that may have been written
+            for (const filePath of finalFilePaths) {
+                try {
+                    if (fs.existsSync(filePath)) {
+                        fs.unlinkSync(filePath);
+                    }
+                } catch (cleanupError) {
+                    console.error(
+                        `Failed to clean up file: ${filePath}`,
+                        cleanupError
+                    );
+                }
+            }
+
+            if (error.code === 1016) {
+                return res.status(400).json({
+                    success: false,
+                    message: "File size exceeded. Maximum file size is 5MB",
+                });
+            }
+
+            res.status(500).json({
+                success: false,
+                message: "Failed to upload attachment",
+                error: error.message,
+            });
+        }
+    },
+
+    // Update material aliases
+    updateAliases: async (req, res) => {
+        try {
+            const { materialId } = req.params;
+            const { alias1, alias2, alias3 } = req.body;
+
+            const updatedBy = req.cookies.user_id;
+
+            // Check if material exists
+            const material = await Material.getMaterialById(materialId);
+            if (!material) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Material not found",
+                });
+            }
+
+            // Update aliases without updating timestamps
+            const result = await Material.updateAliasesOnly(
+                materialId,
+                alias1,
+                alias2,
+                alias3
+            );
+
+            // Update timestamps separately
+            await Material.updateMaterialTimestamp(materialId, updatedBy);
+
+            res.status(200).json({
+                success: true,
+                message: "Material aliases updated successfully",
+                data: result,
+            });
+        } catch (error) {
+            console.error("Update aliases error:", error);
+            res.status(500).json({
+                success: false,
+                message: "Failed to update material aliases",
+                error: error.message,
+            });
+        }
+    },
+
+    // Get material attachments
+    getMaterialAttachments: async (req, res) => {
+        try {
+            const { materialId } = req.params;
+
+            // Get attachments for the material
+            const attachments =
+                await Material.getMaterialAttachments(materialId);
+
+            res.status(200).json({
+                success: true,
+                data: attachments,
+            });
+        } catch (error) {
+            console.error("Error fetching attachments:", error);
+            res.status(500).json({
+                success: false,
+                message: "Failed to fetch attachments",
+                error: error.message,
+            });
+        }
+    },
+
+    // Serve file from public directory
+    serveFile: async (req, res) => {
+        try {
+            const filename = req.params.filename;
+            const filepath = path.join(
+                path.resolve(),
+                "./backend/public",
+                filename
+            );
+
+            // Check if file exists
+            if (!fs.existsSync(filepath)) {
+                return res.status(404).json({
+                    success: false,
+                    message: "File not found",
+                });
+            }
+
+            // Get file stats
+            const stats = fs.statSync(filepath);
+
+            // Determine content type based on file extension
+            const ext = path.extname(filename).toLowerCase();
+            let contentType = "application/octet-stream";
+
+            switch (ext) {
+                case ".pdf":
+                    contentType = "application/pdf";
+                    break;
+                case ".png":
+                    contentType = "image/png";
+                    break;
+                case ".jpg":
+                case ".jpeg":
+                    contentType = "image/jpeg";
+                    break;
+                case ".gif":
+                    contentType = "image/gif";
+                    break;
+                case ".doc":
+                case ".docx":
+                    contentType = "application/msword";
+                    break;
+            }
+
+            // Set appropriate headers
+            res.setHeader("Content-Type", contentType);
+            res.setHeader("Content-Length", stats.size);
+            res.setHeader(
+                "Content-Disposition",
+                `inline; filename="${filename}"`
+            );
+
+            // Stream the file
+            const fileStream = fs.createReadStream(filepath);
+            fileStream.pipe(res);
+        } catch (error) {
+            console.error("Error serving file:", error);
+            res.status(500).json({
+                success: false,
+                message: "Failed to serve file",
                 error: error.message,
             });
         }

@@ -30,7 +30,7 @@ const migration = async () => {
         await pool.query(`
       CREATE TABLE IF NOT EXISTS "mat_sap_data" (
         id SERIAL PRIMARY KEY,
-        code VARCHAR(100) NOT NULL,
+        code VARCHAR(100) UNIQUE NOT NULL,
         name VARCHAR(100) NOT NULL,
         description VARCHAR(100),
         image VARCHAR(100),
