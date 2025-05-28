@@ -102,14 +102,9 @@ const MaterialController = {
             const page = parseInt(req.query.page) || 1;
             const pageSize = parseInt(req.query.pageSize) || 10;
 
-            if (!q || q.trim() === "") {
-                return res.status(400).json({
-                    success: false,
-                    message: "Search query is required",
-                });
-            }
+            // If no search query is provided, get all materials sorted by group
+            const searchTerm = q ? q.trim() : "";
 
-            const searchTerm = q.trim();
             const result = await Material.searchMaterials(
                 searchTerm,
                 page,

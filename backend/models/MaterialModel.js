@@ -289,51 +289,145 @@ const Material = {
         }
     },
 
-    // Search materials by various criteria
+    // Search materials by various criteria or get all materials if no search term
     searchMaterials: async (searchTerm, page = 1, pageSize = 10) => {
         try {
             return await DBClientWrapper(async client => {
                 const offset = (page - 1) * pageSize;
-
                 const safeSearchTerm = String(searchTerm || "").trim();
-                const pattern = `%${safeSearchTerm}%`;
 
-                console.log("Search term received:", safeSearchTerm);
-                console.log("Search pattern:", pattern);
-                console.log("Page:", page, "Page Size:", pageSize);
+                // Check if we have a search term
+                if (safeSearchTerm) {
+                    // Search mode - existing search logic
+                    const pattern = `%${safeSearchTerm}%`;
+
+                    // First get the total count
+                    const countQuery = await client.query(
+                        `
+                        SELECT COUNT(*) as total
+                        FROM mat_sap_data m
+                        WHERE
+                            m.name ILIKE $1 OR
+                            m.description ILIKE $1 OR
+                            COALESCE(m.alias1, '') ILIKE $1 OR
+                            COALESCE(m.alias2, '') ILIKE $1 OR
+                            COALESCE(m.alias3, '') ILIKE $1 OR
+                            m.code ILIKE $1
+                        `,
+                        [pattern]
+                    );
+
+                    const totalCount = parseInt(countQuery.rows[0].total);
+                    const totalPages = Math.ceil(totalCount / pageSize);
+
+                    // Get the materials that match the search term
+                    const materialsQuery = await client.query(
+                        `
+                        SELECT
+                            m.id,
+                            m.code,
+                            m.name,
+                            m.description,
+                            m.alias1,
+                            m.alias2,
+                            m.alias3,
+                            m.filter_code_1,
+                            m.filter_code_2,
+                            m.material_sub_group_id,
+                            m.created_at,
+                            m.updated_at,
+                            m.dfFromClient,
+                            mis.code as "subGroupCode",
+                            mis.name as "subGroupName",
+                            mig.code as "groupCode",
+                            mig.name as "groupName",
+                            m.code as "fullCode"
+                        FROM mat_sap_data m
+                        JOIN mat_item_sub_group mis ON m.material_sub_group_id = mis.id
+                        JOIN mat_item_group mig ON mis.item_group_id = mig.id
+                        WHERE
+                            m.name ILIKE $1 OR
+                            m.description ILIKE $1 OR
+                            COALESCE(m.alias1, '') ILIKE $1 OR
+                            COALESCE(m.alias2, '') ILIKE $1 OR
+                            COALESCE(m.alias3, '') ILIKE $1 OR
+                            m.code ILIKE $1
+                        ORDER BY
+                            CASE
+                                WHEN mig.code ~ '^[0-9]+$' THEN mig.code::integer
+                                ELSE 999999
+                            END ASC,
+                            mis.code ASC,
+                            m.name ASC
+                        LIMIT $2 OFFSET $3
+                        `,
+                        [pattern, pageSize, offset]
+                    );
+
+                    // If no materials found, return empty array
+                    if (materialsQuery.rows.length === 0) {
+                        return {
+                            materials: [],
+                            pagination: {
+                                page,
+                                pageSize,
+                                totalCount,
+                                totalPages,
+                            },
+                        };
+                    }
+
+                    // Get the material IDs
+                    const materialIds = materialsQuery.rows.map(m => m.id);
+
+                    // Get attachments for all materials in one query
+                    const attachmentsQuery = await client.query(
+                        `SELECT material_id, id, attachment, type
+                         FROM mat_attachment
+                         WHERE material_id = ANY($1)`,
+                        [materialIds]
+                    );
+
+                    // Group attachments by material_id
+                    const attachmentsByMaterialId = {};
+                    attachmentsQuery.rows.forEach(attachment => {
+                        if (!attachmentsByMaterialId[attachment.material_id]) {
+                            attachmentsByMaterialId[attachment.material_id] =
+                                [];
+                        }
+                        attachmentsByMaterialId[attachment.material_id].push({
+                            id: attachment.id,
+                            attachment: attachment.attachment,
+                            type: attachment.type,
+                        });
+                    });
+
+                    // Add attachments to each material
+                    const finalResults = materialsQuery.rows.map(material => ({
+                        ...material,
+                        attachments: attachmentsByMaterialId[material.id] || [],
+                    }));
+
+                    return {
+                        materials: finalResults,
+                        pagination: {
+                            page,
+                            pageSize,
+                            totalCount,
+                            totalPages,
+                        },
+                    };
+                }
 
                 // First get the total count
                 const countQuery = await client.query(
-                    `
-                    SELECT COUNT(*) as total
-                    FROM mat_sap_data m
-                    WHERE
-                        m.name ILIKE $1 OR
-                        m.description ILIKE $1 OR
-                        COALESCE(m.alias1, '') ILIKE $1 OR
-                        COALESCE(m.alias2, '') ILIKE $1 OR
-                        COALESCE(m.alias3, '') ILIKE $1 OR
-                        m.code ILIKE $1
-                    `,
-                    [pattern]
+                    `SELECT COUNT(*) as total FROM mat_sap_data`
                 );
 
                 const totalCount = parseInt(countQuery.rows[0].total);
                 const totalPages = Math.ceil(totalCount / pageSize);
 
-                console.log(
-                    "Total count:",
-                    totalCount,
-                    "Total pages:",
-                    totalPages
-                );
-
-                // Using ILIKE for case-insensitive searching
-                console.log(
-                    "Executing search query with ILIKE for case-insensitivity"
-                );
-
-                // First, get the materials that match the search term without attachments
+                // Get all materials with group info, ordered by group code as numeric
                 const materialsQuery = await client.query(
                     `
                     SELECT
@@ -346,79 +440,33 @@ const Material = {
                         m.alias3,
                         m.filter_code_1,
                         m.filter_code_2,
-                        m.material_sub_group_id,
                         m.created_at,
                         m.updated_at,
-                        m.dfFromClient
-                    FROM mat_sap_data m
-                    WHERE
-                        m.name ILIKE $1 OR
-                        m.description ILIKE $1 OR
-                        COALESCE(m.alias1, '') ILIKE $1 OR
-                        COALESCE(m.alias2, '') ILIKE $1 OR
-                        COALESCE(m.alias3, '') ILIKE $1 OR
-                        m.code ILIKE $1
-                    ORDER BY m.name
-                    LIMIT $2 OFFSET $3
-                    `,
-                    [pattern, pageSize, offset]
-                );
-
-                console.log(
-                    `Found ${materialsQuery.rows.length} materials matching search term (page ${page})`
-                );
-
-                // If no materials found, return empty array
-                if (materialsQuery.rows.length === 0) {
-                    return {
-                        materials: [],
-                        pagination: {
-                            page,
-                            pageSize,
-                            totalCount,
-                            totalPages,
-                        },
-                    };
-                }
-
-                // Get the material IDs and subgroup IDs
-                const materialIds = materialsQuery.rows.map(m => m.id);
-                const subGroupIds = materialsQuery.rows.map(
-                    m => m.material_sub_group_id
-                );
-
-                // Get subgroup and group information
-                const groupInfoQuery = await client.query(
-                    `
-                    SELECT
-                        mis.id as subgroup_id,
+                        m.dfFromClient,
                         mis.code as "subGroupCode",
                         mis.name as "subGroupName",
                         mig.code as "groupCode",
                         mig.name as "groupName",
-                        mig.id as group_id,
                         m.code as "fullCode"
-                    FROM mat_item_sub_group mis
+                    FROM mat_sap_data m
+                    JOIN mat_item_sub_group mis ON m.material_sub_group_id = mis.id
                     JOIN mat_item_group mig ON mis.item_group_id = mig.id
-                    JOIN mat_sap_data m ON m.material_sub_group_id = mis.id
-                    WHERE mis.id = ANY($1)
+                    ORDER BY
+                        CASE
+                            WHEN mig.code ~ '^[0-9]+$' THEN mig.code::integer
+                            ELSE 999999
+                        END ASC,
+                        mis.code ASC,
+                        m.name ASC
+                    LIMIT $1 OFFSET $2
                     `,
-                    [subGroupIds]
+                    [pageSize, offset]
                 );
 
-                // Create a lookup map for subgroup info
-                const subgroupInfoMap = {};
-                groupInfoQuery.rows.forEach(row => {
-                    subgroupInfoMap[row.subgroup_id] = {
-                        subGroupCode: row.subGroupCode,
-                        subGroupName: row.subGroupName,
-                        groupCode: row.groupCode,
-                        groupName: row.groupName,
-                        fullCode: row.fullCode,
-                    };
-                });
+                // Get all material IDs to fetch attachments
+                const materialIds = materialsQuery.rows.map(m => m.id);
 
-                // Get attachments for all materials in one query
+                // Get attachments for these materials in a separate query
                 const attachmentsQuery = await client.query(
                     `SELECT material_id, id, attachment, type
                      FROM mat_attachment
@@ -426,7 +474,7 @@ const Material = {
                     [materialIds]
                 );
 
-                // Group attachments by material_id
+                // Create a map of attachments by material_id
                 const attachmentsByMaterialId = {};
                 attachmentsQuery.rows.forEach(attachment => {
                     if (!attachmentsByMaterialId[attachment.material_id]) {
@@ -439,23 +487,16 @@ const Material = {
                     });
                 });
 
-                // Combine all data into final results
-                const finalResults = materialsQuery.rows.map(material => {
-                    const subgroupInfo =
-                        subgroupInfoMap[material.material_sub_group_id] || {};
-                    return {
+                // Add attachments to each material
+                const materialsWithAttachments = materialsQuery.rows.map(
+                    material => ({
                         ...material,
-                        subGroupCode: subgroupInfo.subGroupCode,
-                        subGroupName: subgroupInfo.subGroupName,
-                        groupCode: subgroupInfo.groupCode,
-                        groupName: subgroupInfo.groupName,
-                        fullCode: subgroupInfo.fullCode,
                         attachments: attachmentsByMaterialId[material.id] || [],
-                    };
-                });
+                    })
+                );
 
                 return {
-                    materials: finalResults,
+                    materials: materialsWithAttachments,
                     pagination: {
                         page,
                         pageSize,
