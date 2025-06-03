@@ -246,7 +246,7 @@ const UserController = {
         const client = await db.connect();
         try {
             const user_id = req.cookies.user_id;
-            const vendor = req.body.is_vendor ?? false;
+            let vendor = false;
             const resetPwd = req.body.newpwd;
             if (resetPwd === undefined || resetPwd === "") {
                 throw new Error("Please provide new password");
@@ -257,6 +257,33 @@ const UserController = {
             let pass = "";
 
             await client.query(TRANS.BEGIN);
+            const { rows: check_who } = await client.query(
+                `
+                select
+                        *
+                    from
+                        (
+                        select
+                            user_id,
+                            username,
+                            'USER' as who
+                        from
+                            all_users au
+                    union all
+                        select
+                            user_id,
+                            username,
+                            'VENDOR' as who
+                        from
+                            a_uservendor uav) a
+                    where
+                        user_id = $1
+                `,
+                [user_id]
+            );
+            if (check_who[0].who == "VENDOR") {
+                vendor = true;
+            }
             const checkExist = await client.query(
                 `select inserted from otp_transaction where user_id = '${user_id}'`
             );
@@ -292,11 +319,12 @@ const UserController = {
             const otpdelete = await client.query(
                 `delete from otp_transaction where user_id = '${user_id}'`
             );
-            await client.query(TRANS.COMMIT);
             res.status(200).send({
                 message: `${resetPass.rows[0].username} password have been reseted`,
             });
+            await client.query(TRANS.COMMIT);
         } catch (error) {
+            await client.query(TRANS.ROLLBACK);
             console.log(error);
             res.status(500).send({
                 message: error.message,
