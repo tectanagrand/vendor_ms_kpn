@@ -7,9 +7,11 @@ const migration = async () => {
       CREATE TABLE IF NOT EXISTS "mat_item_group" (
         id SERIAL PRIMARY KEY,
         code VARCHAR(10) UNIQUE NOT NULL,
-        name VARCHAR(100) NOT NULL,
+        name VARCHAR(100),
         "created_at" DATE NOT NULL,
-        "updated_at" DATE NOT NULL
+        "updated_at" DATE NOT NULL,
+        "created_by" VARCHAR(100),
+        "updated_by" VARCHAR(100)
       );
     `);
 
@@ -18,10 +20,12 @@ const migration = async () => {
       CREATE TABLE IF NOT EXISTS "mat_item_sub_group" (
         id SERIAL PRIMARY KEY,
         code VARCHAR(10) NOT NULL,
-        name VARCHAR(100) NOT NULL,
+        name VARCHAR(100),
         "item_group_id" INTEGER REFERENCES "mat_item_group"(id) NOT NULL,
         "created_at" DATE NOT NULL,
         "updated_at" DATE NOT NULL,
+        "created_by" VARCHAR(100),
+        "updated_by" VARCHAR(100),
         UNIQUE(code, item_group_id)
       );
     `);
@@ -31,17 +35,21 @@ const migration = async () => {
       CREATE TABLE IF NOT EXISTS "mat_sap_data" (
         id SERIAL PRIMARY KEY,
         code VARCHAR(100) UNIQUE NOT NULL,
-        name VARCHAR(100) NOT NULL,
+        name VARCHAR(100),
         description VARCHAR(100),
+        long_text TEXT,
         image VARCHAR(100),
-        alias1 VARCHAR(100),
-        alias2 VARCHAR(100),
-        alias3 VARCHAR(100),
+        type VARCHAR(40),
+        maintenance_status VARCHAR(40),
+        unit_of_measurement VARCHAR(40),
+        alias1 VARCHAR(40),
+        alias2 VARCHAR(40),
+        alias3 VARCHAR(40),
         filter_code_1 VARCHAR(3),
         filter_code_2 VARCHAR(3),
         material_sub_group_id INTEGER REFERENCES "mat_item_sub_group"(id) NOT NULL,
-        created_by VARCHAR(100) REFERENCES "mst_user"(user_id),
-        updated_by VARCHAR(100) REFERENCES "mst_user"(user_id),
+        created_by VARCHAR(100),
+        updated_by VARCHAR(100),
         created_at DATE NOT NULL,
         updated_at DATE NOT NULL,
         dfFromClient BOOLEAN

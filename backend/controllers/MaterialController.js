@@ -5,13 +5,454 @@ const path = require("path");
 const os = require("os");
 
 const MaterialController = {
+    // Create a new material group
+    createMaterialGroup: async (req, res) => {
+        try {
+            const { code, name } = req.body;
+
+            // Validate required fields
+            if (!code || !name) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Group code and name are required",
+                });
+            }
+
+            const result = await Material.createMaterialGroup({ code, name });
+
+            res.status(201).json({
+                success: true,
+                message: "Material group created successfully",
+                data: result,
+            });
+        } catch (error) {
+            let statusCode = 500;
+            let message = "Failed to create material group";
+
+            if (error.message === "Group code already exists") {
+                statusCode = 409;
+                message = error.message;
+            }
+
+            res.status(statusCode).json({
+                success: false,
+                message,
+                error: error.message,
+            });
+        }
+    },
+
+    // Update a material group
+    updateMaterialGroup: async (req, res) => {
+        try {
+            const { groupId } = req.params;
+            const { code, name } = req.body;
+
+            // Validate at least one field to update
+            if (!code && !name) {
+                return res.status(400).json({
+                    success: false,
+                    message:
+                        "At least one field (code or name) is required for update",
+                });
+            }
+
+            const result = await Material.updateMaterialGroup(groupId, {
+                code,
+                name,
+            });
+
+            res.status(200).json({
+                success: true,
+                message: "Material group updated successfully",
+                data: result,
+            });
+        } catch (error) {
+            let statusCode = 500;
+            let message = "Failed to update material group";
+
+            if (error.message === "Group not found") {
+                statusCode = 404;
+                message = error.message;
+            } else if (error.message === "Group code already exists") {
+                statusCode = 409;
+                message = error.message;
+            }
+
+            res.status(statusCode).json({
+                success: false,
+                message,
+                error: error.message,
+            });
+        }
+    },
+
+    // Delete a material group
+    deleteMaterialGroup: async (req, res) => {
+        try {
+            const { groupId } = req.params;
+
+            const result = await Material.deleteMaterialGroup(groupId);
+
+            res.status(200).json({
+                success: true,
+                message: "Material group deleted successfully",
+                data: result,
+            });
+        } catch (error) {
+            let statusCode = 500;
+            let message = "Failed to delete material group";
+
+            if (error.message === "Group not found") {
+                statusCode = 404;
+                message = error.message;
+            } else if (
+                error.message === "Cannot delete group with existing subgroups"
+            ) {
+                statusCode = 400;
+                message = error.message;
+            }
+
+            res.status(statusCode).json({
+                success: false,
+                message,
+                error: error.message,
+            });
+        }
+    },
+
+    // Create a new material subgroup
+    createMaterialSubGroup: async (req, res) => {
+        try {
+            const { code, name, item_group_id } = req.body;
+
+            // Validate required fields
+            if (!code || !name || !item_group_id) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Subgroup code, name, and group ID are required",
+                });
+            }
+
+            const result = await Material.createMaterialSubGroup({
+                code,
+                name,
+                item_group_id,
+            });
+
+            res.status(201).json({
+                success: true,
+                message: "Material subgroup created successfully",
+                data: result,
+            });
+        } catch (error) {
+            let statusCode = 500;
+            let message = "Failed to create material subgroup";
+
+            if (error.message === "Parent group not found") {
+                statusCode = 404;
+                message = error.message;
+            } else if (
+                error.message ===
+                "Subgroup code already exists within this group"
+            ) {
+                statusCode = 409;
+                message = error.message;
+            }
+
+            res.status(statusCode).json({
+                success: false,
+                message,
+                error: error.message,
+            });
+        }
+    },
+
+    // Update a material subgroup
+    updateMaterialSubGroup: async (req, res) => {
+        try {
+            const { subGroupId } = req.params;
+            const { code, name, item_group_id } = req.body;
+
+            // Validate at least one field to update
+            if (!code && !name && !item_group_id) {
+                return res.status(400).json({
+                    success: false,
+                    message:
+                        "At least one field (code, name, or group ID) is required for update",
+                });
+            }
+
+            const result = await Material.updateMaterialSubGroup(subGroupId, {
+                code,
+                name,
+                item_group_id,
+            });
+
+            res.status(200).json({
+                success: true,
+                message: "Material subgroup updated successfully",
+                data: result,
+            });
+        } catch (error) {
+            let statusCode = 500;
+            let message = "Failed to update material subgroup";
+
+            if (
+                error.message === "Subgroup not found" ||
+                error.message === "Parent group not found"
+            ) {
+                statusCode = 404;
+                message = error.message;
+            } else if (
+                error.message ===
+                "Subgroup code already exists within this group"
+            ) {
+                statusCode = 409;
+                message = error.message;
+            }
+
+            res.status(statusCode).json({
+                success: false,
+                message,
+                error: error.message,
+            });
+        }
+    },
+
+    // Delete a material subgroup
+    deleteMaterialSubGroup: async (req, res) => {
+        try {
+            const { subGroupId } = req.params;
+
+            const result = await Material.deleteMaterialSubGroup(subGroupId);
+
+            res.status(200).json({
+                success: true,
+                message: "Material subgroup deleted successfully",
+                data: result,
+            });
+        } catch (error) {
+            let statusCode = 500;
+            let message = "Failed to delete material subgroup";
+
+            if (error.message === "Subgroup not found") {
+                statusCode = 404;
+                message = error.message;
+            } else if (
+                error.message ===
+                "Cannot delete subgroup with existing materials"
+            ) {
+                statusCode = 400;
+                message = error.message;
+            }
+
+            res.status(statusCode).json({
+                success: false,
+                message,
+                error: error.message,
+            });
+        }
+    },
+
+    // Export only groups to Excel
+    exportOnlyGroupsToExcel: async (req, res) => {
+        try {
+            const buffer = await Material.exportOnlyGroupsToExcel();
+
+            // Set headers for Excel file download
+            res.setHeader(
+                "Content-Type",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            );
+            res.setHeader(
+                "Content-Disposition",
+                "attachment; filename=groups.xlsx"
+            );
+            res.setHeader("Content-Length", buffer.length);
+
+            // Send the file buffer
+            res.send(buffer);
+        } catch (error) {
+            console.error("Groups Excel export error:", error);
+            res.status(500).json({
+                success: false,
+                message: "Failed to export groups to Excel",
+                error: error.message,
+            });
+        }
+    },
+
+    // Export only subgroups to Excel
+    exportOnlySubgroupsToExcel: async (req, res) => {
+        try {
+            const groupId = req.params.groupId || null;
+            const buffer = await Material.exportOnlySubgroupsToExcel(groupId);
+
+            // Set filename based on whether we're exporting for a specific group
+            const filename = groupId
+                ? `subgroups_${groupId}.xlsx`
+                : "subgroups.xlsx";
+
+            // Set headers for Excel file download
+            res.setHeader(
+                "Content-Type",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            );
+            res.setHeader(
+                "Content-Disposition",
+                `attachment; filename=${filename}`
+            );
+            res.setHeader("Content-Length", buffer.length);
+
+            // Send the file buffer
+            res.send(buffer);
+        } catch (error) {
+            console.error("Subgroups Excel export error:", error);
+            res.status(500).json({
+                success: false,
+                message: "Failed to export subgroups to Excel",
+                error: error.message,
+            });
+        }
+    },
+
+    // Import only groups from Excel
+    importOnlyGroupsFromExcel: async (req, res) => {
+        try {
+            // Get user ID from session
+            const userId = req.cookies.user_id;
+
+            // Parse form with uploaded file
+            const form = new formidable.IncomingForm();
+            const [fields, items] = await form.parse(req);
+
+            // Get the uploaded file - handle different possible formats from formidable
+            const file = items.file?.[0] || items.files?.[0] || null;
+
+            if (!file) {
+                console.error("No file found in request:", { fields, items });
+                return res.status(400).json({
+                    success: false,
+                    message:
+                        "No file uploaded or file field not found in request",
+                });
+            }
+
+            // Check file extension
+            const fileExtension = path
+                .extname(file.originalFilename)
+                .toLowerCase();
+            if (fileExtension !== ".xlsx" && fileExtension !== ".xls") {
+                return res.status(400).json({
+                    success: false,
+                    message:
+                        "Invalid file format. Please upload an Excel file (.xlsx or .xls)",
+                });
+            }
+
+            // Read file buffer
+            const fileBuffer = fs.readFileSync(file.filepath);
+
+            // Import groups from Excel
+            await Material.importOnlyGroupsFromExcel(fileBuffer, userId);
+
+            // Delete temp file
+            fs.unlinkSync(file.filepath);
+
+            res.status(200).json({
+                success: true,
+                message: "Groups imported successfully",
+            });
+        } catch (error) {
+            console.error("Groups Excel import error:", error);
+            res.status(500).json({
+                success: false,
+                message: "Failed to import groups from Excel",
+                error: error.message,
+            });
+        }
+    },
+
+    // Import only subgroups from Excel
+    importOnlySubgroupsFromExcel: async (req, res) => {
+        try {
+            // Get user ID from session
+            const userId = req.cookies.user_id;
+
+            // Parse form with uploaded file
+            const form = new formidable.IncomingForm();
+            const [fields, items] = await form.parse(req);
+
+            // Get the uploaded file - handle different possible formats from formidable
+            const file = items.file?.[0] || items.files?.[0] || null;
+
+            if (!file) {
+                console.error("No file found in request:", { fields, items });
+                return res.status(400).json({
+                    success: false,
+                    message:
+                        "No file uploaded or file field not found in request",
+                });
+            }
+
+            // Check file extension
+            const fileExtension = path
+                .extname(file.originalFilename)
+                .toLowerCase();
+            if (fileExtension !== ".xlsx" && fileExtension !== ".xls") {
+                return res.status(400).json({
+                    success: false,
+                    message:
+                        "Invalid file format. Please upload an Excel file (.xlsx or .xls)",
+                });
+            }
+
+            // Read file buffer
+            const fileBuffer = fs.readFileSync(file.filepath);
+
+            // Import subgroups from Excel
+            await Material.importOnlySubgroupsFromExcel(fileBuffer, userId);
+
+            // Delete temp file
+            fs.unlinkSync(file.filepath);
+
+            res.status(200).json({
+                success: true,
+                message: "Subgroups imported successfully",
+            });
+        } catch (error) {
+            console.error("Subgroups Excel import error:", error);
+            res.status(500).json({
+                success: false,
+                message: "Failed to import subgroups from Excel",
+                error: error.message,
+            });
+        }
+    },
+
     // Get all material groups
     getMaterialGroups: async (req, res) => {
         try {
-            const result = await Material.getMaterialGroups();
+            const page = parseInt(req.query.page) || 1;
+            const pageSize = parseInt(req.query.pageSize) || 10;
+            const searchQuery = req.query.q || "";
+
+            const result = await Material.getMaterialGroups(
+                page,
+                pageSize,
+                searchQuery
+            );
             res.status(200).json({
                 success: true,
-                data: result,
+                data: result.data,
+                searchQuery: searchQuery,
+                pagination: {
+                    page,
+                    pageSize,
+                    totalCount: result.pagination.totalCount,
+                    totalPages: result.pagination.totalPages,
+                },
             });
         } catch (error) {
             res.status(500).json({
@@ -22,14 +463,47 @@ const MaterialController = {
         }
     },
 
+    // Get all material groups for dropdown (no pagination)
+    getAllMaterialGroups: async (req, res) => {
+        try {
+            const result = await Material.getAllMaterialGroups();
+            res.status(200).json({
+                success: true,
+                data: result,
+            });
+        } catch (error) {
+            res.status(500).json({
+                success: false,
+                message: "Failed to fetch all material groups",
+                error: error.message,
+            });
+        }
+    },
+
     // Get subgroups by group ID
     getMaterialSubGroups: async (req, res) => {
         try {
             const { groupId } = req.params;
-            const result = await Material.getMaterialSubGroups(groupId);
+            const page = parseInt(req.query.page) || 1;
+            const pageSize = parseInt(req.query.pageSize) || 10;
+            const searchQuery = req.query.q || "";
+
+            const result = await Material.getMaterialSubGroups(
+                groupId,
+                page,
+                pageSize,
+                searchQuery
+            );
             res.status(200).json({
                 success: true,
-                data: result,
+                data: result.data,
+                searchQuery: searchQuery,
+                pagination: {
+                    page,
+                    pageSize,
+                    totalCount: result.pagination.totalCount,
+                    totalPages: result.pagination.totalPages,
+                },
             });
         } catch (error) {
             res.status(500).json({
@@ -73,17 +547,20 @@ const MaterialController = {
             const { subGroupId } = req.params;
             const page = parseInt(req.query.page) || 1;
             const pageSize = parseInt(req.query.pageSize) || 10;
+            const searchQuery = req.query.q || "";
 
             const result = await Material.getMaterialsBySubGroup(
                 subGroupId,
                 page,
-                pageSize
+                pageSize,
+                searchQuery
             );
             res.status(200).json({
                 success: true,
                 data: result.materials,
-                subGroup: result.subGroup,
+                subGroup: result.subgroup,
                 group: result.group,
+                searchQuery: searchQuery,
                 pagination: result.pagination,
             });
         } catch (error) {
@@ -399,6 +876,41 @@ const MaterialController = {
             res.status(500).json({
                 success: false,
                 message: "Failed to serve file",
+                error: error.message,
+            });
+        }
+    },
+
+    // Delete attachment
+    deleteAttachment: async (req, res) => {
+        try {
+            const { attachmentId } = req.params;
+            const updatedBy = req.cookies.user_id;
+
+            const result = await Material.deleteAttachment(
+                attachmentId,
+                updatedBy
+            );
+
+            res.status(200).json({
+                success: true,
+                message: "Attachment deleted successfully",
+                data: result,
+            });
+        } catch (error) {
+            console.error("Error deleting attachment:", error);
+
+            let statusCode = 500;
+            let message = "Failed to delete attachment";
+
+            if (error.message === "Attachment not found") {
+                statusCode = 404;
+                message = error.message;
+            }
+
+            res.status(statusCode).json({
+                success: false,
+                message,
                 error: error.message,
             });
         }
