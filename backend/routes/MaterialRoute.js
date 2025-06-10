@@ -8,6 +8,12 @@ router.get("/groups", MaterialController.getMaterialGroups);
 // Get all material groups for dropdown (no pagination)
 router.get("/groups/dropdown", MaterialController.getAllMaterialGroups);
 
+// Get all subgroups for a group for dropdown (no pagination)
+router.get(
+    "/subgroups/:groupId/dropdown",
+    MaterialController.getAllSubgroupsByGroup
+);
+
 // CRUD operations for material groups
 router.post(
     "/groups",

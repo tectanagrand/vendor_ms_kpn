@@ -234,6 +234,32 @@ const Material = {
         }
     },
 
+    // Get all subgroups for a group for dropdown (no pagination)
+    getAllSubgroupsByGroup: async groupId => {
+        try {
+            return await DBClientWrapper(async client => {
+                const result = await client.query(
+                    `
+                    SELECT
+                        id,
+                        code,
+                        name,
+                        item_group_id
+                    FROM mat_item_sub_group
+                    WHERE item_group_id = $1
+                    ORDER BY code
+                `,
+                    [groupId]
+                );
+
+                return result.rows;
+            });
+        } catch (error) {
+            console.error("Error getting all subgroups for group:", error);
+            throw error;
+        }
+    },
+
     // Create a new material subgroup
     createMaterialSubGroup: async subGroupData => {
         try {

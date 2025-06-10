@@ -480,6 +480,24 @@ const MaterialController = {
         }
     },
 
+    // Get all subgroups for a group for dropdown (no pagination)
+    getAllSubgroupsByGroup: async (req, res) => {
+        try {
+            const { groupId } = req.params;
+            const result = await Material.getAllSubgroupsByGroup(groupId);
+            res.status(200).json({
+                success: true,
+                data: result,
+            });
+        } catch (error) {
+            res.status(500).json({
+                success: false,
+                message: "Failed to fetch all subgroups for group",
+                error: error.message,
+            });
+        }
+    },
+
     // Get subgroups by group ID
     getMaterialSubGroups: async (req, res) => {
         try {
