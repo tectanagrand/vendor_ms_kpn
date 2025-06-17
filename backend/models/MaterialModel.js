@@ -800,221 +800,151 @@ const Material = {
         }
     },
 
-    // Search materials by various criteria or get all materials if no search term
+    // Improved search function with unified ranking logic and reusable attachment query
     searchMaterials: async (searchTerm, page = 1, pageSize = 10) => {
         try {
             return await DBClientWrapper(async client => {
                 const offset = (page - 1) * pageSize;
                 const safeSearchTerm = String(searchTerm || "").trim();
 
-                if (safeSearchTerm) {
-                    const tsQuery = toTsQuery(safeSearchTerm);
+                // Format to full-text search
+                const toTsQuery = input =>
+                    input
+                        .trim()
+                        .split(/\s+/)
+                        .map(word => `${word}:*`)
+                        .join(" & ");
 
-                    // Count query
-                    const countQuery = await client.query(
-                        `
-                    SELECT COUNT(*) as total
-                    FROM mat_sap_data m
-                    WHERE to_tsvector('english',
-                        COALESCE(m.name, '') || ' ' ||
-                        COALESCE(m.description, '') || ' ' ||
-                        COALESCE(m.long_text, '') || ' ' ||
-                        COALESCE(m.alias1, '') || ' ' ||
-                        COALESCE(m.alias2, '') || ' ' ||
-                        COALESCE(m.alias3, '') || ' ' ||
-                        COALESCE(m.code, '')
-                    ) @@ to_tsquery('english', $1)
-                    `,
-                        [tsQuery]
+                // Determine if search is active
+                const isSearch = safeSearchTerm.length > 0;
+                const tsQuery = toTsQuery(safeSearchTerm);
+                const ilikeExact = safeSearchTerm;
+                const ilikePartial = `%${safeSearchTerm}%`;
+
+                let totalCount = 0;
+                let materialsQueryResult = [];
+
+                if (isSearch) {
+                    const countRes = await client.query(
+                        `SELECT COUNT(*) AS total
+                        FROM mat_sap_data m
+                        WHERE to_tsvector('english', COALESCE(m.name, '') || ' ' || COALESCE(m.description, '') || ' ' || COALESCE(m.long_text, '') || ' ' || COALESCE(m.alias1, '') || ' ' || COALESCE(m.alias2, '') || ' ' || COALESCE(m.alias3, '') || ' ' || COALESCE(m.code, '')) @@ to_tsquery('english', $1)
+                        OR m.code ILIKE $2`,
+                        [tsQuery, ilikePartial]
+                    );
+                    totalCount = parseInt(countRes.rows[0].total);
+
+                    const result = await client.query(
+                        `SELECT
+                            m.id,
+                            m.code,
+                            m.name,
+                            m.description,
+                            m.long_text,
+                            CASE
+                                WHEN m.description IS NOT NULL AND m.long_text IS NOT NULL THEN CONCAT(m.description, ' - ', m.long_text)
+                                WHEN m.description IS NOT NULL THEN m.description
+                                WHEN m.long_text IS NOT NULL THEN m.long_text
+                                ELSE NULL
+                            END AS combined_description,
+                            m.alias1,
+                            m.alias2,
+                            m.alias3,
+                            m.filter_code_1,
+                            m.filter_code_2,
+                            m.material_sub_group_id,
+                            m.created_at,
+                            m.updated_at,
+                            m.dfFromClient,
+                            mis.code AS "subGroupCode",
+                            mis.name AS "subGroupName",
+                            mig.code AS "groupCode",
+                            mig.name AS "groupName",
+                            ts_rank_cd(
+                                setweight(to_tsvector(COALESCE(m.name, '')), 'A') ||
+                                setweight(to_tsvector(COALESCE(m.description, '')), 'B') ||
+                                setweight(to_tsvector(COALESCE(m.long_text, '')), 'C') ||
+                                setweight(to_tsvector(COALESCE(m.alias1, '')), 'D'),
+                                to_tsquery('english', $1)
+                            ) AS rank,
+                            CASE
+                                WHEN m.code ILIKE $2 THEN 1
+                                WHEN m.code ILIKE $3 THEN 2
+                                ELSE 3
+                            END AS code_match_rank
+                            FROM mat_sap_data m
+                            JOIN mat_item_sub_group mis ON m.material_sub_group_id = mis.id
+                            JOIN mat_item_group mig ON mis.item_group_id = mig.id
+                            WHERE to_tsvector('english', COALESCE(m.name, '') || ' ' || COALESCE(m.description, '') || ' ' || COALESCE(m.long_text, '') || ' ' || COALESCE(m.alias1, '') || ' ' || COALESCE(m.alias2, '') || ' ' || COALESCE(m.alias3, '') || ' ' || COALESCE(m.code, '')) @@ to_tsquery('english', $1)
+                            OR m.code ILIKE $2
+                            ORDER BY code_match_rank, rank DESC, m.name ASC
+                            LIMIT $4 OFFSET $5`,
+                        [tsQuery, ilikeExact, ilikePartial, pageSize, offset]
                     );
 
-                    const totalCount = parseInt(countQuery.rows[0].total);
-                    const totalPages = Math.ceil(totalCount / pageSize);
+                    materialsQueryResult = result.rows;
+                } else {
+                    const countRes = await client.query(
+                        `SELECT COUNT(*) AS total FROM mat_sap_data`
+                    );
+                    totalCount = parseInt(countRes.rows[0].total);
 
-                    // Data query with ranking
-                    const materialsQuery = await client.query(
-                        `
-                    SELECT
-                        m.id,
-                        m.code,
-                        m.name,
-                        m.description,
-                        m.long_text,
-                        CASE
-                            WHEN m.description IS NOT NULL AND m.long_text IS NOT NULL THEN CONCAT(m.description, ' - ', m.long_text)
-                            WHEN m.description IS NOT NULL THEN m.description
-                            WHEN m.long_text IS NOT NULL THEN m.long_text
-                            ELSE NULL
-                        END as combined_description,
-                        m.alias1,
-                        m.alias2,
-                        m.alias3,
-                        m.filter_code_1,
-                        m.filter_code_2,
-                        m.material_sub_group_id,
-                        m.created_at,
-                        m.updated_at,
-                        m.dfFromClient,
-                        mis.code as "subGroupCode",
-                        mis.name as "subGroupName",
-                        mig.code as "groupCode",
-                        mig.name as "groupName",
-                        m.code as "fullCode",
-                        ts_rank_cd(
-                            to_tsvector('english',
-                                COALESCE(m.name, '') || ' ' ||
-                                COALESCE(m.description, '') || ' ' ||
-                                COALESCE(m.long_text, '') || ' ' ||
-                                COALESCE(m.alias1, '') || ' ' ||
-                                COALESCE(m.alias2, '') || ' ' ||
-                                COALESCE(m.alias3, '') || ' ' ||
-                                COALESCE(m.code, '')
-                            ),
-                            to_tsquery('english', $1)
-                        ) AS rank
-                    FROM mat_sap_data m
-                    JOIN mat_item_sub_group mis ON m.material_sub_group_id = mis.id
-                    JOIN mat_item_group mig ON mis.item_group_id = mig.id
-                    WHERE to_tsvector('english',
-                            COALESCE(m.name, '') || ' ' ||
-                            COALESCE(m.description, '') || ' ' ||
-                            COALESCE(m.long_text, '') || ' ' ||
-                            COALESCE(m.alias1, '') || ' ' ||
-                            COALESCE(m.alias2, '') || ' ' ||
-                            COALESCE(m.alias3, '') || ' ' ||
-                            COALESCE(m.code, '')
-                        ) @@ to_tsquery('english', $1)
-                    ORDER BY rank DESC, m.name ASC
-                    LIMIT $2 OFFSET $3
-                    `,
-                        [tsQuery, pageSize, offset]
+                    const result = await client.query(
+                        `SELECT
+                            m.id,
+                            m.code,
+                            m.name,
+                            m.description,
+                            m.long_text,
+                            CASE
+                                WHEN m.description IS NOT NULL AND m.long_text IS NOT NULL THEN CONCAT(m.description, ' - ', m.long_text)
+                                WHEN m.description IS NOT NULL THEN m.description
+                                WHEN m.long_text IS NOT NULL THEN m.long_text
+                                ELSE NULL
+                            END AS combined_description,
+                            m.alias1,
+                            m.alias2,
+                            m.alias3,
+                            m.filter_code_1,
+                            m.filter_code_2,
+                            m.material_sub_group_id,
+                            m.created_at,
+                            m.updated_at,
+                            m.dfFromClient,
+                            mis.code AS "subGroupCode",
+                            mis.name AS "subGroupName",
+                            mig.code AS "groupCode",
+                            mig.name AS "groupName"
+                            FROM mat_sap_data m
+                            JOIN mat_item_sub_group mis ON m.material_sub_group_id = mis.id
+                            JOIN mat_item_group mig ON mis.item_group_id = mig.id
+                            ORDER BY m.code ASC, m.name ASC
+                            LIMIT $1 OFFSET $2`,
+                        [pageSize, offset]
                     );
 
-                    const materialIds = materialsQuery.rows.map(m => m.id);
-
-                    // Fetch attachments
-                    const attachmentsQuery = await client.query(
-                        `SELECT material_id, id, attachment, type
-                     FROM mat_attachment
-                     WHERE material_id = ANY($1)`,
-                        [materialIds]
-                    );
-
-                    // Group attachments
-                    const attachmentsByMaterialId = {};
-                    attachmentsQuery.rows.forEach(att => {
-                        if (!attachmentsByMaterialId[att.material_id]) {
-                            attachmentsByMaterialId[att.material_id] = [];
-                        }
-                        attachmentsByMaterialId[att.material_id].push({
-                            id: att.id,
-                            attachment: att.attachment,
-                            type: att.type,
-                        });
-                    });
-
-                    // Merge attachments
-                    const finalResults = materialsQuery.rows.map(material => ({
-                        ...material,
-                        attachments: attachmentsByMaterialId[material.id] || [],
-                    }));
-
-                    return {
-                        materials: finalResults,
-                        pagination: {
-                            page,
-                            pageSize,
-                            totalCount,
-                            totalPages,
-                        },
-                    };
+                    materialsQueryResult = result.rows;
                 }
 
-                // No search term — return all paginated
-                const countQuery = await client.query(
-                    `SELECT COUNT(*) as total FROM mat_sap_data`
-                );
+                const materialIds = materialsQueryResult.map(m => m.id);
+                const attachmentsMap =
+                    await Material.getAttachmentsByMaterialIds(
+                        client,
+                        materialIds
+                    );
 
-                const totalCount = parseInt(countQuery.rows[0].total);
-                const totalPages = Math.ceil(totalCount / pageSize);
-
-                const materialsQuery = await client.query(
-                    `
-                SELECT
-                    m.id,
-                    m.code,
-                    m.name,
-                    m.description,
-                    m.long_text,
-                    CASE
-                        WHEN m.description IS NOT NULL AND m.long_text IS NOT NULL THEN CONCAT(m.description, ' - ', m.long_text)
-                        WHEN m.description IS NOT NULL THEN m.description
-                        WHEN m.long_text IS NOT NULL THEN m.long_text
-                        ELSE NULL
-                    END as combined_description,
-                    m.alias1,
-                    m.alias2,
-                    m.alias3,
-                    m.filter_code_1,
-                    m.filter_code_2,
-                    m.created_at,
-                    m.updated_at,
-                    m.dfFromClient,
-                    mis.code as "subGroupCode",
-                    mis.name as "subGroupName",
-                    mig.code as "groupCode",
-                    mig.name as "groupName",
-                    m.code as "fullCode"
-                FROM mat_sap_data m
-                JOIN mat_item_sub_group mis ON m.material_sub_group_id = mis.id
-                JOIN mat_item_group mig ON mis.item_group_id = mig.id
-                ORDER BY
-                    CASE
-                        WHEN mig.code ~ '^[0-9]+$' THEN mig.code::integer
-                        ELSE 999999
-                    END ASC,
-                    mis.code ASC,
-                    m.name ASC
-                LIMIT $1 OFFSET $2
-                `,
-                    [pageSize, offset]
-                );
-
-                const materialIds = materialsQuery.rows.map(m => m.id);
-
-                const attachmentsQuery = await client.query(
-                    `SELECT material_id, id, attachment, type
-                 FROM mat_attachment
-                 WHERE material_id = ANY($1)`,
-                    [materialIds]
-                );
-
-                const attachmentsByMaterialId = {};
-                attachmentsQuery.rows.forEach(att => {
-                    if (!attachmentsByMaterialId[att.material_id]) {
-                        attachmentsByMaterialId[att.material_id] = [];
-                    }
-                    attachmentsByMaterialId[att.material_id].push({
-                        id: att.id,
-                        attachment: att.attachment,
-                        type: att.type,
-                    });
-                });
-
-                const materialsWithAttachments = materialsQuery.rows.map(
-                    material => ({
-                        ...material,
-                        attachments: attachmentsByMaterialId[material.id] || [],
-                    })
-                );
+                const finalMaterials = materialsQueryResult.map(material => ({
+                    ...material,
+                    attachments: attachmentsMap[material.id] || [],
+                }));
 
                 return {
-                    materials: materialsWithAttachments,
+                    materials: finalMaterials,
                     pagination: {
                         page,
                         pageSize,
                         totalCount,
-                        totalPages,
+                        totalPages: Math.ceil(totalCount / pageSize),
                     },
                 };
             });
@@ -1022,6 +952,21 @@ const Material = {
             console.error("Search error:", error);
             throw error;
         }
+    },
+
+    // Utility: Fetch and group attachments
+    getAttachmentsByMaterialIds: async (client, ids) => {
+        if (!ids.length) return {};
+        const res = await client.query(
+            `SELECT material_id, id, attachment, type FROM mat_attachment WHERE material_id = ANY($1)`,
+            [ids]
+        );
+        const map = {};
+        res.rows.forEach(({ material_id, ...rest }) => {
+            if (!map[material_id]) map[material_id] = [];
+            map[material_id].push(rest);
+        });
+        return map;
     },
 
     // Get material by ID with full details
