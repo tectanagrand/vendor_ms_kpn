@@ -1715,6 +1715,68 @@ const Material = {
             }
         }
     },
+
+    // Get full material details and attachments for materials by array of codes
+    getAttachmentsByCodes: async codes => {
+        try {
+            return await DBClientWrapper(async client => {
+                if (!Array.isArray(codes) || codes.length === 0) return [];
+                // Fetch materials by codes
+                const materialRes = await client.query(
+                    `SELECT
+                        m.id,
+                        m.code,
+                        m.name,
+                        m.description,
+                        m.long_text,
+                        m.alias1,
+                        m.alias2,
+                        m.alias3,
+                        m.filter_code_1,
+                        m.filter_code_2,
+                        m.created_at,
+                        m.updated_at,
+                        m.dfFromClient,
+                        mis.id as "subGroupId",
+                        mis.code as "subGroupCode",
+                        mis.name as "subGroupName",
+                        mig.id as "groupId",
+                        mig.code as "groupCode",
+                        mig.name as "groupName"
+                    FROM mat_sap_data m
+                    JOIN mat_item_sub_group mis ON m.material_sub_group_id = mis.id
+                    JOIN mat_item_group mig ON mis.item_group_id = mig.id
+                    WHERE m.code = ANY($1)`,
+                    [codes]
+                );
+                const idToMaterial = {};
+                materialRes.rows.forEach(row => {
+                    idToMaterial[row.id] = { ...row, attachments: [] };
+                });
+                const ids = materialRes.rows.map(row => row.id);
+                if (ids.length === 0) return [];
+                // Fetch attachments for these materials
+                const attachRes = await client.query(
+                    `SELECT material_id, id, attachment, type FROM mat_attachment WHERE material_id = ANY($1)`,
+                    [ids]
+                );
+                attachRes.rows.forEach(att => {
+                    if (idToMaterial[att.material_id]) {
+                        idToMaterial[att.material_id].attachments.push({
+                            id: att.id,
+                            attachment: att.attachment,
+                            type: att.type,
+                        });
+                    }
+                });
+                // Return as array of material objects (with attachments)
+                return Object.values(idToMaterial);
+            });
+        } catch (error) {
+            console.error("Error fetching material details by codes:", error);
+            throw error;
+        }
+    },
 };
 
 module.exports = Material;

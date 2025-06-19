@@ -933,6 +933,30 @@ const MaterialController = {
             });
         }
     },
+
+    // Get attachments for materials by array of codes
+    getAttachmentsByCodes: async (req, res) => {
+        try {
+            const codes = req.body.codes;
+            if (!Array.isArray(codes) || codes.length === 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: "'codes' must be a non-empty array.",
+                });
+            }
+            const result = await Material.getAttachmentsByCodes(codes);
+            res.status(200).json({
+                success: true,
+                data: result,
+            });
+        } catch (error) {
+            res.status(500).json({
+                success: false,
+                message: "Failed to fetch attachments by codes",
+                error: error.message,
+            });
+        }
+    },
 };
 
 module.exports = MaterialController;

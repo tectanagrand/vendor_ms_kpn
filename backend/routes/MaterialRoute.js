@@ -126,4 +126,7 @@ router.put(
 // Serve attachment file
 router.get("/file/:filename", MaterialController.serveFile);
 
+// Get attachments for materials by array of codes
+router.post("/by-codes", MaterialController.getAttachmentsByCodes);
+
 module.exports = router;
