@@ -8,6 +8,9 @@ router.get("/groups", MaterialController.getMaterialGroups);
 // Get all material groups for dropdown (no pagination)
 router.get("/groups/dropdown", MaterialController.getAllMaterialGroups);
 
+// Get attachments for materials by array of codes
+router.post("/by-codes", MaterialController.getAttachmentsByCodes);
+
 // Get all subgroups for a group for dropdown (no pagination)
 router.get(
     "/subgroups/:groupId/dropdown",
@@ -125,8 +128,5 @@ router.put(
 
 // Serve attachment file
 router.get("/file/:filename", MaterialController.serveFile);
-
-// Get attachments for materials by array of codes
-router.post("/by-codes", MaterialController.getAttachmentsByCodes);
 
 module.exports = router;
