@@ -105,8 +105,6 @@ OTPController.validateOTP = async (req, res) => {
             } catch (error) {
                 await client.query(TRANS.ROLLBACK);
                 throw error;
-            } finally {
-                client.release();
             }
             res.status(200).send({
                 message: "Validation Success !",
@@ -119,6 +117,8 @@ OTPController.validateOTP = async (req, res) => {
         res.status(500).send({
             message: error.message,
         });
+    } finally {
+        client.release();
     }
 };
 

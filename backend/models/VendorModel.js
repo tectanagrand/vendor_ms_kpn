@@ -222,7 +222,9 @@ const Vendor = {
             } finally {
                 client.release();
             }
-        } catch (error) {}
+        } catch (error) {
+            throw error;
+        }
     },
 
     async deleteTemp({ id, ven_id }) {
@@ -755,16 +757,16 @@ const Vendor = {
         }
     },
 
-    async CreateUserVendor(client, ven_id) {
+    async CreateUserVendor(client, ven_id, ven_code) {
         try {
             // const client = await db.connect();
             try {
                 // await client.query(TRANS.BEGIN);
                 const { rows: user_vendor } = await client.query(
                     `
-                    select user_id, username from a_uservendor where user_id = $1
+                    select user_id, username from a_uservendor where user_id = $1 or username = $2
                     `,
-                    [ven_id]
+                    [ven_id, ven_code]
                 );
                 if (user_vendor.length > 0) {
                     console.log(
@@ -883,7 +885,7 @@ const Vendor = {
                         department: "VENDOR",
                         token: refreshToken,
                         group_id: "39bbc879-0e03-49d2-a16b-c19eecae313d",
-                        user_group_id: "1",
+                        user_group_id: "2",
                     };
                     if (!userPayload.email || !userPayload.username)
                         throw new Error("Bad Request");
@@ -1055,10 +1057,12 @@ const Vendor = {
                     and a002.file_type = 'A002'
                 left join vendor v on
                     v.ven_id = vb.ven_id
+                left join ticket t on t.ven_id = v.ven_id
+                left join approval_steps as2 on as2.id_doctype = t.approval_type and as2.index_approval = '0'
                 left join mst_bank_sap mbs on mbs.id = vb.bank_id::int
                 where
                     v.is_verif is null 
-                                    and (v.ven_code is not null and trim(v.ven_code) <> '') 
+                                    and (v.ven_code is not null and trim(v.ven_code) <> '') and as2.bu_id <> 'CG'                                    
                 order by vb.ven_id desc
                 `;
                 const { rows: banks } = await client.query(bankbq);
@@ -1623,7 +1627,8 @@ const Vendor = {
                         await oraclient.execute(upOra, valOra);
                         await Vendor.CreateUserVendor(
                             psqlclient,
-                            row[ColORA["VEN_ID"]]
+                            row[ColORA["VEN_ID"]],
+                            row[ColORA["VEN_CODE"]]
                         );
                         VenSuccess.push(row[ColORA["VEN_CODE"]]);
                     }
@@ -2140,7 +2145,9 @@ const Vendor = {
             } finally {
                 client.release();
             }
-        } catch (error) {}
+        } catch (error) {
+            throw error;
+        }
     },
 
     // async UpdateVendorData(ticket_id, updated_data) {
