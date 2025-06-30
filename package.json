@@ -5,9 +5,9 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "server_dev": "set NODE_ENV=development&& nodemon server.js",
-    "server_prod": "set NODE_ENV=production&& nodemon server.js",
-    "server": "set NODE_ENV=development&& node server.js"
+    "server_dev": "export NODE_ENV=development&& nodemon server.js",
+    "server_prod": "export NODE_ENV=production&& nodemon server.js",
+    "server": "export NODE_ENV=development&& node server.js"
   },
   "keywords": [],
   "author": "",
@@ -32,7 +32,8 @@
     "pg": "^8.11.3",
     "qrcode": "^1.5.3",
     "speakeasy": "^2.0.0",
-    "uuidv4": "^6.2.13"
+    "uuidv4": "^6.2.13",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "eslint": "^8.47.0",
