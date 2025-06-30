@@ -190,37 +190,16 @@ const MasterController = {
 
     getFileType: async (req, res) => {
         try {
-            const client = await db.connect();
-            const title = req.query.title;
-            const localovs = req.query.localovs;
-            const curpos = req.query.curpos;
-            const queryFileType =
-                "SELECT file_code, file_type, is_mandatory, help, helpen from mst_file_type where ";
-            let whereFile = "";
-            if (title === "COMPANY") {
-                whereFile += "company = true and ";
-            } else {
-                whereFile += "personal = true and ";
-            }
-            if (curpos === "INIT") {
-                whereFile += "cur_pos = 'INIT' and ";
-            } else {
-                whereFile += "(cur_pos = 'INIT' OR cur_pos = 'CREA') and ";
-            }
-            if (localovs === "LOCAL") {
-                whereFile += "local = true order by file_code asc;";
-            } else {
-                whereFile += "ovs = true order by file_code asc ;";
-            }
-            try {
-                const { rows } = await client.query(queryFileType + whereFile);
-                res.status(200).send(rows);
-            } catch (error) {
-                throw error;
-            } finally {
-                client.release();
-            }
+            const { title, ventype, bu_id, curpos } = req.query;
+            const result = await Master.GetFileType({
+                title,
+                ventype,
+                bu_id,
+                curpos,
+            });
+            res.status(200).send({ data: result });
         } catch (error) {
+            console.error(error);
             res.status(500).send({
                 message: error.message,
             });
@@ -284,6 +263,195 @@ const MasterController = {
             } finally {
                 client.release();
             }
+        } catch (error) {
+            console.error(error);
+            res.status(500).send({
+                message: error.message,
+            });
+        }
+    },
+
+    getVatType: async (req, res) => {
+        try {
+            const result = await Master.getVAT();
+            res.status(200).send({ data: result });
+        } catch (error) {
+            console.error(error);
+            res.status(500).send({
+                message: error.message,
+            });
+        }
+    },
+    getBU: async (req, res) => {
+        try {
+            const data = await Master.getBU();
+            res.status(200).send({ data: data });
+        } catch (error) {
+            console.error(error);
+            res.status(500).send({
+                message: error.message,
+            });
+        }
+    },
+    getDept: async (req, res) => {
+        try {
+            const data = await Master.getDept();
+            res.status(200).send({ data: data });
+        } catch (error) {
+            console.error(error);
+            res.status(500).send({
+                message: error.message,
+            });
+        }
+    },
+    getEmpRole: async (req, res) => {
+        try {
+            const data = await Master.getEmpRole();
+            res.status(200).send({ data: data });
+        } catch (error) {
+            console.error(error);
+            res.status(500).send({
+                message: error.message,
+            });
+        }
+    },
+    CGVenClass: async (req, res) => {
+        try {
+            const data = await Master.CGVenClass();
+            res.status(200).send({
+                data: data,
+            });
+        } catch (error) {
+            console.error(error);
+            res.status(500).send({
+                message: error.message,
+            });
+        }
+    },
+    CGVenType: async (req, res) => {
+        try {
+            const data = await Master.CGVenType();
+            res.status(200).send({
+                data: data,
+            });
+        } catch (error) {
+            console.error(error);
+            res.status(500).send({
+                message: error.message,
+            });
+        }
+    },
+    CGUsedTax: async (req, res) => {
+        try {
+            const data = await Master.CGUsedTax();
+            res.status(200).send({
+                data: data,
+            });
+        } catch (error) {
+            console.error(error);
+            res.status(500).send({
+                message: error.message,
+            });
+        }
+    },
+    CGPriceTerm: async (req, res) => {
+        try {
+            const data = await Master.CGPriceTerm();
+            res.status(200).send({
+                data: data,
+            });
+        } catch (error) {
+            console.error(error);
+            res.status(500).send({
+                message: error.message,
+            });
+        }
+    },
+    CGPayTerm: async (req, res) => {
+        try {
+            const data = await Master.CGPayTerm();
+            res.status(200).send({
+                data: data,
+            });
+        } catch (error) {
+            console.error(error);
+            res.status(500).send({
+                message: error.message,
+            });
+        }
+    },
+    CGCurrency: async (req, res) => {
+        try {
+            const data = await Master.CGCurrency();
+            res.status(200).send({
+                data: data,
+            });
+        } catch (error) {
+            console.error(error);
+            res.status(500).send({
+                message: error.message,
+            });
+        }
+    },
+    CGCountry: async (req, res) => {
+        try {
+            const data = await Master.CGCountry();
+            res.status(200).send({
+                data: data,
+            });
+        } catch (error) {
+            console.error(error);
+            res.status(500).send({
+                message: error.message,
+            });
+        }
+    },
+    CGArea: async (req, res) => {
+        try {
+            const data = await Master.CGArea();
+            res.status(200).send({
+                data: data,
+            });
+        } catch (error) {
+            console.error(error);
+            res.status(500).send({
+                message: error.message,
+            });
+        }
+    },
+    CGBank: async (req, res) => {
+        try {
+            const data = await Master.CGBank();
+            res.status(200).send({
+                data: data,
+            });
+        } catch (error) {
+            console.error(error);
+            res.status(500).send({
+                message: error.message,
+            });
+        }
+    },
+    GetBadanUsaha: async (req, res) => {
+        try {
+            const data = await Master.GetMasterBadanUsaha();
+            res.status(200).send({
+                data: data,
+            });
+        } catch (error) {
+            console.error(error);
+            res.status(500).send({
+                message: error.message,
+            });
+        }
+    },
+
+    GetTitle: async (req, res) => {
+        try {
+            const data = await Master.GetMasterTitle();
+            res.status(200).send({
+                data: data,
+            });
         } catch (error) {
             console.error(error);
             res.status(500).send({

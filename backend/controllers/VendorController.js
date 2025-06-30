@@ -137,9 +137,8 @@ VendorController.setTempFile = async (req, res) => {
                 }
             }
         }
-        const result = await Vendor.setTemp({ fields, uploaded_files });
+        const result = await Vendor.setTempv2({ fields, uploaded_files });
         res.status(200).send({
-            status: 200,
             data: result,
         });
     } catch (err) {
@@ -263,14 +262,21 @@ VendorController.getFile = async (req, res) => {
     }
 };
 
+VendorController.getSingleFile = async (req, res) => {
+    const filename = req.params.filename;
+    let pathDwn = path.join(path.resolve(), `/backend/public/${filename}`);
+    const rs = fs.createReadStream(pathDwn);
+    const { size } = fs.statSync(pathDwn);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Length", size);
+    rs.pipe(res);
+};
+
 VendorController.getBank = async (req, res) => {
     try {
         const result = await Vendor.getBank(req.params.id);
         // console.log(result);
-        res.status(200).send({
-            status: 200,
-            data: result,
-        });
+        res.status(200).send(result);
     } catch (err) {
         res.status(500);
     }
@@ -540,6 +546,21 @@ VendorController.UploadCutoffVendorUser = async (req, res) => {
         await data.xlsx.write(res);
         res.status(200);
         res.end();
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({
+            message: error.message,
+        });
+    }
+};
+
+VendorController.EditExpiryDateFile = async (req, res) => {
+    try {
+        const { file_id, date, source } = req.body;
+        const result = await Vendor.EditExpiryDateFile(file_id, date, source);
+        res.status(200).send({
+            data: result,
+        });
     } catch (error) {
         console.error(error);
         res.status(500).send({

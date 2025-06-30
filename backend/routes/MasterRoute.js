@@ -18,5 +18,22 @@ router.post("/deletebank", controller.deleteBank);
 router.get("/filetype", controller.getFileType);
 router.get("/phonecode", controller.getPhoneCode);
 router.get("/getporg", controller.getPurOrg);
+router.get("/getvat", controller.getVatType);
+router.get("/bu", controller.getBU);
+router.get("/dept", controller.getDept);
+router.get("/emprole", controller.getEmpRole);
+router.get("/title", controller.GetTitle);
+router.get("/badanus", controller.GetBadanUsaha);
+
+//CG Master Data
+router.get("/cg/venclass", controller.CGVenClass);
+router.get("/cg/usedtax", controller.CGUsedTax);
+router.get("/cg/payterm", controller.CGPayTerm);
+router.get("/cg/priceterm", controller.CGPriceTerm);
+router.get("/cg/currency", controller.CGCurrency);
+router.get("/cg/country", controller.CGCountry);
+router.get("/cg/area", controller.CGArea);
+router.get("/cg/ventype", controller.CGVenType);
+router.get("/cg/banks", controller.CGBank);
 
 module.exports = router;

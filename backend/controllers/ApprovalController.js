@@ -58,12 +58,13 @@ ApprovalController.CreateNewFlow = async (req, res) => {
     user_id : current session 
     */
     try {
-        const { flow, id_doctype } = req.body;
+        const { flow, id_doctype, description } = req.body;
         const method = req.method == "POST" ? "insert" : "update";
         const { user_id } = req.cookies;
         const result = await ApprovalModel.CreateApprovalFlow({
             flow,
             id_doctype,
+            description,
             method,
             user_id,
         });

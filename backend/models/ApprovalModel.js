@@ -9,8 +9,34 @@ const EmailModel = require("./EmailModelv2");
 const jwt = require("jsonwebtoken");
 const Emailer = require("./EmailModel");
 const Vendor = require("./VendorModel");
+const Ticket = require("./TicketModel");
+const CGApi = require("./CGApiModel");
 
 const ApprovalModel = {};
+
+ApprovalModel.extendTicket = async (client, ticket_id, days) => {
+    try {
+        const today = new Date();
+        let until = new Date();
+        until.setDate(today.getDate() + days);
+        const dateTicket = {
+            valid_until: until,
+        };
+        const [q, val] = Crud.updateItem(
+            "TICKET",
+            dateTicket,
+            { token: ticket_id },
+            "ticket_id"
+        );
+        const updateTicket = await client.query(q, val);
+        return {
+            ticket_num: updateTicket.rows[0].ticket_id,
+        };
+    } catch (error) {
+        console.error(error);
+        throw error;
+    }
+};
 
 ApprovalModel.AddNewRole = async ({ role_name, role_code, user_id }) => {
     try {
@@ -148,7 +174,7 @@ ApprovalModel.CreateApprovalFlow = async ({
         const client = await db.connect();
         try {
             await client.query(TRANS.BEGIN);
-            const today = moment().format("YYYY-MM-DDTHH:mm:ss");
+            const today = moment().toISOString();
             const { rows: check_exist } = await client.query(
                 `select id_doctype from approval_doctype where id_doctype = $1`,
                 [id_doctype]
@@ -206,12 +232,62 @@ ApprovalModel.CreateApprovalFlow = async ({
                     method_flow = "insert";
                 }
                 let id_on_submit = null;
-                // create on_submit condition first
                 if (f.on_submit) {
                     id_on_submit = f.on_submit.id;
                     if (!id_on_submit) {
                         id_on_submit = uuid.uuid();
                     }
+                }
+
+                let payload = {
+                    index_approval: f.index_approval,
+                    emp_role_id: f.id_role,
+                    bu_id: f.bu_id,
+                    dept_id: f.dept_id,
+                    on_submit: id_on_submit,
+                    reject_action: f.reject_action,
+                    reject_next_index: f.reject_next_index,
+                    default_next_index: f.default_next_index,
+                    def_submit_email_target: f.def_submit_email_target,
+                    def_reject_email_target: f.def_reject_email_target,
+                    def_submit_email: f.def_submit_email,
+                    def_reject_email: f.def_reject_email,
+                    is_onetime_appr: f.is_onetime_appr,
+                    wo_auth: f.wo_auth,
+                    allow_read_all: f.allow_read_all,
+                    disabled_input: f.disabled_input,
+                    enabled_input: f.enabled_input,
+                    id_doctype: id_doctype,
+                };
+                let queFlow, valFlow;
+                if (method_flow == "insert") {
+                    payload = {
+                        ...payload,
+                        id: uuid.uuid(),
+                    };
+
+                    [queFlow, valFlow] = Crud.insertItem(
+                        "approval_steps",
+                        payload,
+                        "id"
+                    );
+                } else {
+                    [queFlow, valFlow] = Crud.updateItem(
+                        "approval_steps",
+                        payload,
+                        {
+                            index_approval: f.index_approval,
+                            id_doctype: id_doctype,
+                        },
+                        "id"
+                    );
+                }
+                const { rows: flow_submit } = await client.query(
+                    queFlow,
+                    valFlow
+                );
+                // create on_submit afterwards
+                if (f.on_submit) {
                     for (const o of f.on_submit.data) {
                         let method_onsub = "update";
                         let payload_on_submit = {
@@ -219,6 +295,8 @@ ApprovalModel.CreateApprovalFlow = async ({
                             group_cond: o.group_cond,
                             condition: o.condition,
                             next_index: o.next_index,
+                            on_submit_email: o.on_submit_email,
+                            on_submit_target: o.on_submit_target,
                         };
                         const { rows: onsub_chk } = await client.query(
                             `select id from approval_onsubmit where group_cond = $1
@@ -251,46 +329,6 @@ ApprovalModel.CreateApprovalFlow = async ({
                         await client.query(queOnsub, valOnsub);
                     }
                 }
-                let payload = {
-                    index_approval: f.index_approval,
-                    emp_role_id: f.id_role,
-                    bu_id: f.bu_id,
-                    dept_id: f.dept_id,
-                    on_submit: id_on_submit,
-                    reject_action: f.reject_action,
-                    reject_next_index: f.reject_next_index,
-                    default_next_index: f.default_next_index,
-                    disabled_input: f.disabled_input,
-                    enabled_input: f.enabled_input,
-                    id_doctype: id_doctype,
-                };
-                let queFlow, valFlow;
-                if (method_flow == "insert") {
-                    payload = {
-                        ...payload,
-                        id: uuid.uuid(),
-                    };
-
-                    [queFlow, valFlow] = Crud.insertItem(
-                        "approval_steps",
-                        payload,
-                        "id"
-                    );
-                } else {
-                    [queFlow, valFlow] = Crud.updateItem(
-                        "approval_steps",
-                        payload,
-                        {
-                            index_approval: f.index_approval,
-                            id_doctype: id_doctype,
-                        },
-                        "id"
-                    );
-                }
-                const { rows: flow_submit } = await client.query(
-                    queFlow,
-                    valFlow
-                );
                 approval_steps.push(flow_submit[0].id);
             }
             await client.query(TRANS.COMMIT);
@@ -340,7 +378,8 @@ ApprovalModel.ProcessApproval = async (
     current_step,
     ticket_id,
     email_type,
-    misc
+    misc,
+    session
 ) => {
     if (!client) {
         throw new Error("Provide client");
@@ -361,9 +400,14 @@ ApprovalModel.ProcessApproval = async (
             await client.query(insVal, insQue);
         }
         // throw new Error("test");
-        const up_payload = {
+        let up_payload = {
             approval_pos: next_step.index_approval,
+            updated_by: session.user_id,
+            reject_by: null,
         };
+        if ((current_step.emp_role_id = "MDM")) {
+            up_payload.mdm_id = session.user_id;
+        }
         const [upVal, upQue] = Crud.updateItem(
             "ticket",
             up_payload,
@@ -375,10 +419,28 @@ ApprovalModel.ProcessApproval = async (
         let { rows: up_ticket } = await client.query(upVal, upQue);
         let { rows: data_vendor } = await client.query(
             `
-            select name_1, v.ven_type, mc."name" as company  from vendor v 
-            left join ticket t on v.ven_id = t.ven_id
-            left join mst_company mc on mc.comp_id = v.company
-            where t.token = $1
+            select
+                name_1,
+                v.ven_type,
+                mc."name" as company,
+                concat(cmv.class_desc,
+                ' (',
+                cmv.class_code,
+                ')') as ven_class,
+                case 
+                    when tr.bu_id = 'CG' then 'CG'
+                    else 'NON_CG'
+                end as bu_type
+            from
+                vendor v
+            left join ticket t on
+                v.ven_id = t.ven_id
+            left join ticket_rule tr on tr.doctype = t.approval_type 
+            left join cg_mst_venclass cmv on
+                cmv.class_code = v.ven_class
+            left join mst_company mc on
+                mc.comp_id = v.company
+                        where t.token = $1
             `,
             [ticket_id]
         );
@@ -389,6 +451,18 @@ ApprovalModel.ProcessApproval = async (
             email_config = {
                 to: next_step.email,
                 cc: current_step.email,
+            };
+        }
+        if (next_step.cc_email) {
+            let temp_cc = [];
+            let current_cc = email_config?.cc;
+            if (current_cc) {
+                temp_cc.push(email_config.cc);
+            }
+            temp_cc.push(next_step.cc_email);
+            email_config = {
+                ...email_config,
+                cc: temp_cc.join(","),
             };
         }
         await EmailModel.ProcessEmailGen(
@@ -408,10 +482,16 @@ ApprovalModel.ProcessApproval = async (
     }
 };
 
-ApprovalModel.EndApproval = async (client, ticket_id) => {
+ApprovalModel.EndApproval = async (client, ticket_id, user_id) => {
     try {
+        const ApprovalTrack = new ApprovalTracker(client, ticket_id);
+        await ApprovalTrack.init();
+        let vendor_code;
+        let vendor_name;
         const up_payload = {
             approval_pos: "END",
+            is_active: false,
+            updated_by: user_id,
         };
         const [upVal, upQue] = Crud.updateItem(
             "ticket",
@@ -438,43 +518,75 @@ ApprovalModel.EndApproval = async (client, ticket_id) => {
                 end
             as local_ovs,
             t.ticket_id as ticket_num,
-            v.ven_id
+            v.ven_id,
+            tr.bu_id,
+            v.ven_code,
+            v.email_pic
             from vendor v
             left join ticket t on v.ven_id = t.ven_id
+            left join ticket_rule tr on tr.doctype = t.approval_type
             where t.token = $1
              `,
             [ticket_id]
         );
+        vendor_code = data_vendor[0].ven_code;
+        vendor_name = data_vendor[0].name_1;
+        const first_step = ApprovalTrack.getApprovalStep("0");
+        let to = first_step.email;
+        if (first_step.emp_role_id == "VENDOR") {
+            to = data_vendor[0].email_pic;
+        }
+        let cc = ApprovalTrack.getEmailLastSteps();
+        let additionalcc = ApprovalTrack.current_step.cc_email;
+        cc.push(additionalcc);
+        let config = {
+            to,
+            cc: cc.join(","),
+        };
+        // console.log(config);
+        // throw new Error("error");
         const ven_detail = data_vendor[0];
-        const { rows: verificator } = await client.query(`
-            select
-                string_agg(email, ',') as email
-            from
-                mst_mgr mm
-            left join (
+        if (data_vendor[0].bu_id != "CG") {
+            const { rows: verificator } = await client.query(`
                 select
-                    distinct user_group_id,
-                    user_group_name
+                    string_agg(email, ',') as email
                 from
-                    mst_page_access mp) mpa on
-                mm.user_group = mpa.user_group_id
-            where
-                mpa.user_group_name = 'VERIFIC'
-
-            `);
-        const link = `${hostname[0].hostname}/dashboard/vendorverif`;
-        await Emailer.RequestVerificator(
-            {
-                title: ven_detail.title,
-                local_ovs: ven_detail.local_ovs,
-                ven_name: ven_detail.name_1,
-            },
-            link,
-            verificator[0].email
-        );
-        await Vendor.UploadStaging(ven_detail.ven_id, client);
+                    mst_mgr mm
+                left join (
+                    select
+                        distinct user_group_id,
+                        user_group_name
+                    from
+                        mst_page_access mp) mpa on
+                    mm.user_group = mpa.user_group_id
+                where
+                    mpa.user_group_name = 'VERIFIC'
+    
+                `);
+            const link = `${hostname[0].hostname}/dashboard/vendorverif`;
+            await Emailer.RequestVerificator(
+                {
+                    title: ven_detail.title,
+                    local_ovs: ven_detail.local_ovs,
+                    ven_name: ven_detail.name_1,
+                },
+                link,
+                verificator[0].email
+            );
+            await Vendor.UploadStaging(ven_detail.ven_id, client);
+        } else {
+            const result = await CGApi.SubmitToTiptop(
+                client,
+                ven_detail.ven_id,
+                user_id
+            );
+            vendor_code = result.ven_code;
+            vendor_name = result.name;
+        }
+        //email confirm selesai
+        await EmailModel.EndTicket(vendor_name, vendor_code, config);
         return {
-            message: `Ticket ${ven_detail.ticket_num} is updated`,
+            message: `Ticket ${ven_detail.ticket_num} is Done`,
             ...ven_detail,
         };
     } catch (error) {
@@ -482,8 +594,11 @@ ApprovalModel.EndApproval = async (client, ticket_id) => {
     }
 };
 
-ApprovalModel.RejectApproval = async (client, ticket_id, remarks, user_id) => {
+ApprovalModel.RejectApproval = async (client, ticket_id, remarks, session) => {
     try {
+        const today = moment().toISOString();
+        // console.log(today);
+        // throw new Error("test");
         const ApprovalTrack = new ApprovalTracker(client, ticket_id);
         await ApprovalTrack.init();
         if (!ApprovalTrack.checkIsApproverAllowed(session)) {
@@ -491,14 +606,18 @@ ApprovalModel.RejectApproval = async (client, ticket_id, remarks, user_id) => {
         }
         const current_step = ApprovalTrack.current_step;
         const on_reject_action = current_step.reject_action;
+        let next_step;
+        let next_index;
         switch (on_reject_action) {
             case "deact":
                 const payload_deact = {
                     is_active: false,
+                    remarks: remarks,
+                    reject_by: session.user_id,
                 };
                 const [deactQue, deactVal] = Crud.updateItem(
                     "ticket",
-                    payload,
+                    payload_deact,
                     {
                         token: ticket_id,
                     }
@@ -506,13 +625,53 @@ ApprovalModel.RejectApproval = async (client, ticket_id, remarks, user_id) => {
                 await client.query(deactQue, deactVal);
                 break;
             case "move":
-                const next_index = current_step.reject_next_index.toString();
+                next_index = current_step.reject_next_index.toString();
                 const payload_move = {
                     approval_pos: next_index,
+                    reject_by: current_step.emp_role_id,
                     remarks: remarks,
                 };
+                const [moveQue, moveVal] = Crud.updateItem(
+                    "ticket",
+                    payload_move,
+                    {
+                        token: ticket_id,
+                    }
+                );
+                await client.query(moveQue, moveVal);
+                next_step = ApprovalTrack.getApprovalStep(next_index);
+                if (next_step.emp_role_id == "VENDOR") {
+                    await ApprovalModel.extendTicket(client, ticket_id, 3);
+                }
+                break;
         }
-    } catch (error) {}
+        const [qins, valins] = Crud.insertItem(
+            "log_rejection",
+            {
+                ticket_id: ticket_id,
+                create_at: today,
+                remarks: remarks,
+                create_by: session.user_id,
+                ticket_state: current_step.emp_role_id,
+            },
+            "ticket_id"
+        );
+        await client.query(qins, valins);
+        const ven_detail = ApprovalTrack.ticket;
+        let config_email = {
+            to:
+                next_step && next_step.email
+                    ? next_step.email
+                    : ven_detail.email,
+            cc: current_step.email,
+        };
+        await EmailModel.RejectTicket(ven_detail, remarks, config_email);
+        return {
+            message: `Ticket ${ven_detail.ticket_num} is rejected`,
+        };
+    } catch (error) {
+        throw error;
+    }
 };
 
 /**
@@ -527,7 +686,7 @@ ApprovalModel.CreateTokenApprovalLink = async (
     ticket_id
 ) => {
     try {
-        const is_wo_auth = next_step.wo_auth;
+        const is_wo_auth = next_step?.wo_auth;
         if (!is_wo_auth) {
             return {};
         }
@@ -575,10 +734,10 @@ ApprovalModel.GetNextIndexApproval = async (data, ticket_id, client) => {
                 current_index.toString()
             );
             let on_sub_cond = current_step?.on_submit_condition;
+            next_index = current_step.default_next_index;
+            submit_email = current_step.def_submit_email;
+            email_target = current_step.def_submit_email_target;
             if (!on_sub_cond) {
-                next_index = current_step.default_next_index;
-                submit_email = current_step.def_submit_email;
-                email_target = current_step.def_submit_email_target;
                 skip = await ApprovalModel.CheckNextIsOTA(
                     next_index,
                     ticket_id,

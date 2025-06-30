@@ -61,6 +61,134 @@ const Ticket = {
             client.release();
         }
     },
+    async ShowAllv2({ bu_id, dept_id, emp_role_id, q, is_active, user_id }) {
+        try {
+            const client = await db.connect();
+            try {
+                let where_val = [];
+                let where_que_arr = [];
+                let where_que = "";
+                let idx = 1;
+                const { rows: res_allowed_ttype } = await client.query(
+                    `
+                    select id_doctype, emp_role_id, dept_id, bu_id, allow_read_all 
+                    from approval_steps
+                    where emp_role_id = $1 and dept_id = $2 and bu_id = $3
+                    `,
+                    [emp_role_id, dept_id, bu_id]
+                );
+                let where_ttype_arr = [];
+                if (res_allowed_ttype.length < 1 && emp_role_id != "ADMIN") {
+                    return { data: [] };
+                } else if (emp_role_id != "ADMIN") {
+                    for (const dt of res_allowed_ttype) {
+                        if (dt.allow_read_all || is_active == "false") {
+                            where_ttype_arr.push(`(approval_type = $${idx})`);
+                            where_val.push(dt.id_doctype);
+                            idx++;
+                        } else {
+                            where_ttype_arr.push(
+                                `(approval_type like $${idx} and as2.emp_role_id = $${
+                                    idx + 1
+                                } and as2.dept_id = $${
+                                    idx + 2
+                                } and as2.bu_id = $${idx + 3})`
+                            );
+                            where_val.push(`${dt.id_doctype}`);
+                            where_val.push(emp_role_id);
+                            where_val.push(dept_id);
+                            where_val.push(bu_id);
+                            idx += 4;
+                        }
+                    }
+                    where_que_arr.push(`(${where_ttype_arr.join(" or ")})`);
+                }
+                if (emp_role_id == "STAFF" && is_active) {
+                    where_que_arr.push(`proc_id = $${idx}`);
+                    where_val.push(user_id);
+                    idx++;
+                }
+                if (q) {
+                    where_que_arr.push(
+                        `t.ticket_id like $${idx} or v.ven_code like $${idx} or v.name_1 like $${idx}`
+                    );
+                    where_val.push(`%${q}%`);
+                    idx++;
+                }
+                if (is_active) {
+                    where_que_arr.push(`t.is_active = $${idx}`);
+                    where_val.push(is_active);
+                    idx++;
+                }
+                if (where_que_arr.length > 0) {
+                    where_que = where_que_arr.join(" and ");
+                }
+                let que = `
+                SELECT T.token,
+                        T.is_active, 
+                        T.ticket_id, 
+                        T.created_at,
+                        case 
+                            when UP.fullname is not null then UP.fullname
+                            else MG.fullname 
+                            end
+                         as updated_by,
+                        T.updated_at,
+                        V.NAME_1,
+                        V.VEN_CODE,
+                        UR.EMAIL,
+                        T.VALID_UNTIL,
+                        CASE WHEN T.REJECT_BY IS NOT NULL THEN 'REJECT'
+                        when T.reject_by is null and t.approval_pos <> 'END' then 'ON PROCESS'
+                        when T.reject_by is null and t.approval_pos = 'END' then 'DONE'
+                        else ''
+                        end as STATUS,
+                        T.reject_by,
+                        tr.doctype,
+                        case
+                            when t.approval_pos = 'END' then 'END'
+                            else concat(mer.role_name, ' ', md.dept_name)
+                        end
+                        as CURRENT_POSITION,
+                        as2.emp_role_id as cur_pos,
+                        as2.dept_id as dept_id_ticket,
+                        as2.bu_id,
+                        tr.dept_id,
+                        CASE 
+                            WHEN T.VALID_UNTIL < NOW() THEN true
+                            ELSE false 
+                        END AS IS_EXPIRED,
+                        t.approval_pos
+                    FROM TICKET T
+                    LEFT JOIN VENDOR V ON V.VEN_ID = T.VEN_ID
+                    LEFT JOIN MST_USER UP ON T.updated_by = UP.user_id
+                    LEFT JOIN MST_MGR MG ON T.updated_by = MG.mgr_id
+                    LEFT JOIN MST_USER UR ON UR.USER_ID = T.PROC_ID 
+                    left join approval_steps as2 on as2.index_approval = t.approval_pos and as2.id_doctype = t.approval_type
+                    left join mst_emp_role mer on mer.role_code = as2.emp_role_id
+                    left join mst_department md on md.dept_code = as2.dept_id
+                    left join ticket_rule tr on tr.doctype = t.approval_type
+                    where t.is_close is null and ${where_que}
+                    ORDER BY T.UPDATED_AT DESC, T.CREATED_AT DESC, T.TICKET_ID desc
+                `;
+                const { rows: results_data, rowCount } = await client.query(
+                    que,
+                    where_val
+                );
+                return {
+                    data: results_data,
+                    count: rowCount,
+                };
+            } catch (error) {
+                throw error;
+            } finally {
+                client.release();
+            }
+        } catch (error) {
+            throw error;
+        }
+    },
+
     async headerTicket({ tnum: ticket_num }) {
         const client = await db.connect();
         try {
@@ -159,7 +287,6 @@ const Ticket = {
             const client = await db.connect();
             const { emp_role_id, dept_id, bu_id } = session;
             const { type_ticket } = params;
-            console.log(emp_role_id, dept_id, bu_id);
             try {
                 let headerTicket = "";
                 switch (type_ticket) {
@@ -176,6 +303,11 @@ const Ticket = {
                     emp_role_id = $1 and bu_id = $2 and dept_id = $3 and type_ticket = $4`,
                     [emp_role_id, bu_id, dept_id, type_ticket]
                 );
+                if (doctype.length < 1) {
+                    throw new Error(
+                        "No doctype for this role exist, please contact administrator"
+                    );
+                }
                 const dtype = doctype[0].doctype;
                 const today = new Date();
                 const until = new Date();
@@ -206,7 +338,7 @@ const Ticket = {
                     proc_id: session.user_id,
                     valid_until: until,
                     cur_pos: null,
-                    ticket_type: doctype[0].doctype,
+                    approval_type: doctype[0].doctype,
                     approval_pos: "0",
                     is_active: true,
                     token: token,
@@ -224,6 +356,7 @@ const Ticket = {
                     token: result.rows[0].token,
                 };
             } catch (error) {
+                await client.query("ROLLBACK");
                 throw error;
             } finally {
                 client.release();
@@ -232,22 +365,66 @@ const Ticket = {
             throw error;
         }
     },
-    async getTicketById(ticket_num) {
+    async getTicketById(ticket_num, session) {
         const client = await db.connect();
         try {
-            const q = `SELECT T.ticket_id as ticket_num, T.token as ticket_id, T.cur_pos, T.ticket_state, T.remarks, coalesce(v.ven_id , t.ven_id) as ven_id, T.t_type as t_type, T.ticket_type as bunit,
-            T.reject_by as reject_by, t.is_active as ticket_stat, LR.counter , V.*, 
-            PROC.email as email_proc, PROC.role as dep_proc, MDM.email as email_mdm, MDM.role as dep_mdm, VHD.header 
-                            FROM TICKET T
-                            LEFT JOIN VENDOR V ON V.VEN_ID = T.VEN_ID
-                            LEFT JOIN MST_USER PROC ON PROC.USER_ID = T.PROC_ID
-                            LEFT JOIN MST_USER MDM ON MDM.USER_ID = T.MDM_ID
-                            LEFT JOIN VEN_CODE_HD VHD ON (V.local_ovs = VHD.local_ovs AND v.ven_group = vhd.ven_group AND v.ven_acc = vhd.ven_acc AND v.ven_type = vhd.ven_type )
-                            LEFT JOIN
-                            (SELECT ticket_id, count(remarks) as counter from log_rejection group by ticket_id) LR ON LR.ticket_id = T.token
-                            WHERE T.TOKEN = '${ticket_num}'
-                            ORDER BY T.CREATED_AT DESC`;
-            const item = await client.query(q);
+            const q = `select
+                            T.ticket_id as ticket_num,
+                            T.token as ticket_id,
+                            T.cur_pos,
+                            T.ticket_state,
+                            T.remarks,
+                            coalesce(v.ven_id ,
+                            t.ven_id) as ven_id,
+                            T.t_type as t_type,
+                            T.ticket_type as bunit,
+                            T.reject_by as reject_by,
+                            t.is_active as ticket_stat,
+                            t.approval_type,
+                            t.approval_pos,
+                            LR.counter ,
+                            V.*,
+                            PROC.email as email_proc,
+                            md.dept_name as dep_proc,
+                            MDM.email as email_mdm,
+                            MDM.role as dep_mdm,
+                            VHD.header,
+                            as2.disabled_input,
+                            as2.enabled_input,
+                            as2.emp_role_id,
+                            as2.dept_id,
+                            as2.bu_id,
+                            bu_ticket.bu_id as bu_ticket_type
+                        from
+                            TICKET T
+                        left join VENDOR V on
+                            V.VEN_ID = T.VEN_ID
+                        left join MST_USER PROC on
+                            PROC.USER_ID = T.PROC_ID
+                        left join MST_USER MDM on
+                            MDM.USER_ID = T.MDM_ID
+                        left join VEN_CODE_HD VHD on
+                            (V.local_ovs = VHD.local_ovs
+                                and v.ven_group = vhd.ven_group
+                                and v.ven_acc = vhd.ven_acc
+                                and v.ven_type = vhd.ven_type )
+                        left join                      (
+                            select
+                                ticket_id,
+                                count(remarks) as counter
+                            from
+                                log_rejection
+                            group by
+                                ticket_id) LR on
+                            LR.ticket_id = T.token
+                        left join approval_steps as2 on t.approval_type = as2.id_doctype and t.approval_pos = as2.index_approval
+                        left join mst_department md on md.dept_code = proc.dept_id 
+                        left join ticket_rule bu_ticket on t.approval_type = bu_ticket.doctype 
+                        where
+                            T.TOKEN = $1
+                        order by
+                            T.CREATED_AT desc`;
+            const item = await client.query(q, [ticket_num]);
             return item.rows[0];
         } catch (err) {
             console.error(err.stack);
@@ -568,16 +745,31 @@ const Ticket = {
         try {
             const client = await db.connect();
             try {
+                await client.query(TRANS.BEGIN);
                 const ApprovalTrack = new ApprovalTracker(client, ticket_id);
                 await ApprovalTrack.init();
-                if (!ApprovalTrack.checkIsApproverAllowed(session)) {
-                    throw new Error("User is not allowed");
+                console.log(ApprovalTrack.current_step);
+                if (ApprovalTrack.current_step.index_approval == "END") {
+                    throw new Error("Ticket already end, cannot be processed");
                 }
+                const result = await ApprovalModel.RejectApproval(
+                    client,
+                    ticket_id,
+                    remarks,
+                    session
+                );
+                // throw new Error("test");
+                await client.query(TRANS.COMMIT);
+                return result;
             } catch (error) {
+                await client.query(TRANS.ROLLBACK);
+                throw error;
             } finally {
                 client.release();
             }
-        } catch (error) {}
+        } catch (error) {
+            throw error;
+        }
     },
 
     async ticketTarget(ticket_id) {
@@ -666,20 +858,30 @@ const Ticket = {
             let cc_emailCREA = [dataTrg.mgr_pr_email];
             if (!is_draft && ticket_state === "CREA") {
                 if (cur_pos === "PROC") {
-                    await client.query(TRANS.COMMIT);
-                    await Emailer.toRequest(
+                    Emailer.toRequest(
                         ven_detail.ticket_num,
                         dataTrg.proc_fname,
                         ven_detail.name_1,
                         ven_detail.ven_group,
                         ven_detail.ven_acc,
                         ven_detail.company,
-                        dataTrg.proc_email
+                        dataTrg.proc_email,
+                        client
                     );
                     if (ticket_type === "UPS") {
-                        await Emailer.toMGRPRC(ven_detail, ticket_id, "MGRPRC");
+                        await Emailer.toMGRPRC(
+                            ven_detail,
+                            ticket_id,
+                            "MGRPRC",
+                            client
+                        );
                     } else {
-                        await Emailer.toMGRPRC(ven_detail, ticket_id, "MGRDWS");
+                        await Emailer.toMGRPRC(
+                            ven_detail,
+                            ticket_id,
+                            "MGRDWS",
+                            client
+                        );
                     }
                 } else if (cur_pos === "MGRPRC") {
                     if (
@@ -701,7 +903,8 @@ const Ticket = {
                             ven_detail.name_1,
                             ven_detail.company,
                             ticket_id,
-                            state
+                            state,
+                            client
                         );
                     } else {
                         await Emailer.toMDM(
@@ -709,11 +912,17 @@ const Ticket = {
                             ticket_id,
                             ven_detail.ticket_num,
                             ven_detail.title,
-                            ven_detail.local_ovs
+                            ven_detail.local_ovs,
+                            client
                         );
                     }
                 } else if (cur_pos === "MGRDWS") {
-                    await Emailer.toMGRPRC(ven_detail, ticket_id, "MGRPRCDWS");
+                    await Emailer.toMGRPRC(
+                        ven_detail,
+                        ticket_id,
+                        "MGRPRCDWS",
+                        client
+                    );
                 } else if (cur_pos === "MGRPRCDWS") {
                     if (
                         ven_detail.is_tender === true ||
@@ -734,7 +943,8 @@ const Ticket = {
                             ven_detail.name_1,
                             ven_detail.company,
                             ticket_id,
-                            state
+                            state,
+                            client
                         );
                     } else {
                         await Emailer.toMDM(
@@ -742,7 +952,8 @@ const Ticket = {
                             ticket_id,
                             ven_detail.ticket_num,
                             ven_detail.title,
-                            ven_detail.local_ovs
+                            ven_detail.local_ovs,
+                            client
                         );
                     }
                 }
@@ -753,7 +964,6 @@ const Ticket = {
                 ) {
                     throw new Error("Inputted Vendor Code is not allowed");
                 }
-                await client.query(TRANS.COMMIT);
                 const { rows: hostname } = await client.query(
                     `
                     select hostname from hostname where mode_env = $1
@@ -801,7 +1011,7 @@ const Ticket = {
                 // //Email vendor ke orang pajak
                 // await Emailer.NotifPajak(ven_detail);
             } else if (!is_draft && ticket_state === "INIT") {
-                await Emailer.newRequest(
+                Emailer.newRequest(
                     ven_detail.title,
                     ven_detail.local_ovs,
                     ven_detail.name_1,
@@ -821,7 +1031,14 @@ const Ticket = {
         }
     },
 
-    async submitVendorv2({ ticket_id, session, ven_detail }) {
+    async submitVendorv2({
+        ticket_id,
+        session,
+        ven_detail,
+        ven_banks,
+        ven_files,
+        is_draft,
+    }) {
         try {
             const client = await db.connect();
             let result;
@@ -834,6 +1051,7 @@ const Ticket = {
                 const currentApprovalStep = ApprovalTrack.getCurrentStep();
                 if (Object.keys(session).length < 1) {
                     sess = {
+                        user_id: "",
                         emp_role_id: "VENDOR",
                         bu_id: "",
                         dept_id: "",
@@ -844,59 +1062,76 @@ const Ticket = {
                     throw new Error("User not allowed to process");
                 }
 
-                // //set detail vendor
-                // await Vendor.setDetailVen(ven_detail, client);
+                //set detail vendor
+                await Vendor.setDetailVen(ven_detail, client);
 
-                // //set bank vendor
-                // await Vendor.setBankRfctr(ven_banks, client, ven_detail.ven_id);
+                //set bank vendor
+                await Vendor.setBankRfctr(ven_banks, client, ven_detail.ven_id);
 
-                // //set file vendor
-                // if (is_draft === false) {
-                //     await Vendor.setFileRfctr(
-                //         ven_detail.ven_id,
-                //         ven_files,
-                //         client
-                //     );
-                // }
-
+                //set file vendor
+                if (is_draft == false) {
+                    const result_upfile = await Vendor.setFileRfctr(
+                        ven_detail.ven_id,
+                        ven_files,
+                        client
+                    );
+                    // console.log(result_upfile);
+                }
                 //get updated vendor
                 const { rows: res_updated_vendor } = await client.query(
                     `
-                    select v.* from vendor v 
+                    select v.*, t.ticket_id as ticket_num, t.token as ticket_id from vendor v 
                     left join ticket t on v.ven_id = t.ven_id
                     where t.token = $1
                     `,
                     [ticket_id]
                 );
-                let next_ap = await ApprovalModel.GetNextIndexApproval(
-                    res_updated_vendor[0],
-                    ticket_id,
-                    client
-                );
-                let next_step = ApprovalTrack.getApprovalStep(
-                    next_ap.next_index
-                );
 
-                //if next_step is wo_auth, create token approval link
-                if (next_ap.next_index != "END") {
-                    misc = await ApprovalModel.CreateTokenApprovalLink(
-                        client,
-                        next_step,
-                        ticket_id
-                    );
-                }
-
-                if (next_ap.next_index == "END") {
-                    result = await ApprovalModel.EndApproval(client, ticket_id);
-                } else {
-                    result = await ApprovalModel.ProcessApproval(
-                        client,
-                        next_step,
-                        currentApprovalStep,
+                if (is_draft === false) {
+                    let next_ap = await ApprovalModel.GetNextIndexApproval(
+                        res_updated_vendor[0],
                         ticket_id,
-                        next_ap.submit_email,
-                        misc
+                        client
                     );
+                    let next_step = ApprovalTrack.getApprovalStep(
+                        next_ap.next_index
+                    );
+
+                    //if next_step is wo_auth, create token approval link
+                    if (next_ap.next_index != "END") {
+                        misc = await ApprovalModel.CreateTokenApprovalLink(
+                            client,
+                            next_step,
+                            ticket_id
+                        );
+                    }
+
+                    if (next_ap.next_index == "END") {
+                        result = await ApprovalModel.EndApproval(
+                            client,
+                            ticket_id,
+                            sess.user_id
+                        );
+                    } else {
+                        result = await ApprovalModel.ProcessApproval(
+                            client,
+                            next_step,
+                            currentApprovalStep,
+                            ticket_id,
+                            next_ap.submit_email,
+                            misc,
+                            sess
+                        );
+                    }
+                } else {
+                    const ven_detail = res_updated_vendor[0];
+                    result = {
+                        message: `Ticket ${ven_detail.ticket_num} draft is saved`,
+                        data: {
+                            name_1: ven_detail.name_1,
+                            title: ven_detail.title,
+                        },
+                    };
                 }
                 await client.query(TRANS.COMMIT);
                 return result;
@@ -929,6 +1164,9 @@ const Ticket = {
                 let emp_role_id = ApprovalTrack.current_step.emp_role_id;
                 let bu_id = ApprovalTrack.current_step.bu_id;
                 let dept_id = ApprovalTrack.current_step.dept_id;
+                if (!ApprovalTrack.ticket.is_active) {
+                    throw new Error("Ticket inactive");
+                }
                 if (
                     !(
                         emp_role_id == decoded.emp_role_id &&
@@ -938,6 +1176,18 @@ const Ticket = {
                 ) {
                     throw new Error("Forbidden");
                 }
+                const { rows: get_session_link } = await client.query(
+                    `
+                    select user_id from all_users where emp_role_id = $1 and dept_id = $2 and (bu_id = $3 or bu_id_1 = $3 or bu_id_2 = $3)                    
+                    `,
+                    [emp_role_id, dept_id, bu_id]
+                );
+                const sess = {
+                    user_id: get_session_link[0].user_id,
+                    emp_role_id: emp_role_id,
+                    dept_id: dept_id,
+                    bu_id: bu_id,
+                };
                 const { rows: res_updated_vendor } = await client.query(
                     `
                     select v.* from vendor v 
@@ -946,7 +1196,7 @@ const Ticket = {
                     `,
                     [decoded.ticket_id]
                 );
-                let next_ap = ApprovalModel.GetNextIndexApproval(
+                let next_ap = await ApprovalModel.GetNextIndexApproval(
                     res_updated_vendor[0],
                     decoded.ticket_id,
                     client
@@ -968,7 +1218,8 @@ const Ticket = {
                         currentApprovalStep,
                         decoded.ticket_id,
                         next_ap.submit_email,
-                        misc
+                        misc,
+                        sess
                     );
                 }
                 await client.query(TRANS.COMMIT);
@@ -976,6 +1227,103 @@ const Ticket = {
                 // await ApprovalTrack.init();
             } catch (error) {
                 await client.query(TRANS.ROLLBACK);
+                throw error;
+            } finally {
+                client.release();
+            }
+        } catch (error) {
+            throw error;
+        }
+    },
+
+    async renderRejectForm(token_appr) {
+        try {
+            const client = await db.connect();
+            try {
+                /**
+                 * @type {{emp_role_id : string, bu_id : string, dept_id : string, ticket_id : string}}
+                 */
+                const decoded = jwt.decode(token_appr, process.env.TOKEN_KEY);
+                const ApprovalTrack = new ApprovalTracker(
+                    client,
+                    decoded.ticket_id
+                );
+                await ApprovalTrack.init();
+                const current_step = ApprovalTrack.getCurrentStep();
+                const emp_role_id = current_step.emp_role_id;
+                const bu_id = current_step.bu_id;
+                const dept_id = current_step.dept_id;
+                if (!ApprovalTrack.ticket.is_active) {
+                    throw new Error("Ticket inactive");
+                }
+                if (
+                    decoded.dept_id != dept_id ||
+                    decoded.bu_id != bu_id ||
+                    decoded.emp_role_id != emp_role_id
+                ) {
+                    throw new Error("Ticket not valid");
+                }
+                const { rows: res_vendor_data } = await client.query(
+                    `
+                    select
+                        name_1 as name,
+                        v.ven_type as type,
+                        mc."name" as company,
+                        concat(cmv.class_desc,
+                        ' (',
+                        cmv.class_code,
+                        ')') as ven_class,
+                        case 
+                            when tr.bu_id = 'CG' then 'CG'
+                            else 'NON_CG'
+                        end as bu_type
+                    from
+                        vendor v
+                    left join ticket t on
+                        v.ven_id = t.ven_id
+                    left join ticket_rule tr on tr.doctype = t.approval_type 
+                    left join cg_mst_venclass cmv on
+                        cmv.class_code = v.ven_class
+                    left join mst_company mc on
+                        mc.comp_id = v.company
+                                where t.token = $1
+                    `,
+                    [decoded.ticket_id]
+                );
+                return res_vendor_data[0];
+            } catch (error) {
+                throw error;
+            } finally {
+                client.release();
+            }
+        } catch (error) {
+            throw error;
+        }
+    },
+
+    async getSessionApprbyLink(ticket_id) {
+        try {
+            const client = await db.connect();
+            try {
+                const ApprovalTrack = new ApprovalTracker(client, ticket_id);
+                await ApprovalTrack.init();
+                const current_step = ApprovalTrack.getCurrentStep();
+                const emp_role_id = current_step.emp_role_id;
+                const dept_id = current_step.dept_id;
+                const bu_id = current_step.bu_id;
+                const { rows: user_link } = await client.query(
+                    `
+                    select user_id from all_users where emp_role_id = $1 and bu_id = $2 and dept_id = $3
+                    `,
+                    [emp_role_id, bu_id, dept_id]
+                );
+                return {
+                    user_id: user_link[0].user_id,
+                    emp_role_id: emp_role_id,
+                    dept_id: dept_id,
+                    bu_id: bu_id,
+                };
+            } catch (error) {
                 throw error;
             } finally {
                 client.release();

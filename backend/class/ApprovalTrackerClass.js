@@ -29,10 +29,26 @@ const moment = require("moment");
  * @property {string} email
  * @property {boolean} is_onetime_appr
  * @property {boolean} wo_auth
+ * @property {string} cc_email
+ */
+
+/**
+ * @typedef {Object} ticket
+ * @property {string} ticket_id
+ * @property {string} ticket_num
+ * @property {string} ticket_type
+ * @property {string} approval_pos
+ * @property {string} name_1
+ * @property {string} local_overseas
+ * @property {string} title
+ * @property {string} email
  */
 
 class ApprovalTracker {
     ticket_id = "";
+    /**
+     * @type {ticket}
+     */
     ticket;
     doctype = "";
     /**
@@ -60,7 +76,17 @@ class ApprovalTracker {
                 let whereVal = [];
                 if (this.ticket_id) {
                     const { rows: ticket_data } = await client.query(
-                        `select * from all_tickets where ticket_id = $1`,
+                        `select
+                            v.*,
+                            t.ticket_type,
+                            t.approval_pos,
+                            t.is_active
+                        from
+                            all_tickets t
+                        left join vendor v on
+                            t.ven_id = v.ven_id
+                        where
+                            t.ticket_id = $1`,
                         [this.ticket_id]
                     );
                     this.ticket = ticket_data[0];
@@ -68,6 +94,7 @@ class ApprovalTracker {
                 } else {
                     whereVal.push(this.doctype);
                 }
+                whereVal.push(this.ticket_id);
                 const que = `
                 select
                     as2.id_doctype,
@@ -85,9 +112,13 @@ class ApprovalTracker {
                     as2.reject_action,
                     as2.reject_next_index,
                     as2.default_next_index,
-                    au.email,
+                     case
+                    	when as2.emp_role_id = 'STAFF' then mu.email
+                    	else au.email
+                    end as email,
                     as2.is_onetime_appr,
-                    as2.wo_auth
+                    as2.wo_auth,
+                    cc_email.email as cc_email
                 from
                     approval_steps as2
                 left join (
@@ -103,6 +134,8 @@ class ApprovalTracker {
                     select
                         emp_role_id,
                         bu_id,
+                        bu_id_1,
+                        bu_id_2,
                         dept_id,
                         string_agg(email,
                         ',') as email
@@ -111,15 +144,23 @@ class ApprovalTracker {
                     group by
                         emp_role_id,
                         bu_id,
+                        bu_id_1,
+                        bu_id_2,
                         dept_id) au on
                     au.emp_role_id = as2.emp_role_id
-                    and au.bu_id = as2.bu_id
+                    and (au.bu_id = as2.bu_id or au.bu_id_1 = as2.bu_id or au.bu_id_2 = as2.bu_id)
                     and au.dept_id = as2.dept_id
+                left join(
+                	select ac.approval_doctype, ac.approval_pos, ac.bu_id, ac.dept_id, ac.emp_role_id, string_agg(email, ',') as email from mst_user mu
+                	left join approval_cc ac on ac.bu_id = mu.bu_id and ac.dept_id = mu.dept_id and ac.emp_role_id = mu.emp_role_id
+                	group by ac.approval_pos, ac.approval_doctype, ac.bu_id, ac.dept_id, ac.emp_role_id
+                ) cc_email on as2.id_doctype = cc_email.approval_doctype and as2.index_approval = cc_email.approval_pos 
+                left join ticket t on t.approval_type = as2.id_doctype 
+                left join mst_user mu on mu.user_id = t.proc_id
                 where
-                    id_doctype = $1
+                    id_doctype = $1 and t.token = $2
                 order by
                     index_approval
-                    
                 `;
                 const { rows: approval_step_dt } = await client.query(
                     que,
@@ -130,8 +171,16 @@ class ApprovalTracker {
                 });
                 this.current_step = this.approval_step.get(0);
                 if (this.ticket) {
+                    let curr_step = this.approval_step.get(
+                        this.ticket.approval_pos
+                    );
+                    if (!curr_step) {
+                        curr_step = {
+                            index_approval: "END",
+                        };
+                    }
                     this.current_step = {
-                        ...this.approval_step.get(this.ticket.approval_pos),
+                        ...curr_step,
                         ticket_id: this.ticket_id,
                     };
                 }
@@ -165,6 +214,9 @@ class ApprovalTracker {
         let bu_id = this.current_step.bu_id;
         let dept_id = this.current_step.dept_id;
         let is_wo_auth = this.current_step.wo_auth;
+        if (session.emp_role_id == "ADMIN") {
+            return true;
+        }
         if (is_wo_auth) {
             return true;
         }
@@ -172,9 +224,10 @@ class ApprovalTracker {
             throw new Error("Please provide id user");
         }
         if (
-            session.emp_role_id == emp_role_id &&
-            session.bu_id == bu_id &&
-            session.dept_id == dept_id
+            (session.emp_role_id == emp_role_id &&
+                session.bu_id == bu_id &&
+                session.dept_id == dept_id) ||
+            emp_role_id == "VENDOR"
         ) {
             return true;
         }
@@ -186,11 +239,35 @@ class ApprovalTracker {
     }
 
     getApprovalStep(index) {
-        if (!index) {
+        if (index == undefined) {
             return this.approval_step;
         } else {
             return this.approval_step.get(index);
         }
+    }
+
+    getEmailFromSteps(indexfrom, indexto) {
+        const arr_steps = Object.fromEntries(this.approval_step);
+
+        let emails = [];
+        Object.values(arr_steps).map((value, index) => {
+            let reach_index = true;
+            if (indexto) {
+                if (indexto >= index) {
+                    reach_index = false;
+                }
+            }
+            if (index >= indexfrom && reach_index) {
+                emails.push(value.email);
+            }
+        });
+        return emails;
+    }
+
+    getEmailLastSteps() {
+        const arr_steps = Object.fromEntries(this.approval_step);
+        let last_item = Object.values(arr_steps).slice(-1)[0];
+        return [last_item];
     }
 }
 

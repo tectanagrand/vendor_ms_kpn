@@ -108,7 +108,6 @@ const Vendor = {
             const isExist = await client.query(
                 `SELECT * FROM VENDOR WHERE ven_id = '${detail.ven_id}'`
             );
-            let payloadEdit;
             const { rows: getStatusTicket } = await client.query(
                 `select reject_by, is_draft from ticket where ven_id = $1`,
                 [detail.ven_id]
@@ -190,6 +189,41 @@ const Vendor = {
             throw err;
         } finally {
             client.release();
+        }
+    },
+
+    async setTempv2({ fields, uploaded_files }) {
+        try {
+            const client = await db.connect();
+            try {
+                await client.query(TRANS.BEGIN);
+                let payload = {
+                    file_id: uuid.uuid(),
+                    ven_id: fields.ven_id[0],
+                    file_name: uploaded_files[0],
+                    file_type: fields.file_type[0],
+                    created_by: fields.created_by[0],
+                    desc_file: fields.desc_file[0],
+                };
+                if (fields.expired_date) {
+                    payload.expired_date = fields.expired_date[0];
+                }
+                const [queIns, valIns] = crud.insertItem(
+                    "temp_ven_file_atth",
+                    payload,
+                    "ven_id, file_id, file_name, desc_file, file_type, coalesce(to_char(expired_date, 'dd-mm-yyyy'), '') as expired_date,'temp_ven_file_atth' as source, 'insert' as method"
+                );
+                const { rows: result } = await client.query(queIns, valIns);
+                await client.query(TRANS.COMMIT);
+                return result[0];
+            } catch (error) {
+                await client.query(TRANS.ROLLBACK);
+                throw error;
+            } finally {
+                client.release();
+            }
+        } catch (error) {
+            throw error;
         }
     },
 
@@ -289,13 +323,58 @@ const Vendor = {
     async getFiles(ven_id) {
         const client = await db.connect();
         try {
-            const items =
-                await client.query(`select file_id as id, file_id, file_name, ty.file_type as desc_file, tmp.file_type, created_at, 'temp_ven_file_atth' as source from temp_ven_file_atth tmp
-                left join mst_file_type ty on ty.file_code = tmp.file_type
-                where ven_id = '${ven_id}' and tmp.file_type not in ('A001', 'A002') 
-            union select file_id as id, file_id, file_name,ty.file_type as desc_file, fl.file_type, created_at, 'ven_file_atth' as source from ven_file_atth fl
-            left join mst_file_type ty on ty.file_code = fl.file_type
-            where ven_id = '${ven_id}' and fl.file_type not in ('A001', 'A002')`);
+            const items = await client.query(
+                `select
+                file_id as id,
+                file_id,
+                file_name,
+                ty.file_type as desc_file,
+                tmp.file_type,
+                coalesce(to_char(tmp.expired_date,
+                'DD-MM-YYYY'),
+                '') as expired_date,
+                tmp.created_at,
+                'temp_ven_file_atth' as source
+            from
+                temp_ven_file_atth tmp
+            left join ticket t on
+                t.ven_id = tmp.ven_id
+            left join approval_steps as2 on
+                as2.id_doctype = t.approval_type
+                and as2.index_approval = '0'
+            left join mst_file_type ty on
+                ty.file_code = tmp.file_type
+                and as2.bu_id = ty.bu_id
+            where
+                tmp.ven_id = $1
+                and tmp.file_type not in ('A001', 'A002', 'A012')
+            union 
+                        select
+                file_id as id,
+                file_id,
+                file_name,
+                ty.file_type as desc_file,
+                fl.file_type,
+                coalesce(to_char(fl.expired_date,
+                'DD-MM-YYYY'),
+                '') as expired_date,
+                fl.created_at,
+                'ven_file_atth' as source
+            from
+                ven_file_atth fl
+            left join ticket t on
+                t.ven_id = fl.ven_id
+            left join approval_steps as2 on
+                as2.id_doctype = t.approval_type
+                and as2.index_approval = '0'
+            left join mst_file_type ty on
+                ty.file_code = fl.file_type
+                and as2.bu_id = ty.bu_id
+            where
+                fl.ven_id = $1
+                and fl.file_type not in ('A001', 'A002', 'A012')`,
+                [ven_id]
+            );
             // console.log(items);
             let result = {
                 count: items.rowCount,
@@ -312,8 +391,23 @@ const Vendor = {
         const client = await db.connect();
         try {
             const items = await client.query(
-                `SELECT distinct v.id as order_id, v.bankv_id as id, v.bank_id, v.bank_acc, v.acc_hold, v.acc_name, 
-                b.id as bank_id, b.bank_name, b.bank_code, b.bank_key, v.bank_curr, v.country, b.source,
+                `SELECT distinct v.id as order_id, v.bankv_id as id, v.bank_acc, v.acc_hold, v.acc_name, 
+                case
+                    when tr.bu_id = 'CG' then cgb.bank_code
+                    else cast(b.id as varchar)
+                    end as bank_id,
+                case
+                    when tr.bu_id = 'CG' then cgb.bank_code
+                    else b.bank_code
+                    end as bank_code,
+                case
+                    when tr.bu_id = 'CG' then cgb.bank_name
+                    else b.bank_name
+                    end as bank_name,
+               case
+                    when tr.bu_id = 'CG' then cgb.bank_code
+                    else b.bank_key
+                    end as bank_key,v.bank_curr, v.country, b.source, cgb.is_new,
                 case
                     when acl.file_type = 'A001' then acl.file_name
                     else ''
@@ -329,13 +423,26 @@ const Vendor = {
                     case
                     when pbk.file_type = 'A002' then pbk.file_id
                     else ''
-                    end as passbook_id
+                    end as passbook_id,
+                case
+                    when fgt.file_type = 'A012' then fgt.file_name
+                    else ''
+                    end as form_dgt,
+                case
+                    when pbk.file_type = 'A012' then fgt.file_id
+                    else ''
+                    end as form_dgt_id
                 FROM VEN_BANK V
-                LEFT JOIN MST_BANK_SAP B ON v.bank_id = b.id::varchar
+                LEFT JOIN ticket t on v.ven_id = t.ven_id
+                left join ticket_rule tr on tr.doctype = t.approval_type
+                left join cg_mst_bank cgb on cgb.bank_code = v.bank_id
+                LEFT JOIN MST_BANK_SAP B ON v.bank_id = cast(b.id as varchar)
                 LEFT JOIN ven_file_atth acl on acl.bank_id = v.bankv_id and acl.file_type = 'A001'
                 LEFT JOIN ven_file_atth pbk on pbk.bank_id = v.bankv_id and pbk.file_type = 'A002'
-                WHERE v.is_active = true and v.VEN_ID = '${ven_id}'
-                order by order_id asc`
+                LEFT JOIN ven_file_atth fgt on fgt.bank_id = v.bankv_id and fgt.file_type = 'A012'
+                WHERE v.is_active = true and v.VEN_ID = $1
+                order by order_id asc`,
+                [ven_id]
             );
             // console.log(items);
             let result = {
@@ -395,7 +502,7 @@ const Vendor = {
                     ven_id: ven_id,
                     bank_id: bank.bank_id,
                     bank_acc: bank.bank_acc,
-                    country: bank.bank_country,
+                    country: bank.bank_country ?? null,
                     bank_curr: bank.bank_curr,
                     acc_hold: bank.acc_hold,
                 };
@@ -527,12 +634,6 @@ const Vendor = {
         let promises = [];
         let files_id = [];
         let restfile = "";
-        for (let file of files) {
-            files_id.push(`'${file.file_id}'`);
-        }
-        if (files.length > 0) {
-            restfile = `and file_id not in (${files_id.join(", ")})`;
-        }
         getTempFiles = await client.query(
             `select 
                 file_id, 
@@ -542,14 +643,12 @@ const Vendor = {
                 created_at, 
                 created_by, 
                 desc_file,
+                expired_date,
                 'insert' as method 
                 from temp_ven_file_atth where ven_id = '${vendor_id}' ${restfile}`
         );
         tempFiles = getTempFiles.rows;
         let file_toUp = [...files, ...tempFiles];
-        if (files.length === 0) {
-            return client;
-        }
         try {
             for (let file of file_toUp) {
                 method = file.method;
@@ -561,7 +660,7 @@ const Vendor = {
                             ven_id = file.ven_id;
                         }
                         data = await client.query(
-                            `SELECT file_id, ven_id, file_name, file_type, created_at, created_by, desc_file FROM TEMP_VEN_FILE_ATTH WHERE file_id = '${file.file_id}'`
+                            `SELECT file_id, ven_id, file_name, file_type, created_at, created_by, desc_file, expired_date FROM TEMP_VEN_FILE_ATTH WHERE file_id = '${file.file_id}'`
                         );
                         if (data.rowCount === 0) {
                             break;
@@ -573,18 +672,14 @@ const Vendor = {
                         promises.push(client.query(q, val));
                         break;
                     case "delete":
-                        if (os.platform === "win32") {
-                            await fs.promises.unlink(
-                                path.join(path.resolve(), "backend\\public") +
-                                    "\\" +
-                                    file.file_name
-                            );
-                        } else {
+                        try {
                             await fs.promises.unlink(
                                 path.join(path.resolve(), "backend/public") +
                                     "/" +
                                     file.file_name
                             );
+                        } catch (error) {
+                            throw error;
                         }
                         q = crud.deleteItem(
                             "VEN_FILE_ATTH",
@@ -595,7 +690,9 @@ const Vendor = {
                         break;
                 }
             }
+            // console.log(promises);
             const promise = await Promise.all(promises);
+            // throw new Error("error");
             q = crud.deleteItem("TEMP_VEN_FILE_ATTH", "ven_id", ven_id);
             const deleteTemp = await client.query(q);
             return promise;
@@ -660,16 +757,16 @@ const Vendor = {
         }
     },
 
-    async CreateUserVendor(client, ven_id) {
+    async CreateUserVendor(client, ven_id, ven_code) {
         try {
             // const client = await db.connect();
             try {
                 // await client.query(TRANS.BEGIN);
                 const { rows: user_vendor } = await client.query(
                     `
-                    select user_id, username from a_uservendor where user_id = $1
+                    select user_id, username from a_uservendor where user_id = $1 or username = $2
                     `,
-                    [ven_id]
+                    [ven_id, ven_code]
                 );
                 if (user_vendor.length > 0) {
                     console.log(
@@ -763,58 +860,66 @@ const Vendor = {
             // IF APPROVED
             if (verified == 1) {
                 // await Vendor.UploadStaging(result.rows[0].ven_id, client);
-                // const rand = generate4Digit();
-                // const password = `Kpn#${rand}`;
-                // const hashed = await hashPassword(password);
-                // const refreshToken = jwt.sign(
-                //     { id: result.rows[0].ven_id },
-                //     process.env.TOKEN_KEY,
-                //     { expiresIn: "6h" }
-                // );
-                // const userPayload = {
-                //     user_id: result.rows[0].ven_id,
-                //     fullname: result.rows[0].name_1,
-                //     email: result.rows[0].email_pic,
-                //     password: hashed,
-                //     is_active: true,
-                //     username: result.rows[0].ven_code,
-                //     department: "VENDOR",
-                //     token: refreshToken,
-                //     group_id: "39bbc879-0e03-49d2-a16b-c19eecae313d",
-                //     user_group_id: "1",
-                // };
-                // if (!userPayload.email || !userPayload.username)
-                //     throw new Error("Bad Request");
-                // // console.log(password);
-                // // console.log(userPayload);
-                // const [insertQue, insertVal] = crud.insertItem(
-                //     "a_uservendor",
-                //     userPayload,
-                //     "user_id"
-                // );
-                // const insertRes = await client.query(insertQue, insertVal);
+                const rand = generate4Digit();
+                const password = `Kpn#2025`;
+                const hashed = await hashPassword(password);
+                const { rows: check_is_exist } = await client.query(
+                    `
+                    select * from a_uservendor where username = $1                    
+                    `,
+                    [result.rows[0].ven_code]
+                );
+                if (check_is_exist.length < 1) {
+                    const refreshToken = jwt.sign(
+                        { id: result.rows[0].ven_id },
+                        process.env.TOKEN_KEY,
+                        { expiresIn: "6h" }
+                    );
+                    const userPayload = {
+                        user_id: result.rows[0].ven_id,
+                        fullname: result.rows[0].name_1,
+                        email: result.rows[0].email_pic,
+                        password: hashed,
+                        is_active: true,
+                        username: result.rows[0].ven_code,
+                        department: "VENDOR",
+                        token: refreshToken,
+                        group_id: "39bbc879-0e03-49d2-a16b-c19eecae313d",
+                        user_group_id: "2",
+                    };
+                    if (!userPayload.email || !userPayload.username)
+                        throw new Error("Bad Request");
+                    // console.log(password);
+                    // console.log(userPayload);
+                    const [insertQue, insertVal] = crud.insertItem(
+                        "a_uservendor",
+                        userPayload,
+                        "user_id"
+                    );
+                    const insertRes = await client.query(insertQue, insertVal);
+                }
                 // console.log(insertRes);
                 // send approve email to proc
                 //Email vendor sudah complete
-                await Emailer.toApprove(
-                    result.rows[0].ven_code,
-                    result.rows[0].name_1,
-                    dataTrg.proc_email,
-                    [
-                        dataTrg.mgr_pr_email,
-                        dataTrg.mgr_md_email,
-                        dataTrg.mdm_email,
-                    ]
-                );
-                //Email vendor ke orang pajak
-                await Emailer.NotifPajak(result.rows[0]);
-                await Emailer.approvedVerif(
-                    result.rows[0].ven_code,
-                    result.rows[0].name_1,
-                    result.rows[0].ven_code,
-                    proc_email[0].email,
-                    password
-                );
+                // await Emailer.toApprove(
+                //     result.rows[0].ven_code,
+                //     result.rows[0].name_1,
+                //     dataTrg.proc_email,
+                //     [
+                //         dataTrg.mgr_pr_email,
+                //         dataTrg.mgr_md_email,
+                //         dataTrg.mdm_email,
+                //     ]
+                // );
+                // //Email vendor ke orang pajak
+                // await Emailer.NotifPajak(result.rows[0]);
+                // await Emailer.approvedVerif(
+                //     result.rows[0].ven_code,
+                //     result.rows[0].name_1,
+                //     result.rows[0].ven_code,
+                //     proc_email[0].email,
+                //     password
+                // );
             }
             // IF REJECTED
             else {
@@ -952,10 +1057,12 @@ const Vendor = {
                     and a002.file_type = 'A002'
                 left join vendor v on
                     v.ven_id = vb.ven_id
+                left join ticket t on t.ven_id = v.ven_id
+                left join approval_steps as2 on as2.id_doctype = t.approval_type and as2.index_approval = '0'
                 left join mst_bank_sap mbs on mbs.id = vb.bank_id::int
                 where
                     v.is_verif is null 
-                                    and (v.ven_code is not null and trim(v.ven_code) <> '') 
+                                    and (v.ven_code is not null and trim(v.ven_code) <> '') and as2.bu_id <> 'CG'                                    
                 order by vb.ven_id desc
                 `;
                 const { rows: banks } = await client.query(bankbq);
@@ -1520,7 +1627,8 @@ const Vendor = {
                         await oraclient.execute(upOra, valOra);
                         await Vendor.CreateUserVendor(
                             psqlclient,
-                            row[ColORA["VEN_ID"]]
+                            row[ColORA["VEN_ID"]],
+                            row[ColORA["VEN_CODE"]]
                         );
                         VenSuccess.push(row[ColORA["VEN_CODE"]]);
                     }
@@ -1639,8 +1747,9 @@ const Vendor = {
             telf: 9,
             fax: 10,
             email: 11,
-            npwp: 12,
-            pkp: 13,
+            pic: 12,
+            npwp: 13,
+            pkp: 14,
         };
         // const alr_exs = [
         //     "AT11000255",
@@ -1747,7 +1856,7 @@ const Vendor = {
                             let local_ovs = "";
                             let ven_acc = "";
                             let ven_grp = "";
-                            let pkp = null;
+                            let pkp = false;
                             let ven_id = uuid.uuid();
                             if (exs_ven_id) {
                                 ven_id = exs_ven_id;
@@ -1758,7 +1867,11 @@ const Vendor = {
                             ) {
                                 pkp = true;
                             }
-                            let ac_grp = data_ven[colxl.acc_grp].toUpperCase();
+                            let ac_grp_data_ven = data_ven[colxl.acc_grp];
+                            let ac_grp = "";
+                            if (ac_grp_data_ven) {
+                                ac_grp = ac_grp_data_ven.toUpperCase();
+                            }
                             switch (ac_grp) {
                                 case "V100":
                                     local_ovs = "LOCAL";
@@ -1806,7 +1919,7 @@ const Vendor = {
                                     ven_grp = "INTERCO";
                                     break;
                             }
-                            const vendor_data = {
+                            let vendor_data = {
                                 ven_id: ven_id,
                                 local_ovs: local_ovs,
                                 ven_acc: ven_acc,
@@ -1816,12 +1929,19 @@ const Vendor = {
                                 city: data_ven[colxl.city] || "",
                                 street: data_ven[colxl.street] || "",
                                 telf1: data_ven[colxl.telf] || "",
+                                postal: data_ven[colxl.no_id_addr] || "",
                                 fax: data_ven[colxl.fax] || "",
                                 email: data_ven[colxl.email] || "",
+                                nama_pic: data_ven[colxl.pic] || "",
                                 npwp: data_ven[colxl.npwp] || "",
                                 is_pkp: pkp,
                                 created_at: now,
                             };
+                            Object.keys(vendor_data).map(key => {
+                                if (key != "is_pkp" && !vendor_data[key]) {
+                                    delete vendor_data[key];
+                                }
+                            });
                             // if (data_ven[colxl.npwp]?.length > 28) {
                             //     console.log(data_ven);
                             //     console.log(data_ven[colxl.ven_code]);
@@ -1941,7 +2061,7 @@ const Vendor = {
                             // );
                             if (!is_alr_ex) {
                                 list_user.push({
-                                    name: data_ven[colxl.name],
+                                    name: data_ven[colxl.name] ?? "",
                                     username: data_ven[colxl.ven_code],
                                     password: password,
                                 });
@@ -1961,7 +2081,7 @@ const Vendor = {
                 });
                 await Promise.all(promises_ven);
                 //print result users
-                // console.log(list_user);
+                console.log(list_user);
                 // console.log(duplicate_ven);
                 for (
                     let i = tableStart;
@@ -1991,6 +2111,34 @@ const Vendor = {
                 }
                 await client.query(TRANS.COMMIT);
                 return exportwb;
+            } catch (error) {
+                await client.query(TRANS.ROLLBACK);
+                throw error;
+            } finally {
+                client.release();
+            }
+        } catch (error) {
+            throw error;
+        }
+    },
+
+    async EditExpiryDateFile(file_id, date, source) {
+        try {
+            const client = await db.connect();
+            try {
+                await client.query(TRANS.BEGIN);
+                const payload = {
+                    expired_date: date,
+                };
+                const [upQue, upVal] = crud.updateItem(
+                    source,
+                    payload,
+                    { file_id: file_id },
+                    "file_name"
+                );
+                const { rows: result } = await client.query(upQue, upVal);
+                await client.query(TRANS.COMMIT);
+                return result[0];
             } catch (error) {
                 await client.query(TRANS.ROLLBACK);
                 throw error;

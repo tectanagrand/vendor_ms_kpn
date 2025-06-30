@@ -23,6 +23,7 @@ const whitelist = [
     "http://localhost:3000",
     "https://localhost:3000",
     "https://localhost:4173",
+    "https://4c59-49-156-20-130.ngrok-free.app",
 ];
 const servOption = {
     cert: fs.readFileSync("./ssl/cert.pem"),
