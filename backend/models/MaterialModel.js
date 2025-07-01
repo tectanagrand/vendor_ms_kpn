@@ -1777,6 +1777,136 @@ const Material = {
             throw error;
         }
     },
+
+    // Export materials to Excel (filtered by group/subgroup)
+    exportMaterialsToExcel: async (groupId, subGroupId) => {
+        try {
+            return await DBClientWrapper(async client => {
+                let query = `
+                    SELECT
+                        m.code,
+                        m.name,
+                        m.description,
+                        m.long_text,
+                        mig.code as group_code,
+                        mig.name as group_name,
+                        mis.code as subgroup_code,
+                        mis.name as subgroup_name,
+                        m.alias1,
+                        m.alias2,
+                        m.alias3,
+                        m.created_at,
+                        m.updated_at
+                    FROM mat_sap_data m
+                    JOIN mat_item_sub_group mis ON m.material_sub_group_id = mis.id
+                    JOIN mat_item_group mig ON mis.item_group_id = mig.id
+                `;
+                const params = [];
+                let where = [];
+                let groupCode = null;
+                let subGroupCode = null;
+                if (subGroupId) {
+                    where.push("mis.id = $" + (params.length + 1));
+                    params.push(subGroupId);
+                    // Fetch subgroup code and its parent group code
+                    const subRes = await client.query(
+                        "SELECT code, item_group_id FROM mat_item_sub_group WHERE id = $1",
+                        [subGroupId]
+                    );
+                    if (subRes.rows.length > 0) {
+                        subGroupCode = subRes.rows[0].code;
+                        const groupIdFromSub = subRes.rows[0].item_group_id;
+                        if (groupIdFromSub) {
+                            const groupRes = await client.query(
+                                "SELECT code FROM mat_item_group WHERE id = $1",
+                                [groupIdFromSub]
+                            );
+                            if (groupRes.rows.length > 0)
+                                groupCode = groupRes.rows[0].code;
+                        }
+                    }
+                } else if (groupId) {
+                    where.push("mig.id = $" + (params.length + 1));
+                    params.push(groupId);
+                    // Fetch group code
+                    const groupRes = await client.query(
+                        "SELECT code FROM mat_item_group WHERE id = $1",
+                        [groupId]
+                    );
+                    if (groupRes.rows.length > 0)
+                        groupCode = groupRes.rows[0].code;
+                }
+                if (where.length > 0) {
+                    query += " WHERE " + where.join(" AND ");
+                }
+                query += " ORDER BY m.code ASC, m.name ASC";
+                const result = await client.query(query, params);
+                // Prepare data for Excel
+                const materialsData = result.rows.map(row => {
+                    let desc =
+                        row.description && row.long_text
+                            ? `${row.description} - ${row.long_text}`
+                            : row.description || row.long_text || "";
+                    // Remove carriage returns and newlines
+                    desc = desc.replace(/\r\n|\r|\n/g, " ");
+                    return {
+                        Code: row.code,
+                        Name: row.name,
+                        Description: desc,
+                        "Group Code": row.group_code,
+                        "Group Name": row.group_name,
+                        "Subgroup Code": row.subgroup_code,
+                        "Subgroup Name": row.subgroup_name,
+                        "Alias 1": row.alias1,
+                        "Alias 2": row.alias2,
+                        "Alias 3": row.alias3,
+                        "Created At": row.created_at
+                            ? row.created_at
+                                  .toISOString()
+                                  .slice(0, 19)
+                                  .replace("T", " ")
+                            : "",
+                        "Updated At": row.updated_at
+                            ? row.updated_at
+                                  .toISOString()
+                                  .slice(0, 19)
+                                  .replace("T", " ")
+                            : "",
+                    };
+                });
+                const workbook = xlsx.utils.book_new();
+                const worksheet = xlsx.utils.json_to_sheet(materialsData);
+                const wscols = [
+                    { wch: 20 }, // Code
+                    { wch: 35 }, // Name
+                    { wch: 60 }, // Description
+                    { wch: 15 }, // Group Code
+                    { wch: 25 }, // Group Name
+                    { wch: 15 }, // Subgroup Code
+                    { wch: 25 }, // Subgroup Name
+                    { wch: 20 }, // Alias 1
+                    { wch: 20 }, // Alias 2
+                    { wch: 20 }, // Alias 3
+                    { wch: 22 }, // Created At
+                    { wch: 22 }, // Updated At
+                ];
+                worksheet["!cols"] = wscols;
+                const rowCount = materialsData.length + 1; // +1 for header
+                worksheet["!rows"] = Array.from({ length: rowCount }, () => ({
+                    hpt: 22,
+                }));
+                xlsx.utils.book_append_sheet(workbook, worksheet, "Materials");
+                const buffer = xlsx.write(workbook, {
+                    type: "buffer",
+                    bookType: "xlsx",
+                });
+                return { buffer, groupCode, subGroupCode };
+            });
+        } catch (error) {
+            console.error("Error exporting materials to Excel:", error);
+            throw error;
+        }
+    },
 };
 
 module.exports = Material;

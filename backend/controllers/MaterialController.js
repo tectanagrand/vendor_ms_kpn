@@ -3,6 +3,9 @@ const formidable = require("formidable");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const axios = require("axios");
+const pool = require("../config/connection");
+const saveToDatabase = require("../helper/sap_seeding");
 
 const MaterialController = {
     // Create a new material group
@@ -953,6 +956,198 @@ const MaterialController = {
             res.status(500).json({
                 success: false,
                 message: "Failed to fetch attachments by codes",
+                error: error.message,
+            });
+        }
+    },
+
+    // SAP Data Synchronization endpoint
+    syncSAPData: async (req, res) => {
+        try {
+            const { startDate, endDate, fieldName = "LAEDA" } = req.query;
+
+            // Validate required parameters
+            if (!startDate || !endDate) {
+                return res.status(400).json({
+                    success: false,
+                    message:
+                        "startDate and endDate query parameters are required (format: YYYYMMDD)",
+                });
+            }
+
+            // Validate fieldName
+            if (!["ERSDA", "LAEDA"].includes(fieldName)) {
+                return res.status(400).json({
+                    success: false,
+                    message:
+                        "fieldName must be either 'ERSDA' (creation date) or 'LAEDA' (update date)",
+                });
+            }
+
+            // Validate date format (should be YYYYMMDD)
+            const dateRegex = /^\d{8}$/;
+            if (!dateRegex.test(startDate) || !dateRegex.test(endDate)) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Dates must be in YYYYMMDD format",
+                });
+            }
+
+            console.log(
+                `Starting SAP sync: ${fieldName} from ${startDate} to ${endDate}`
+            );
+
+            // Configure axios instance with SAP credentials
+            const sapClient = axios.create({
+                headers: {
+                    Authorization: `Basic ${Buffer.from(
+                        "KPN-IT-CUST:Bebas-01"
+                    ).toString("base64")}`,
+                    "Content-Type": "application/json",
+                },
+                timeout: 30000,
+            });
+
+            // Fetch data from SAP
+            const SAP_URL = `http://erpdev-gm.gamasap.com:8000/sap/opu/odata/sap/ZMM_MATERIAL_MASTER_SRV/MATERIALSet?$filter=(${fieldName} gt '${startDate}')and(${fieldName} lt '${endDate}')&$format=json`;
+
+            const response = await sapClient.get(SAP_URL);
+            const results = response.data.d.results;
+
+            console.log(`Retrieved ${results.length} records from SAP`);
+
+            // Filter valid items (starting with 9)
+            const validItems = [];
+            let skippedNotStartsWith9 = 0;
+
+            for (const item of results) {
+                if (!item.MATNR.startsWith("9")) {
+                    skippedNotStartsWith9++;
+                    continue;
+                }
+                validItems.push(item);
+            }
+
+            console.log(
+                `Valid items: ${validItems.length}, Skipped: ${skippedNotStartsWith9}`
+            );
+
+            // Process database operations
+            const dbStats = {
+                inserted: 0,
+                updated: 0,
+                failed: 0,
+                total: validItems.length,
+            };
+
+            for (const item of validItems) {
+                const result = await saveToDatabase(item, pool);
+
+                if (result.success) {
+                    if (result.action === "inserted") {
+                        dbStats.inserted++;
+                    } else {
+                        dbStats.updated++;
+                    }
+                } else {
+                    dbStats.failed++;
+                    console.error(
+                        `Failed: ${result.materialId} - ${result.error}`
+                    );
+                }
+            }
+
+            const successRate = (
+                ((dbStats.inserted + dbStats.updated) / dbStats.total) *
+                100
+            ).toFixed(2);
+
+            res.status(200).json({
+                success: true,
+                message: "SAP data synchronization completed",
+                data: {
+                    sapRecords: results.length,
+                    validRecords: validItems.length,
+                    skippedNotStartsWith9,
+                    database: {
+                        inserted: dbStats.inserted,
+                        updated: dbStats.updated,
+                        failed: dbStats.failed,
+                        successRate: `${successRate}%`,
+                    },
+                    parameters: {
+                        fieldName,
+                        startDate,
+                        endDate,
+                    },
+                },
+            });
+        } catch (error) {
+            console.error("SAP sync error:", error);
+
+            let statusCode = 500;
+            let message = "Failed to sync SAP data";
+
+            if (error.code === "ECONNREFUSED" || error.code === "ENOTFOUND") {
+                statusCode = 503;
+                message = "SAP server is not accessible";
+            } else if (error.response && error.response.status) {
+                statusCode = error.response.status;
+                message = `SAP API error: ${error.response.statusText}`;
+            }
+
+            res.status(statusCode).json({
+                success: false,
+                message,
+                error: error.message,
+            });
+        }
+    },
+
+    // Export materials to Excel (filtered by group/subgroup)
+    exportMaterialsToExcel: async (req, res) => {
+        try {
+            const groupId = req.query.groupId || null;
+            const subGroupId = req.query.subGroupId || null;
+            const { buffer, groupCode, subGroupCode } =
+                await Material.exportMaterialsToExcel(groupId, subGroupId);
+
+            // Debug logging
+            console.log(
+                "[ExportExcel] groupId:",
+                groupId,
+                "subGroupId:",
+                subGroupId,
+                "groupCode:",
+                groupCode,
+                "subGroupCode:",
+                subGroupCode
+            );
+
+            let filename = "materials.xlsx";
+            if (groupCode && subGroupCode)
+                filename = `materials_group_${groupCode}_subgroup_${subGroupCode}.xlsx`;
+            else if (subGroupCode)
+                filename = `materials_subgroup_${subGroupCode}.xlsx`;
+            else if (groupCode) filename = `materials_group_${groupCode}.xlsx`;
+
+            console.log("[ExportExcel] Final filename:", filename);
+
+            res.setHeader(
+                "Content-Type",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            );
+            res.setHeader(
+                "Content-Disposition",
+                `attachment; filename=${filename}`
+            );
+            res.setHeader("Content-Length", buffer.length);
+            res.send(buffer);
+        } catch (error) {
+            console.error("Materials Excel export error:", error);
+            res.status(500).json({
+                success: false,
+                message: "Failed to export materials to Excel",
                 error: error.message,
             });
         }
