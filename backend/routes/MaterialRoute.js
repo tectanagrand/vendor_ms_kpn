@@ -96,9 +96,6 @@ router.get(
 // Search materials (query parameter: ?q=searchTerm)
 router.get("/search", MaterialController.searchMaterials);
 
-// Get material by ID with full details and attachments
-router.get("/:materialId", MaterialController.getMaterialById);
-
 // Get attachments by material ID
 router.get(
     "/:materialId/attachments",
@@ -138,5 +135,8 @@ router.get(
     AuthToken.authSession,
     MaterialController.exportMaterialsToExcel
 );
+
+// Get material by ID with full details and attachments
+router.get("/:materialId", MaterialController.getMaterialById);
 
 module.exports = router;
