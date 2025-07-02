@@ -16,6 +16,9 @@ const fs = require("fs");
 const db = require("./backend/config/connection");
 const VerifyLogin = require("./backend/middleware/VerifyLogin");
 const { SchedulerSyncStaged } = require("./backend/helper/Scheduler");
+const Material = require("./backend/models/MaterialModel");
+const cron = require("node-cron");
+const moment = require("moment-timezone");
 
 const whitelist = [
     "http://172.30.60.50:3000",
@@ -80,6 +83,39 @@ setInterval(
 // const server = http.createServer(servOption, app).listen(port, () => {
 //     console.log(`App running on ${port}`);
 // });
+
+// Schedule SAP sync every day at 6pm Asia/Jakarta time
+cron.schedule(
+    "* * * * *",
+    async () => {
+        // Calculate yesterday and today in Asia/Jakarta time, format YYYYMMDD
+        const yesterday = moment
+            .tz("Asia/Jakarta")
+            .subtract(1, "day")
+            .format("YYYYMMDD");
+        const today = moment.tz("Asia/Jakarta").format("YYYYMMDD");
+        console.log(
+            `[CRON] Running SAP sync for date range: ${yesterday} to ${today}`
+        );
+        // Run for LAEDA
+        const resultLAEDA = await Material.syncSAPDataJob({
+            startDate: yesterday,
+            endDate: today,
+            fieldName: "LAEDA",
+        });
+        console.log("[CRON] SAP sync result (LAEDA):", resultLAEDA);
+        // Run for ERSDA
+        const resultERSDA = await Material.syncSAPDataJob({
+            startDate: yesterday,
+            endDate: today,
+            fieldName: "ERSDA",
+        });
+        console.log("[CRON] SAP sync result (ERSDA):", resultERSDA);
+    },
+    {
+        timezone: "Asia/Jakarta",
+    }
+);
 
 const server = https
     .createServer(servOption, app)

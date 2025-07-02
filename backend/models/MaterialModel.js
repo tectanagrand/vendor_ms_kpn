@@ -6,6 +6,9 @@ const DBClientWrapper = require("../helper/DBClientWrapper.js");
 const getMimeType = require("../helper/mimetype.js");
 const xlsx = require("xlsx");
 const toTsQuery = require("../helper/tsQuery.js");
+const axios = require("axios");
+const pool = require("../config/connection");
+const saveToDatabase = require("../helper/sap_seeding");
 
 const Material = {
     // Create a new material group
@@ -1905,6 +1908,109 @@ const Material = {
         } catch (error) {
             console.error("Error exporting materials to Excel:", error);
             throw error;
+        }
+    },
+
+    // SAP Data Synchronization job (for cron/manual use)
+    syncSAPDataJob: async ({ startDate, endDate, fieldName = "LAEDA" }) => {
+        try {
+            // Validate required parameters
+            if (!startDate || !endDate) {
+                throw new Error(
+                    "startDate and endDate are required (format: YYYYMMDD)"
+                );
+            }
+            if (!["ERSDA", "LAEDA"].includes(fieldName)) {
+                throw new Error("fieldName must be either 'ERSDA' or 'LAEDA'");
+            }
+            const dateRegex = /^\d{8}$/;
+            if (!dateRegex.test(startDate) || !dateRegex.test(endDate)) {
+                throw new Error("Dates must be in YYYYMMDD format");
+            }
+            console.log(
+                `[SAP Sync] Starting: ${fieldName} from ${startDate} to ${endDate}`
+            );
+            // Configure axios instance with correct credentials
+            const sapClient = axios.create({
+                headers: {
+                    Authorization: `Basic ${Buffer.from(
+                        `${process.env.SAP_API_CREDENTIALS}`
+                    ).toString("base64")}`,
+                    "Content-Type": "application/json",
+                },
+                timeout: 30000,
+            });
+            // Fetch data from SAP
+            const SAP_URL = `http://erpdev-gm.gamasap.com:8000/sap/opu/odata/sap/ZMM_MATERIAL_MASTER_SRV/MATERIALSet?$filter=(${fieldName} gt '${startDate}')and(${fieldName} lt '${endDate}')&$format=json`;
+            const response = await sapClient.get(SAP_URL);
+            const results = response.data.d.results;
+            console.log(
+                `[SAP Sync] Retrieved ${results.length} records from SAP`
+            );
+            // Filter valid items (starting with 9)
+            const validItems = [];
+            let skippedNotStartsWith9 = 0;
+            for (const item of results) {
+                if (!item.MATNR.startsWith("9")) {
+                    skippedNotStartsWith9++;
+                    continue;
+                }
+                validItems.push(item);
+            }
+            console.log(
+                `[SAP Sync] Valid items: ${validItems.length}, Skipped: ${skippedNotStartsWith9}`
+            );
+            // Process database operations
+            const dbStats = {
+                inserted: 0,
+                updated: 0,
+                failed: 0,
+                total: validItems.length,
+            };
+            for (const item of validItems) {
+                const result = await saveToDatabase(item, pool);
+                if (result.success) {
+                    if (result.action === "inserted") {
+                        dbStats.inserted++;
+                    } else {
+                        dbStats.updated++;
+                    }
+                } else {
+                    dbStats.failed++;
+                    console.error(
+                        `[SAP Sync] Failed: ${result.materialId} - ${result.error}`
+                    );
+                }
+            }
+            const successRate = (
+                ((dbStats.inserted + dbStats.updated) / (dbStats.total || 1)) *
+                100
+            ).toFixed(2);
+            const summary = {
+                sapRecords: results.length,
+                validRecords: validItems.length,
+                skippedNotStartsWith9,
+                database: {
+                    inserted: dbStats.inserted,
+                    updated: dbStats.updated,
+                    failed: dbStats.failed,
+                    successRate: `${successRate}%`,
+                },
+                parameters: {
+                    fieldName,
+                    startDate,
+                    endDate,
+                },
+            };
+            console.log("[SAP Sync] Summary:", summary);
+            return {
+                success: true,
+                message: "SAP data synchronization completed",
+                data: summary,
+            };
+        } catch (error) {
+            console.error("[SAP Sync] Error:", error);
+            return { success: false, message: error.message, error };
         }
     },
 };
