@@ -86,7 +86,7 @@ setInterval(
 
 // Schedule SAP sync every day at 6pm Asia/Jakarta time
 cron.schedule(
-    "* * * * *",
+    "0 18 * * *",
     async () => {
         // Calculate yesterday and today in Asia/Jakarta time, format YYYYMMDD
         const yesterday = moment
