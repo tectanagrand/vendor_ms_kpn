@@ -1009,7 +1009,7 @@ const MaterialController = {
             });
 
             // Fetch data from SAP
-            const SAP_URL = `http://erpdev-gm.gamasap.com:8000/sap/opu/odata/sap/ZMM_MATERIAL_MASTER_SRV/MATERIALSet?$filter=(${fieldName} gt '${startDate}')and(${fieldName} lt '${endDate}')&$format=json`;
+            const SAP_URL = `http://${process.env.ODATADOM}:${process.env.ODATAPORT}/sap/opu/odata/sap/ZMM_MATERIAL_MASTER_SRV/MATERIALSet?$filter=(${fieldName} gt '${startDate}')and(${fieldName} lt '${endDate}')&$format=json`;
 
             const response = await sapClient.get(SAP_URL);
             const results = response.data.d.results;
