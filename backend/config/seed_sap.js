@@ -7,9 +7,9 @@ const updatedAt = "LAEDA";
 // Configure axios instance with common settings
 const sapClient = axios.create({
     headers: {
-        Authorization: `Basic ${Buffer.from("KPN-IT-CUST:Bebas-01").toString(
-            "base64"
-        )}`,
+        Authorization: `Basic ${Buffer.from(
+            `${process.env.SAP_USER}:${process.env.SAP_PWD}`
+        ).toString("base64")}`,
         "Content-Type": "application/json",
     },
     timeout: 30000, // 30 second timeout

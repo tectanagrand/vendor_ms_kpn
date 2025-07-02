@@ -1001,7 +1001,7 @@ const MaterialController = {
             const sapClient = axios.create({
                 headers: {
                     Authorization: `Basic ${Buffer.from(
-                        "KPN-IT-CUST:Bebas-01"
+                        `${process.env.SAP_USER}:${process.env.SAP_PWD}`
                     ).toString("base64")}`,
                     "Content-Type": "application/json",
                 },

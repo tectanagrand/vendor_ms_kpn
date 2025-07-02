@@ -86,7 +86,10 @@ const UserController = {
                 });
             }
             let cookies;
-            cookies = jwt.decode(token, { complete: true }).payload;
+            const result = jwt.verify(token, process.env.TOKEN_KEY, {
+                ignoreExpiration: true,
+            });
+            cookies = result;
             try {
                 let refToken_q = "";
                 if (cookies.role == "VENDOR") {

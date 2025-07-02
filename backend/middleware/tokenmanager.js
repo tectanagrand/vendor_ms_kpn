@@ -32,6 +32,7 @@ const TokenManager = {
                     status: 401,
                     message: "token required",
                 });
+                return;
             }
             const decode = jwt.verify(token, process.env.TOKEN_KEY);
             req.cookies = decode;
