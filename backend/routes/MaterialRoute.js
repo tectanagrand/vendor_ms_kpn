@@ -130,7 +130,7 @@ router.put(
 router.get("/file/:filename", MaterialController.serveFile);
 
 // SAP data synchronization endpoint
-router.post("/sync-sap", AuthToken.authSession, MaterialController.syncSAPData);
+router.get("/sync-sap", AuthToken.authSession, MaterialController.syncSAPData);
 
 // Export materials to Excel (filtered by group/subgroup)
 router.get(
