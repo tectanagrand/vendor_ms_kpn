@@ -155,7 +155,6 @@ const Material = {
                 const offset = (page - 1) * pageSize;
                 const searchPattern = searchQuery ? `%${searchQuery}%` : null;
                 const sortField = getCodeSortClause("mig.code", order);
-                console.log(order, "order");
 
                 // First get the total count with search filter if provided
                 const countQuery = searchPattern
@@ -455,14 +454,13 @@ const Material = {
         page = 1,
         pageSize = 10,
         searchQuery = "",
-        sort = "code",
+        sortField = "code",
         order = "asc"
     ) => {
         try {
             return await DBClientWrapper(async client => {
                 const offset = (page - 1) * pageSize;
                 const searchPattern = searchQuery ? `%${searchQuery}%` : null;
-                const sortField = getCodeSortClause("mis.code", order);
 
                 // Build the where clause based on whether we have a search query
                 let whereClause = "mis.item_group_id = $1";
@@ -508,7 +506,7 @@ const Material = {
                     FROM mat_item_sub_group mis
                     JOIN mat_item_group mig ON mis.item_group_id = mig.id
                     WHERE ${whereClause}
-                    ORDER BY ${sortField}
+                    ORDER BY ${sortField} ${order}
                     LIMIT $2 OFFSET $3
                 `,
                     params

@@ -440,11 +440,15 @@ const MaterialController = {
             const page = parseInt(req.query.page) || 1;
             const pageSize = parseInt(req.query.pageSize) || 10;
             const searchQuery = req.query.q || "";
+            const sort = req.query.sort || "code";
+            const order = req.query.order || "asc";
 
             const result = await Material.getMaterialGroups(
                 page,
                 pageSize,
-                searchQuery
+                searchQuery,
+                sort,
+                order
             );
             res.status(200).json({
                 success: true,
@@ -508,12 +512,16 @@ const MaterialController = {
             const page = parseInt(req.query.page) || 1;
             const pageSize = parseInt(req.query.pageSize) || 10;
             const searchQuery = req.query.q || "";
+            const sort = req.query.sort || "code";
+            const order = req.query.order || "asc";
 
             const result = await Material.getMaterialSubGroups(
                 groupId,
                 page,
                 pageSize,
-                searchQuery
+                searchQuery,
+                sort,
+                order
             );
             res.status(200).json({
                 success: true,
