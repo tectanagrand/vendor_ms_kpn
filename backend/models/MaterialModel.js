@@ -9,6 +9,7 @@ const toTsQuery = require("../helper/tsQuery.js");
 const axios = require("axios");
 const pool = require("../config/connection");
 const saveToDatabase = require("../helper/sap_seeding");
+const getCodeSortClause = require("../helper/sort.js");
 
 const Material = {
     // Create a new material group
@@ -142,11 +143,19 @@ const Material = {
     },
 
     // Get all material groups
-    getMaterialGroups: async (page, pageSize, searchQuery = "") => {
+    getMaterialGroups: async (
+        page,
+        pageSize,
+        searchQuery = "",
+        sort = "code",
+        order = "asc"
+    ) => {
         try {
             return await DBClientWrapper(async client => {
                 const offset = (page - 1) * pageSize;
                 const searchPattern = searchQuery ? `%${searchQuery}%` : null;
+                const sortField = getCodeSortClause("mig.code", order);
+                console.log(order, "order");
 
                 // First get the total count with search filter if provided
                 const countQuery = searchPattern
@@ -176,7 +185,7 @@ const Material = {
                             ) as materials_count
                         FROM mat_item_group mig
                         WHERE mig.code ILIKE $3 OR mig.name ILIKE $3
-                        ORDER BY mig.code
+                        ORDER BY ${sortField}
                         LIMIT $1 OFFSET $2
                     `
                     : `
@@ -192,7 +201,7 @@ const Material = {
                                 WHERE mis.item_group_id = mig.id
                             ) as materials_count
                         FROM mat_item_group mig
-                        ORDER BY mig.code
+                        ORDER BY ${sortField}
                         LIMIT $1 OFFSET $2
                     `;
 
@@ -217,16 +226,17 @@ const Material = {
     },
 
     // Get all material groups for dropdown (no pagination)
-    getAllMaterialGroups: async () => {
+    getAllMaterialGroups: async (sort = "code", order = "asc") => {
         try {
             return await DBClientWrapper(async client => {
+                const sortField = getCodeSortClause("code", order);
                 const result = await client.query(`
                     SELECT
                         id,
                         code,
                         name
                     FROM mat_item_group
-                    ORDER BY code
+                    ORDER BY ${sortField}
                 `);
 
                 return result.rows;
@@ -238,9 +248,10 @@ const Material = {
     },
 
     // Get all subgroups for a group for dropdown (no pagination)
-    getAllSubgroupsByGroup: async groupId => {
+    getAllSubgroupsByGroup: async (groupId, sort = "code", order = "asc") => {
         try {
             return await DBClientWrapper(async client => {
+                const sortField = getCodeSortClause("code", order);
                 const result = await client.query(
                     `
                     SELECT
@@ -250,7 +261,7 @@ const Material = {
                         item_group_id
                     FROM mat_item_sub_group
                     WHERE item_group_id = $1
-                    ORDER BY code
+                    ORDER BY ${sortField}
                 `,
                     [groupId]
                 );
@@ -443,12 +454,15 @@ const Material = {
         groupId,
         page = 1,
         pageSize = 10,
-        searchQuery = ""
+        searchQuery = "",
+        sort = "code",
+        order = "asc"
     ) => {
         try {
             return await DBClientWrapper(async client => {
                 const offset = (page - 1) * pageSize;
                 const searchPattern = searchQuery ? `%${searchQuery}%` : null;
+                const sortField = getCodeSortClause("mis.code", order);
 
                 // Build the where clause based on whether we have a search query
                 let whereClause = "mis.item_group_id = $1";
@@ -494,7 +508,7 @@ const Material = {
                     FROM mat_item_sub_group mis
                     JOIN mat_item_group mig ON mis.item_group_id = mig.id
                     WHERE ${whereClause}
-                    ORDER BY mis.code
+                    ORDER BY ${sortField}
                     LIMIT $2 OFFSET $3
                 `,
                     params
@@ -515,10 +529,17 @@ const Material = {
     },
 
     // Get materials by group ID
-    getMaterialsByGroup: async (groupId, page = 1, pageSize = 10) => {
+    getMaterialsByGroup: async (
+        groupId,
+        page = 1,
+        pageSize = 10,
+        sort = "code",
+        order = "asc"
+    ) => {
         try {
             return await DBClientWrapper(async client => {
                 const offset = (page - 1) * pageSize;
+                const sortField = getCodeSortClause("m.code", order);
 
                 // First get the total count
                 const countQuery = await client.query(
@@ -566,7 +587,7 @@ const Material = {
                     JOIN mat_item_sub_group mis ON m.material_sub_group_id = mis.id
                     JOIN mat_item_group mig ON mis.item_group_id = mig.id
                     WHERE mig.id = $1
-                    ORDER BY m.name
+                    ORDER BY ${sortField}
                     LIMIT $2 OFFSET $3
                     `,
                     [groupId, pageSize, offset]
@@ -626,12 +647,15 @@ const Material = {
         subGroupId,
         page = 1,
         pageSize = 10,
-        searchQuery = ""
+        searchQuery = "",
+        sort = "code",
+        order = "asc"
     ) => {
         try {
             return await DBClientWrapper(async client => {
                 const offset = (page - 1) * pageSize;
                 const searchPattern = searchQuery ? `%${searchQuery}%` : null;
+                const sortField = getCodeSortClause("m.code", order);
 
                 // Build where clause and params based on search query
                 let whereClause = "m.material_sub_group_id = $1";
@@ -732,7 +756,7 @@ const Material = {
                     JOIN mat_item_sub_group mis ON m.material_sub_group_id = mis.id
                     JOIN mat_item_group mig ON mis.item_group_id = mig.id
                     WHERE ${whereClause}
-                    ORDER BY m.name
+                    ORDER BY ${sortField}
                     LIMIT $2 OFFSET $3
                     `,
                     materialParams
@@ -803,40 +827,64 @@ const Material = {
         }
     },
 
-    // Improved search function with unified ranking logic and reusable attachment query
-    searchMaterials: async (searchTerm, page = 1, pageSize = 10) => {
+    searchMaterials: async (
+        searchTerm,
+        page = 1,
+        pageSize = 10,
+        sort = "code",
+        order = "asc"
+    ) => {
         try {
             return await DBClientWrapper(async client => {
                 const offset = (page - 1) * pageSize;
                 const safeSearchTerm = String(searchTerm || "").trim();
 
-                // Format to full-text search
-                const toTsQuery = input =>
-                    input
-                        .trim()
-                        .split(/\s+/)
-                        .map(word => `${word}:*`)
-                        .join(" & ");
+                // Split search term into words
+                const words =
+                    safeSearchTerm.length > 0
+                        ? safeSearchTerm.split(/\s+/).filter(Boolean)
+                        : [];
+                const isSearch = words.length > 0;
 
-                // Determine if search is active
-                const isSearch = safeSearchTerm.length > 0;
-                const tsQuery = toTsQuery(safeSearchTerm);
-                const ilikeExact = safeSearchTerm;
-                const ilikePartial = `%${safeSearchTerm}%`;
+                // Fields to search
+                const fields = [
+                    "m.name",
+                    "m.description",
+                    "m.long_text",
+                    "m.code",
+                    "m.alias1",
+                    "m.alias2",
+                    "m.alias3",
+                ];
 
                 let totalCount = 0;
                 let materialsQueryResult = [];
 
                 if (isSearch) {
+                    const language = "simple"; // or 'simple' if no stemming
+
+                    // Combine searchable fields into a tsvector
+                    const tsvector = `
+                        to_tsvector('${language}', coalesce(m.name, '') || ' ' ||
+                                                   coalesce(m.description, '') || ' ' ||
+                                                   coalesce(m.long_text, '') || ' ' ||
+                                                   coalesce(m.code, '') || ' ' ||
+                                                   coalesce(m.alias1, '') || ' ' ||
+                                                   coalesce(m.alias2, '') || ' ' ||
+                                                   coalesce(m.alias3, ''))`;
+
+                    const tsquery = `plainto_tsquery('${language}', $1)`;
+
+                    // Count total matches
                     const countRes = await client.query(
                         `SELECT COUNT(*) AS total
-                        FROM mat_sap_data m
-                        WHERE to_tsvector('english', COALESCE(m.name, '') || ' ' || COALESCE(m.description, '') || ' ' || COALESCE(m.long_text, '') || ' ' || COALESCE(m.alias1, '') || ' ' || COALESCE(m.alias2, '') || ' ' || COALESCE(m.alias3, '') || ' ' || COALESCE(m.code, '')) @@ to_tsquery('english', $1)
-                        OR m.code ILIKE $2`,
-                        [tsQuery, ilikePartial]
+                         FROM mat_sap_data m
+                         WHERE ${tsvector} @@ ${tsquery}`,
+                        [safeSearchTerm]
                     );
                     totalCount = parseInt(countRes.rows[0].total);
 
+                    // Main query with ranking
                     const result = await client.query(
                         `SELECT
                             m.id,
@@ -863,30 +911,19 @@ const Material = {
                             mis.name AS "subGroupName",
                             mig.code AS "groupCode",
                             mig.name AS "groupName",
-                            ts_rank_cd(
-                                setweight(to_tsvector(COALESCE(m.name, '')), 'A') ||
-                                setweight(to_tsvector(COALESCE(m.description, '')), 'B') ||
-                                setweight(to_tsvector(COALESCE(m.long_text, '')), 'C') ||
-                                setweight(to_tsvector(COALESCE(m.alias1, '')), 'D'),
-                                to_tsquery('english', $1)
-                            ) AS rank,
-                            CASE
-                                WHEN m.code ILIKE $2 THEN 1
-                                WHEN m.code ILIKE $3 THEN 2
-                                ELSE 3
-                            END AS code_match_rank
-                            FROM mat_sap_data m
-                            JOIN mat_item_sub_group mis ON m.material_sub_group_id = mis.id
-                            JOIN mat_item_group mig ON mis.item_group_id = mig.id
-                            WHERE to_tsvector('english', COALESCE(m.name, '') || ' ' || COALESCE(m.description, '') || ' ' || COALESCE(m.long_text, '') || ' ' || COALESCE(m.alias1, '') || ' ' || COALESCE(m.alias2, '') || ' ' || COALESCE(m.alias3, '') || ' ' || COALESCE(m.code, '')) @@ to_tsquery('english', $1)
-                            OR m.code ILIKE $2
-                            ORDER BY code_match_rank, rank DESC, m.name ASC
-                            LIMIT $4 OFFSET $5`,
-                        [tsQuery, ilikeExact, ilikePartial, pageSize, offset]
+                            ts_rank(${tsvector}, ${tsquery}) AS rank
+                        FROM mat_sap_data m
+                        JOIN mat_item_sub_group mis ON m.material_sub_group_id = mis.id
+                        JOIN mat_item_group mig ON mis.item_group_id = mig.id
+                        WHERE ${tsvector} @@ ${tsquery}
+                        ORDER BY rank DESC, m.name ASC
+                        LIMIT $2 OFFSET $3`,
+                        [safeSearchTerm, pageSize, offset]
                     );
 
                     materialsQueryResult = result.rows;
                 } else {
+                    const sortField = getCodeSortClause("m.code", order);
                     const countRes = await client.query(
                         `SELECT COUNT(*) AS total FROM mat_sap_data`
                     );
@@ -918,14 +955,13 @@ const Material = {
                             mis.name AS "subGroupName",
                             mig.code AS "groupCode",
                             mig.name AS "groupName"
-                            FROM mat_sap_data m
-                            JOIN mat_item_sub_group mis ON m.material_sub_group_id = mis.id
-                            JOIN mat_item_group mig ON mis.item_group_id = mig.id
-                            ORDER BY m.code ASC, m.name ASC
-                            LIMIT $1 OFFSET $2`,
+                        FROM mat_sap_data m
+                        JOIN mat_item_sub_group mis ON m.material_sub_group_id = mis.id
+                        JOIN mat_item_group mig ON mis.item_group_id = mig.id
+                        ORDER BY ${sortField}
+                        LIMIT $1 OFFSET $2`,
                         [pageSize, offset]
                     );
-
                     materialsQueryResult = result.rows;
                 }
 
