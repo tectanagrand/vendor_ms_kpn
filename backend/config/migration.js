@@ -11,7 +11,9 @@ const migration = async () => {
         "created_at" DATE NOT NULL,
         "updated_at" DATE NOT NULL,
         "created_by" VARCHAR(100),
-        "updated_by" VARCHAR(100)
+        "updated_by" VARCHAR(100),
+        "deleted_at" DATE,
+        "deleted_by" VARCHAR(100)
       );
     `);
 
@@ -26,6 +28,8 @@ const migration = async () => {
         "updated_at" DATE NOT NULL,
         "created_by" VARCHAR(100),
         "updated_by" VARCHAR(100),
+        "deleted_at" DATE,
+        "deleted_by" VARCHAR(100),
         UNIQUE(code, item_group_id)
       );
     `);

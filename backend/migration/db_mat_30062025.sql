@@ -6,6 +6,8 @@ CREATE TABLE public.mat_item_group (
 	updated_at date NOT NULL,
 	created_by varchar(100) NULL,
 	updated_by varchar(100) NULL,
+	deleted_at timestamp NULL,
+	deleted_by varchar(100) NULL,
 	CONSTRAINT mat_item_group_code_key UNIQUE (code),
 	CONSTRAINT mat_item_group_pkey PRIMARY KEY (id)
 );
@@ -25,6 +27,8 @@ CREATE TABLE public.mat_item_sub_group (
 	updated_at date NOT NULL,
 	created_by varchar(100) NULL,
 	updated_by varchar(100) NULL,
+	deleted_at timestamp NULL,
+	deleted_by varchar(100) NULL,
 	CONSTRAINT mat_item_sub_group_code_item_group_id_key UNIQUE (code, item_group_id),
 	CONSTRAINT mat_item_sub_group_pkey PRIMARY KEY (id)
 );
@@ -92,3 +96,13 @@ CREATE TABLE public.mat_attachment (
 -- public.mat_attachment foreign keys
 
 ALTER TABLE public.mat_attachment ADD CONSTRAINT mat_attachment_material_id_fkey FOREIGN KEY (material_id) REFERENCES public.mat_sap_data(id);
+
+-- Add deleted_at and deleted_by columns to mat_item_group
+ALTER TABLE public.mat_item_group
+ADD COLUMN deleted_at timestamp NULL,
+ADD COLUMN deleted_by varchar(100) NULL;
+
+-- Add deleted_at and deleted_by columns to mat_item_sub_group
+ALTER TABLE public.mat_item_sub_group
+ADD COLUMN deleted_at timestamp NULL,
+ADD COLUMN deleted_by varchar(100) NULL;

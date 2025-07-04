@@ -90,32 +90,38 @@ const MaterialController = {
         }
     },
 
-    // Delete a material group
+    // Delete a material group (soft delete)
     deleteMaterialGroup: async (req, res) => {
         try {
             const { groupId } = req.params;
-
-            const result = await Material.deleteMaterialGroup(groupId);
-
+            const deletedBy = req.cookies.user_id;
+            // Validation: check if group exists and is not already deleted
+            const groupCheck = await Material.getGroupById(groupId);
+            if (!groupCheck) {
+                throw new Error("Group not found");
+            }
+            if (groupCheck.deleted_at) {
+                throw new Error("Group is already deleted");
+            }
+            const result = await Material.deleteMaterialGroup(
+                groupId,
+                deletedBy
+            );
             res.status(200).json({
                 success: true,
-                message: "Material group deleted successfully",
+                message: "Material group soft deleted successfully (cascade)",
                 data: result,
             });
         } catch (error) {
             let statusCode = 500;
-            let message = "Failed to delete material group";
-
+            let message = "Failed to soft delete material group";
             if (error.message === "Group not found") {
                 statusCode = 404;
                 message = error.message;
-            } else if (
-                error.message === "Cannot delete group with existing subgroups"
-            ) {
+            } else if (error.message === "Group is already deleted") {
                 statusCode = 400;
                 message = error.message;
             }
-
             res.status(statusCode).json({
                 success: false,
                 message,
@@ -223,33 +229,39 @@ const MaterialController = {
         }
     },
 
-    // Delete a material subgroup
+    // Delete a material subgroup (soft delete)
     deleteMaterialSubGroup: async (req, res) => {
         try {
             const { subGroupId } = req.params;
-
-            const result = await Material.deleteMaterialSubGroup(subGroupId);
-
+            const deletedBy = req.cookies.user_id;
+            // Validation: check if subgroup exists and is not already deleted
+            const subGroupCheck = await Material.getSubGroupById(subGroupId);
+            if (!subGroupCheck) {
+                throw new Error("Subgroup not found");
+            }
+            if (subGroupCheck.deleted_at) {
+                throw new Error("Subgroup is already deleted");
+            }
+            const result = await Material.deleteMaterialSubGroup(
+                subGroupId,
+                deletedBy
+            );
             res.status(200).json({
                 success: true,
-                message: "Material subgroup deleted successfully",
+                message:
+                    "Material subgroup soft deleted successfully (cascade)",
                 data: result,
             });
         } catch (error) {
             let statusCode = 500;
-            let message = "Failed to delete material subgroup";
-
+            let message = "Failed to soft delete material subgroup";
             if (error.message === "Subgroup not found") {
                 statusCode = 404;
                 message = error.message;
-            } else if (
-                error.message ===
-                "Cannot delete subgroup with existing materials"
-            ) {
+            } else if (error.message === "Subgroup is already deleted") {
                 statusCode = 400;
                 message = error.message;
             }
-
             res.status(statusCode).json({
                 success: false,
                 message,
@@ -634,6 +646,36 @@ const MaterialController = {
             res.status(500).json({
                 success: false,
                 message: "Failed to search materials",
+                error: error.message,
+            });
+        }
+    },
+
+    // Search all materials (including deleted)
+    searchAllMaterials: async (req, res) => {
+        try {
+            const { q } = req.query;
+            const page = parseInt(req.query.page) || 1;
+            const pageSize = parseInt(req.query.pageSize) || 10;
+            const searchTerm = q ? q.trim() : "";
+            const result = await Material.searchAllMaterials(
+                searchTerm,
+                page,
+                pageSize
+            );
+            res.status(200).json({
+                success: true,
+                data: result.materials,
+                searchTerm: searchTerm,
+                count: result.materials.length,
+                pagination: result.pagination,
+                totalCount: result.pagination.totalCount,
+            });
+        } catch (error) {
+            console.error("Search all error:", error.message);
+            res.status(500).json({
+                success: false,
+                message: "Failed to search all materials",
                 error: error.message,
             });
         }
@@ -1040,6 +1082,42 @@ const MaterialController = {
             res.status(500).json({
                 success: false,
                 message: "Failed to export materials to Excel",
+                error: error.message,
+            });
+        }
+    },
+
+    // Soft delete a material (set dffromclient = true)
+    deleteMaterial: async (req, res) => {
+        try {
+            const { materialId } = req.params;
+            // Validation: check if material exists and is not already soft deleted
+            const material = await Material.getMaterialById(materialId);
+            if (!material) {
+                throw new Error("Material not found");
+            }
+            if (material.dfFromClient) {
+                throw new Error("Material is already deleted");
+            }
+            const result = await Material.deleteMaterial(materialId);
+            res.status(200).json({
+                success: true,
+                message: "Material soft deleted successfully",
+                data: result,
+            });
+        } catch (error) {
+            let statusCode = 500;
+            let message = "Failed to soft delete material";
+            if (error.message === "Material not found") {
+                statusCode = 404;
+                message = error.message;
+            } else if (error.message === "Material is already deleted") {
+                statusCode = 400;
+                message = error.message;
+            }
+            res.status(statusCode).json({
+                success: false,
+                message,
                 error: error.message,
             });
         }

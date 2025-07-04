@@ -96,48 +96,40 @@ const Material = {
         }
     },
 
-    // Delete material group
-    deleteMaterialGroup: async groupId => {
+    // Delete material group (soft delete with cascade, no validation)
+    deleteMaterialGroup: async (groupId, deletedBy) => {
         try {
             return await DBClientWrapper(async client => {
-                // Begin transaction
                 await client.query("BEGIN");
-
-                try {
-                    // Check if group has subgroups
-                    const subgroupsCheck = await client.query(
-                        "SELECT id FROM mat_item_sub_group WHERE item_group_id = $1 LIMIT 1",
-                        [groupId]
+                const now = new Date();
+                // 1. Soft delete the group
+                await client.query(
+                    "UPDATE mat_item_group SET deleted_at = $1, deleted_by = $2 WHERE id = $3 AND deleted_at IS NULL",
+                    [now, deletedBy, groupId]
+                );
+                // 2. Soft delete all subgroups under this group
+                await client.query(
+                    "UPDATE mat_item_sub_group SET deleted_at = $1, deleted_by = $2 WHERE item_group_id = $3 AND deleted_at IS NULL",
+                    [now, deletedBy, groupId]
+                );
+                // 3. Get all subgroups under this group (including already soft deleted)
+                const subgroupsRes = await client.query(
+                    "SELECT id FROM mat_item_sub_group WHERE item_group_id = $1",
+                    [groupId]
+                );
+                const subGroupIds = subgroupsRes.rows.map(row => row.id);
+                if (subGroupIds.length > 0) {
+                    // 4. Soft delete all materials under these subgroups
+                    await client.query(
+                        `UPDATE mat_sap_data SET dffromclient = true WHERE material_sub_group_id = ANY($1) AND (dffromclient IS NULL OR dffromclient = false)`,
+                        [subGroupIds]
                     );
-
-                    if (subgroupsCheck.rows.length > 0) {
-                        throw new Error(
-                            "Cannot delete group with existing subgroups"
-                        );
-                    }
-
-                    // Delete the group
-                    const result = await client.query(
-                        "DELETE FROM mat_item_group WHERE id = $1 RETURNING id",
-                        [groupId]
-                    );
-
-                    if (result.rows.length === 0) {
-                        throw new Error("Group not found");
-                    }
-
-                    // Commit transaction
-                    await client.query("COMMIT");
-
-                    return { id: groupId, deleted: true };
-                } catch (error) {
-                    // Rollback transaction on error
-                    await client.query("ROLLBACK");
-                    throw error;
                 }
+                await client.query("COMMIT");
+                return { id: groupId, deleted: true };
             });
         } catch (error) {
-            console.error("Error deleting material group:", error);
+            console.error("Error soft deleting material group:", error);
             throw error;
         }
     },
@@ -155,35 +147,31 @@ const Material = {
                 const offset = (page - 1) * pageSize;
                 const searchPattern = searchQuery ? `%${searchQuery}%` : null;
                 const sortField = getCodeSortClause("mig.code", order);
-
-                // First get the total count with search filter if provided
+                // Only non-deleted groups
                 const countQuery = searchPattern
                     ? await client.query(
-                          `SELECT COUNT(*) as total FROM mat_item_group WHERE code ILIKE $1 OR name ILIKE $1`,
+                          `SELECT COUNT(*) as total FROM mat_item_group WHERE deleted_at IS NULL AND (code ILIKE $1 OR name ILIKE $1)`,
                           [searchPattern]
                       )
                     : await client.query(
-                          `SELECT COUNT(*) as total FROM mat_item_group`
+                          `SELECT COUNT(*) as total FROM mat_item_group WHERE deleted_at IS NULL`
                       );
-
                 const totalCount = parseInt(countQuery.rows[0].total);
-
-                // Query with search filter if provided
                 const queryText = searchPattern
                     ? `
                         SELECT
                             mig.id,
                             mig.code,
                             mig.name,
-                            (SELECT COUNT(*) FROM mat_item_sub_group WHERE item_group_id = mig.id) as subgroups_count,
+                            (SELECT COUNT(*) FROM mat_item_sub_group WHERE item_group_id = mig.id AND deleted_at IS NULL) as subgroups_count,
                             (
                                 SELECT COUNT(*)
                                 FROM mat_sap_data m
                                 JOIN mat_item_sub_group mis ON m.material_sub_group_id = mis.id
-                                WHERE mis.item_group_id = mig.id
+                                WHERE mis.item_group_id = mig.id AND mis.deleted_at IS NULL AND (m.dffromclient IS NULL OR m.dffromclient = false)
                             ) as materials_count
                         FROM mat_item_group mig
-                        WHERE mig.code ILIKE $3 OR mig.name ILIKE $3
+                        WHERE mig.deleted_at IS NULL AND (mig.code ILIKE $3 OR mig.name ILIKE $3)
                         ORDER BY ${sortField}
                         LIMIT $1 OFFSET $2
                     `
@@ -192,24 +180,22 @@ const Material = {
                             mig.id,
                             mig.code,
                             mig.name,
-                            (SELECT COUNT(*) FROM mat_item_sub_group WHERE item_group_id = mig.id) as subgroups_count,
+                            (SELECT COUNT(*) FROM mat_item_sub_group WHERE item_group_id = mig.id AND deleted_at IS NULL) as subgroups_count,
                             (
                                 SELECT COUNT(*)
                                 FROM mat_sap_data m
                                 JOIN mat_item_sub_group mis ON m.material_sub_group_id = mis.id
-                                WHERE mis.item_group_id = mig.id
+                                WHERE mis.item_group_id = mig.id AND mis.deleted_at IS NULL AND (m.dffromclient IS NULL OR m.dffromclient = false)
                             ) as materials_count
                         FROM mat_item_group mig
+                        WHERE mig.deleted_at IS NULL
                         ORDER BY ${sortField}
                         LIMIT $1 OFFSET $2
                     `;
-
                 const queryParams = searchPattern
                     ? [pageSize, offset, searchPattern]
                     : [pageSize, offset];
-
                 const result = await client.query(queryText, queryParams);
-
                 return {
                     data: result.rows,
                     pagination: {
@@ -235,9 +221,9 @@ const Material = {
                         code,
                         name
                     FROM mat_item_group
+                    WHERE deleted_at IS NULL
                     ORDER BY ${sortField}
                 `);
-
                 return result.rows;
             });
         } catch (error) {
@@ -259,12 +245,11 @@ const Material = {
                         name,
                         item_group_id
                     FROM mat_item_sub_group
-                    WHERE item_group_id = $1
+                    WHERE item_group_id = $1 AND deleted_at IS NULL
                     ORDER BY ${sortField}
                 `,
                     [groupId]
                 );
-
                 return result.rows;
             });
         } catch (error) {
@@ -402,48 +387,27 @@ const Material = {
         }
     },
 
-    // Delete material subgroup
-    deleteMaterialSubGroup: async subGroupId => {
+    // Delete material subgroup (soft delete with cascade, no validation)
+    deleteMaterialSubGroup: async (subGroupId, deletedBy) => {
         try {
             return await DBClientWrapper(async client => {
-                // Begin transaction
                 await client.query("BEGIN");
-
-                try {
-                    // Check if subgroup has materials
-                    const materialsCheck = await client.query(
-                        "SELECT id FROM mat_sap_data WHERE material_sub_group_id = $1 LIMIT 1",
-                        [subGroupId]
-                    );
-
-                    if (materialsCheck.rows.length > 0) {
-                        throw new Error(
-                            "Cannot delete subgroup with existing materials"
-                        );
-                    }
-
-                    // Delete the subgroup
-                    const result = await client.query(
-                        "DELETE FROM mat_item_sub_group WHERE id = $1 RETURNING id",
-                        [subGroupId]
-                    );
-
-                    if (result.rows.length === 0) {
-                        throw new Error("Subgroup not found");
-                    }
-
-                    // Commit transaction
-                    await client.query("COMMIT");
-
-                    return { id: subGroupId, deleted: true };
-                } catch (error) {
-                    // Rollback transaction on error
-                    await client.query("ROLLBACK");
-                    throw error;
-                }
+                const now = new Date();
+                // 1. Soft delete the subgroup
+                await client.query(
+                    "UPDATE mat_item_sub_group SET deleted_at = $1, deleted_by = $2 WHERE id = $3 AND deleted_at IS NULL",
+                    [now, deletedBy, subGroupId]
+                );
+                // 2. Soft delete all materials under this subgroup
+                await client.query(
+                    `UPDATE mat_sap_data SET dffromclient = true WHERE material_sub_group_id = $1 AND (dffromclient IS NULL OR dffromclient = false)`,
+                    [subGroupId]
+                );
+                await client.query("COMMIT");
+                return { id: subGroupId, deleted: true };
             });
         } catch (error) {
-            console.error("Error deleting material subgroup:", error);
+            console.error("Error soft deleting material subgroup:", error);
             throw error;
         }
     },
@@ -827,30 +791,24 @@ const Material = {
         }
     },
 
-    // Improved search function with unified ranking logic and reusable attachment query
-    searchMaterials: async (searchTerm, page = 1, pageSize = 10) => {
+    // Search all materials (including deleted)
+    searchAllMaterials: async (searchTerm, page = 1, pageSize = 10) => {
         try {
             return await DBClientWrapper(async client => {
                 const offset = (page - 1) * pageSize;
                 const safeSearchTerm = String(searchTerm || "").trim();
-
-                // Format to full-text search
                 const toTsQuery = input =>
                     input
                         .trim()
                         .split(/\s+/)
                         .map(word => `${word}:*`)
                         .join(" & ");
-
-                // Determine if search is active
                 const isSearch = safeSearchTerm.length > 0;
                 const tsQuery = toTsQuery(safeSearchTerm);
                 const ilikeExact = safeSearchTerm;
                 const ilikePartial = `%${safeSearchTerm}%`;
-
                 let totalCount = 0;
                 let materialsQueryResult = [];
-
                 if (isSearch) {
                     const countRes = await client.query(
                         `SELECT COUNT(*) AS total
@@ -860,7 +818,6 @@ const Material = {
                         [tsQuery, ilikePartial]
                     );
                     totalCount = parseInt(countRes.rows[0].total);
-
                     const result = await client.query(
                         `SELECT
                             m.id,
@@ -900,23 +857,21 @@ const Material = {
                                 WHEN m.code ILIKE $3 THEN 2
                                 ELSE 3
                             END AS code_match_rank
-                            FROM mat_sap_data m
-                            JOIN mat_item_sub_group mis ON m.material_sub_group_id = mis.id
-                            JOIN mat_item_group mig ON mis.item_group_id = mig.id
-                            WHERE to_tsvector('english', COALESCE(m.name, '') || ' ' || COALESCE(m.description, '') || ' ' || COALESCE(m.long_text, '') || ' ' || COALESCE(m.alias1, '') || ' ' || COALESCE(m.alias2, '') || ' ' || COALESCE(m.alias3, '') || ' ' || COALESCE(m.code, '')) @@ to_tsquery('english', $1)
-                            OR m.code ILIKE $2
-                            ORDER BY code_match_rank, rank DESC, m.name ASC
-                            LIMIT $4 OFFSET $5`,
+                        FROM mat_sap_data m
+                        JOIN mat_item_sub_group mis ON m.material_sub_group_id = mis.id
+                        JOIN mat_item_group mig ON mis.item_group_id = mig.id
+                        WHERE to_tsvector('english', COALESCE(m.name, '') || ' ' || COALESCE(m.description, '') || ' ' || COALESCE(m.long_text, '') || ' ' || COALESCE(m.alias1, '') || ' ' || COALESCE(m.alias2, '') || ' ' || COALESCE(m.alias3, '') || ' ' || COALESCE(m.code, '')) @@ to_tsquery('english', $1)
+                        OR m.code ILIKE $2
+                        ORDER BY code_match_rank, rank DESC, m.name ASC
+                        LIMIT $4 OFFSET $5`,
                         [tsQuery, ilikeExact, ilikePartial, pageSize, offset]
                     );
-
                     materialsQueryResult = result.rows;
                 } else {
                     const countRes = await client.query(
                         `SELECT COUNT(*) AS total FROM mat_sap_data`
                     );
                     totalCount = parseInt(countRes.rows[0].total);
-
                     const result = await client.query(
                         `SELECT
                             m.id,
@@ -944,29 +899,171 @@ const Material = {
                             mis.name AS "subGroupName",
                             mig.code AS "groupCode",
                             mig.name AS "groupName"
-                            FROM mat_sap_data m
-                            JOIN mat_item_sub_group mis ON m.material_sub_group_id = mis.id
-                            JOIN mat_item_group mig ON mis.item_group_id = mig.id
-                            ORDER BY m.code ASC, m.name ASC
-                            LIMIT $1 OFFSET $2`,
+                        FROM mat_sap_data m
+                        JOIN mat_item_sub_group mis ON m.material_sub_group_id = mis.id
+                        JOIN mat_item_group mig ON mis.item_group_id = mig.id
+                        ORDER BY m.code ASC, m.name ASC
+                        LIMIT $1 OFFSET $2`,
                         [pageSize, offset]
                     );
-
                     materialsQueryResult = result.rows;
                 }
-
                 const materialIds = materialsQueryResult.map(m => m.id);
                 const attachmentsMap =
                     await Material.getAttachmentsByMaterialIds(
                         client,
                         materialIds
                     );
-
                 const finalMaterials = materialsQueryResult.map(material => ({
                     ...material,
                     attachments: attachmentsMap[material.id] || [],
                 }));
+                return {
+                    materials: finalMaterials,
+                    pagination: {
+                        page,
+                        pageSize,
+                        totalCount,
+                        totalPages: Math.ceil(totalCount / pageSize),
+                    },
+                };
+            });
+        } catch (error) {
+            console.error("Search all error:", error);
+            throw error;
+        }
+    },
 
+    // Update searchMaterials to only return non-deleted materials
+    searchMaterials: async (searchTerm, page = 1, pageSize = 10) => {
+        try {
+            return await DBClientWrapper(async client => {
+                const offset = (page - 1) * pageSize;
+                const safeSearchTerm = String(searchTerm || "").trim();
+                const toTsQuery = input =>
+                    input
+                        .trim()
+                        .split(/\s+/)
+                        .map(word => `${word}:*`)
+                        .join(" & ");
+                const isSearch = safeSearchTerm.length > 0;
+                const tsQuery = toTsQuery(safeSearchTerm);
+                const ilikeExact = safeSearchTerm;
+                const ilikePartial = `%${safeSearchTerm}%`;
+                let totalCount = 0;
+                let materialsQueryResult = [];
+                if (isSearch) {
+                    const countRes = await client.query(
+                        `SELECT COUNT(*) AS total
+                        FROM mat_sap_data m
+                        WHERE (dffromclient IS NULL OR dffromclient = false)
+                        AND (to_tsvector('english', COALESCE(m.name, '') || ' ' || COALESCE(m.description, '') || ' ' || COALESCE(m.long_text, '') || ' ' || COALESCE(m.alias1, '') || ' ' || COALESCE(m.alias2, '') || ' ' || COALESCE(m.alias3, '') || ' ' || COALESCE(m.code, '')) @@ to_tsquery('english', $1)
+                        OR m.code ILIKE $2)`,
+                        [tsQuery, ilikePartial]
+                    );
+                    totalCount = parseInt(countRes.rows[0].total);
+                    const result = await client.query(
+                        `SELECT
+                            m.id,
+                            m.code,
+                            m.name,
+                            m.description,
+                            m.long_text,
+                            CASE
+                                WHEN m.description IS NOT NULL AND m.long_text IS NOT NULL THEN CONCAT(m.description, ' - ', m.long_text)
+                                WHEN m.description IS NOT NULL THEN m.description
+                                WHEN m.long_text IS NOT NULL THEN m.long_text
+                                ELSE NULL
+                            END AS combined_description,
+                            m.alias1,
+                            m.alias2,
+                            m.alias3,
+                            m.filter_code_1,
+                            m.filter_code_2,
+                            m.material_sub_group_id,
+                            m.created_at,
+                            m.updated_at,
+                            m.dfFromClient,
+                            m.created_by,
+                            mis.code AS "subGroupCode",
+                            mis.name AS "subGroupName",
+                            mig.code AS "groupCode",
+                            mig.name AS "groupName",
+                            ts_rank_cd(
+                                setweight(to_tsvector(COALESCE(m.name, '')), 'A') ||
+                                setweight(to_tsvector(COALESCE(m.description, '')), 'B') ||
+                                setweight(to_tsvector(COALESCE(m.long_text, '')), 'C') ||
+                                setweight(to_tsvector(COALESCE(m.alias1, '')), 'D'),
+                                to_tsquery('english', $1)
+                            ) AS rank,
+                            CASE
+                                WHEN m.code ILIKE $2 THEN 1
+                                WHEN m.code ILIKE $3 THEN 2
+                                ELSE 3
+                            END AS code_match_rank
+                        FROM mat_sap_data m
+                        JOIN mat_item_sub_group mis ON m.material_sub_group_id = mis.id
+                        JOIN mat_item_group mig ON mis.item_group_id = mig.id
+                        WHERE (dffromclient IS NULL OR dffromclient = false)
+                        AND (to_tsvector('english', COALESCE(m.name, '') || ' ' || COALESCE(m.description, '') || ' ' || COALESCE(m.long_text, '') || ' ' || COALESCE(m.alias1, '') || ' ' || COALESCE(m.alias2, '') || ' ' || COALESCE(m.alias3, '') || ' ' || COALESCE(m.code, '')) @@ to_tsquery('english', $1)
+                        OR m.code ILIKE $2
+                        ORDER BY code_match_rank, rank DESC, m.name ASC
+                        LIMIT $4 OFFSET $5`,
+                        [tsQuery, ilikeExact, ilikePartial, pageSize, offset]
+                    );
+                    materialsQueryResult = result.rows;
+                } else {
+                    const countRes = await client.query(
+                        `SELECT COUNT(*) AS total FROM mat_sap_data WHERE dffromclient IS NULL OR dffromclient = false`
+                    );
+                    totalCount = parseInt(countRes.rows[0].total);
+                    const result = await client.query(
+                        `SELECT
+                            m.id,
+                            m.code,
+                            m.name,
+                            m.description,
+                            m.long_text,
+                            CASE
+                                WHEN m.description IS NOT NULL AND m.long_text IS NOT NULL THEN CONCAT(m.description, ' - ', m.long_text)
+                                WHEN m.description IS NOT NULL THEN m.description
+                                WHEN m.long_text IS NOT NULL THEN m.long_text
+                                ELSE NULL
+                            END AS combined_description,
+                            m.alias1,
+                            m.alias2,
+                            m.alias3,
+                            m.filter_code_1,
+                            m.filter_code_2,
+                            m.material_sub_group_id,
+                            m.created_at,
+                            m.updated_at,
+                            m.dfFromClient,
+                            m.created_by,
+                            mis.code AS "subGroupCode",
+                            mis.name AS "subGroupName",
+                            mig.code AS "groupCode",
+                            mig.name AS "groupName"
+                        FROM mat_sap_data m
+                        JOIN mat_item_sub_group mis ON m.material_sub_group_id = mis.id
+                        JOIN mat_item_group mig ON mis.item_group_id = mig.id
+                        WHERE dffromclient IS NULL OR dffromclient = false
+                        ORDER BY m.code ASC, m.name ASC
+                        LIMIT $1 OFFSET $2`,
+                        [pageSize, offset]
+                    );
+                    materialsQueryResult = result.rows;
+                }
+                const materialIds = materialsQueryResult.map(m => m.id);
+                const attachmentsMap =
+                    await Material.getAttachmentsByMaterialIds(
+                        client,
+                        materialIds
+                    );
+                const finalMaterials = materialsQueryResult.map(material => ({
+                    ...material,
+                    attachments: attachmentsMap[material.id] || [],
+                }));
                 return {
                     materials: finalMaterials,
                     pagination: {
@@ -2040,6 +2137,54 @@ const Material = {
         } catch (error) {
             console.error("[SAP Sync] Error:", error);
             return { success: false, message: error.message, error };
+        }
+    },
+
+    // Get group by ID (for validation)
+    getGroupById: async groupId => {
+        try {
+            return await DBClientWrapper(async client => {
+                const res = await client.query(
+                    "SELECT id, deleted_at FROM mat_item_group WHERE id = $1",
+                    [groupId]
+                );
+                return res.rows[0] || null;
+            });
+        } catch (error) {
+            console.error("Error fetching group by ID:", error);
+            throw error;
+        }
+    },
+
+    // Get subgroup by ID (for validation)
+    getSubGroupById: async subGroupId => {
+        try {
+            return await DBClientWrapper(async client => {
+                const res = await client.query(
+                    "SELECT id, deleted_at FROM mat_item_sub_group WHERE id = $1",
+                    [subGroupId]
+                );
+                return res.rows[0] || null;
+            });
+        } catch (error) {
+            console.error("Error fetching subgroup by ID:", error);
+            throw error;
+        }
+    },
+
+    // Soft delete a material (set dffromclient = true)
+    deleteMaterial: async materialId => {
+        try {
+            return await DBClientWrapper(async client => {
+                await client.query(
+                    "UPDATE mat_sap_data SET dffromclient = true WHERE id = $1 AND (dffromclient IS NULL OR dffromclient = false)",
+                    [materialId]
+                );
+                return { id: materialId, deleted: true };
+            });
+        } catch (error) {
+            console.error("Error soft deleting material:", error);
+            throw error;
         }
     },
 };
