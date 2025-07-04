@@ -9,6 +9,7 @@ const toTsQuery = require("../helper/tsQuery.js");
 const axios = require("axios");
 const pool = require("../config/connection");
 const saveToDatabase = require("../helper/sap_seeding");
+const getCodeSortClause = require("../helper/sort.js");
 
 const Material = {
     // Create a new material group
@@ -142,11 +143,18 @@ const Material = {
     },
 
     // Get all material groups
-    getMaterialGroups: async (page, pageSize, searchQuery = "") => {
+    getMaterialGroups: async (
+        page,
+        pageSize,
+        searchQuery = "",
+        sort = "code",
+        order = "asc"
+    ) => {
         try {
             return await DBClientWrapper(async client => {
                 const offset = (page - 1) * pageSize;
                 const searchPattern = searchQuery ? `%${searchQuery}%` : null;
+                const sortField = getCodeSortClause("mig.code", order);
 
                 // First get the total count with search filter if provided
                 const countQuery = searchPattern
@@ -176,7 +184,7 @@ const Material = {
                             ) as materials_count
                         FROM mat_item_group mig
                         WHERE mig.code ILIKE $3 OR mig.name ILIKE $3
-                        ORDER BY mig.code
+                        ORDER BY ${sortField}
                         LIMIT $1 OFFSET $2
                     `
                     : `
@@ -192,7 +200,7 @@ const Material = {
                                 WHERE mis.item_group_id = mig.id
                             ) as materials_count
                         FROM mat_item_group mig
-                        ORDER BY mig.code
+                        ORDER BY ${sortField}
                         LIMIT $1 OFFSET $2
                     `;
 
@@ -217,16 +225,17 @@ const Material = {
     },
 
     // Get all material groups for dropdown (no pagination)
-    getAllMaterialGroups: async () => {
+    getAllMaterialGroups: async (sort = "code", order = "asc") => {
         try {
             return await DBClientWrapper(async client => {
+                const sortField = getCodeSortClause("code", order);
                 const result = await client.query(`
                     SELECT
                         id,
                         code,
                         name
                     FROM mat_item_group
-                    ORDER BY code
+                    ORDER BY ${sortField}
                 `);
 
                 return result.rows;
@@ -238,9 +247,10 @@ const Material = {
     },
 
     // Get all subgroups for a group for dropdown (no pagination)
-    getAllSubgroupsByGroup: async groupId => {
+    getAllSubgroupsByGroup: async (groupId, sort = "code", order = "asc") => {
         try {
             return await DBClientWrapper(async client => {
+                const sortField = getCodeSortClause("code", order);
                 const result = await client.query(
                     `
                     SELECT
@@ -250,7 +260,7 @@ const Material = {
                         item_group_id
                     FROM mat_item_sub_group
                     WHERE item_group_id = $1
-                    ORDER BY code
+                    ORDER BY ${sortField}
                 `,
                     [groupId]
                 );
@@ -443,7 +453,9 @@ const Material = {
         groupId,
         page = 1,
         pageSize = 10,
-        searchQuery = ""
+        searchQuery = "",
+        sortField = "code",
+        order = "asc"
     ) => {
         try {
             return await DBClientWrapper(async client => {
@@ -494,7 +506,7 @@ const Material = {
                     FROM mat_item_sub_group mis
                     JOIN mat_item_group mig ON mis.item_group_id = mig.id
                     WHERE ${whereClause}
-                    ORDER BY mis.code
+                    ORDER BY ${sortField} ${order}
                     LIMIT $2 OFFSET $3
                 `,
                     params
@@ -515,10 +527,17 @@ const Material = {
     },
 
     // Get materials by group ID
-    getMaterialsByGroup: async (groupId, page = 1, pageSize = 10) => {
+    getMaterialsByGroup: async (
+        groupId,
+        page = 1,
+        pageSize = 10,
+        sort = "code",
+        order = "asc"
+    ) => {
         try {
             return await DBClientWrapper(async client => {
                 const offset = (page - 1) * pageSize;
+                const sortField = getCodeSortClause("m.code", order);
 
                 // First get the total count
                 const countQuery = await client.query(
@@ -557,6 +576,7 @@ const Material = {
                         m.filter_code_2,
                         m.created_at,
                         m.updated_at,
+                        m.created_by,
                         mis.code as "subGroupCode",
                         mis.name as "subGroupName",
                         mig.code as "groupCode",
@@ -566,7 +586,7 @@ const Material = {
                     JOIN mat_item_sub_group mis ON m.material_sub_group_id = mis.id
                     JOIN mat_item_group mig ON mis.item_group_id = mig.id
                     WHERE mig.id = $1
-                    ORDER BY m.name
+                    ORDER BY ${sortField}
                     LIMIT $2 OFFSET $3
                     `,
                     [groupId, pageSize, offset]
@@ -626,12 +646,15 @@ const Material = {
         subGroupId,
         page = 1,
         pageSize = 10,
-        searchQuery = ""
+        searchQuery = "",
+        sort = "code",
+        order = "asc"
     ) => {
         try {
             return await DBClientWrapper(async client => {
                 const offset = (page - 1) * pageSize;
                 const searchPattern = searchQuery ? `%${searchQuery}%` : null;
+                const sortField = getCodeSortClause("m.code", order);
 
                 // Build where clause and params based on search query
                 let whereClause = "m.material_sub_group_id = $1";
@@ -723,6 +746,7 @@ const Material = {
                         m.created_at,
                         m.updated_at,
                         m.dfFromClient,
+                        m.created_by,
                         mis.code as "subGroupCode",
                         mis.name as "subGroupName",
                         mig.code as "groupCode",
@@ -732,7 +756,7 @@ const Material = {
                     JOIN mat_item_sub_group mis ON m.material_sub_group_id = mis.id
                     JOIN mat_item_group mig ON mis.item_group_id = mig.id
                     WHERE ${whereClause}
-                    ORDER BY m.name
+                    ORDER BY ${sortField}
                     LIMIT $2 OFFSET $3
                     `,
                     materialParams
@@ -859,6 +883,7 @@ const Material = {
                             m.created_at,
                             m.updated_at,
                             m.dfFromClient,
+                            m.created_by,
                             mis.code AS "subGroupCode",
                             mis.name AS "subGroupName",
                             mig.code AS "groupCode",
@@ -914,6 +939,7 @@ const Material = {
                             m.created_at,
                             m.updated_at,
                             m.dfFromClient,
+                            m.created_by,
                             mis.code AS "subGroupCode",
                             mis.name AS "subGroupName",
                             mig.code AS "groupCode",
