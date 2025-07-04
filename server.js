@@ -91,9 +91,12 @@ cron.schedule(
         // Calculate yesterday and today in Asia/Jakarta time, format YYYYMMDD
         const yesterday = moment
             .tz("Asia/Jakarta")
-            .subtract(1, "day")
+            .subtract(2, "day")
             .format("YYYYMMDD");
-        const today = moment.tz("Asia/Jakarta").format("YYYYMMDD");
+        const today = moment
+            .tz("Asia/Jakarta")
+            .add(1, "day")
+            .format("YYYYMMDD");
         console.log(
             `[CRON] Running SAP sync for date range: ${yesterday} to ${today}`
         );
