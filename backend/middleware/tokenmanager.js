@@ -53,10 +53,11 @@ const TokenManager = {
             res.status(401).send({
                 message: "Access Denied",
             });
+            return;
         } else {
             try {
                 if (token !== undefined) {
-                    decode = jwt.verify(token, process.env.TOKEN_KEY);
+                    decode = await jwt.verify(token, process.env.TOKEN_KEY);
                 } else {
                     const exception = new Error();
                     exception.name = "Unauthorized";
@@ -73,15 +74,15 @@ const TokenManager = {
                 next();
             } catch (err) {
                 if (err?.response?.status === 401) {
-                    res.status(401).send({
+                    return res.status(401).send({
                         message: err.response.data.message,
                     });
                 } else if (err.name == "TokenExpiredError") {
-                    res.status(403).send({
+                    return res.status(403).send({
                         message: err.message,
                     });
                 } else {
-                    res.status(500).send({
+                    return res.status(500).send({
                         message: err.stack,
                     });
                 }
