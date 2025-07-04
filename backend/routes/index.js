@@ -10,6 +10,7 @@ const Approval = require("./ApprovalRoute");
 const Ticeddet = require("./TicketEditReqDetRoute");
 const CGApi = require("./CGApiRoute");
 const Material = require("./MaterialRoute");
+const ETender = require("./ETenderRoute");
 const router = express.Router();
 
 router.use("/api/user", User);
@@ -23,5 +24,7 @@ router.use("/api/approval", Approval);
 router.use("/api/ticeddet", Ticeddet);
 router.use("/api/cg", CGApi);
 router.use("/api/material", Material);
+// e - tender;
+router.use("/api/etender", ETender);
 
 module.exports = router;
