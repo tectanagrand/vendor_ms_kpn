@@ -4,7 +4,7 @@ const DBClientWrapper = async callback => {
     let client;
     try {
         client = await db.connect();
-        return callback(client);
+        return await callback(client);
     } catch (error) {
         throw error;
     } finally {
