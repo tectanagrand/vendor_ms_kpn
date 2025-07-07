@@ -97,7 +97,7 @@ const saveToDatabase = async (item, pool) => {
                       code, name, description, long_text, type,
                       maintenance_status, unit_of_measurement,
                       material_sub_group_id, created_by, updated_by,
-                      created_at, updated_at, dfFromClient
+                      created_at, updated_at, dffromclient
                   ) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
                   ON CONFLICT (code) DO UPDATE SET
                       name = EXCLUDED.name,
@@ -108,7 +108,8 @@ const saveToDatabase = async (item, pool) => {
                       unit_of_measurement = EXCLUDED.unit_of_measurement,
                       material_sub_group_id = EXCLUDED.material_sub_group_id,
                       updated_by = EXCLUDED.updated_by,
-                      updated_at = EXCLUDED.updated_at
+                      updated_at = EXCLUDED.updated_at,
+                      dffromclient = EXCLUDED.dffromclient,
                   RETURNING code, (xmax = 0) AS was_inserted`,
                 [
                     item.MATNR,
@@ -123,7 +124,7 @@ const saveToDatabase = async (item, pool) => {
                     item.AENAM || "SYSTEM",
                     createdDate,
                     updatedDate,
-                    false,
+                    item.LVORM === "X" ? true : false,
                 ]
             );
 

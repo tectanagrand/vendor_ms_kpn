@@ -96,6 +96,9 @@ router.get(
 // Search materials (query parameter: ?q=searchTerm)
 router.get("/search", MaterialController.searchMaterials);
 
+// Search all materials (including deleted)
+router.get("/search/all", MaterialController.searchAllMaterials);
+
 // Get attachments by material ID
 router.get(
     "/:materialId/attachments",
@@ -138,5 +141,12 @@ router.get(
 
 // Get material by ID with full details and attachments
 router.get("/:materialId", MaterialController.getMaterialById);
+
+// Soft delete a material
+router.delete(
+    "/:materialId",
+    AuthToken.authSession,
+    MaterialController.deleteMaterial
+);
 
 module.exports = router;
