@@ -296,10 +296,36 @@ VendorController.getHeaderCode = async (req, res) => {
 VendorController.checkNameisExist = async (req, res) => {
     try {
         const client = await db.connect();
+        const { bu_id } = req.query;
+        let where_name = "";
         try {
+            //checking bu_id
+            console.log(bu_id);
+            if (bu_id == "UPS" || bu_id == "DWS") {
+                where_name = "and (bu_id = 'UPS' or bu_id = 'DWS')";
+            } else if (bu_id == "CG") {
+                where_name = "and (bu_id = 'CG')";
+            } else {
+                throw new Error("Session invalid");
+            }
             const q = req.query.name;
             const checkName = await client.query(
-                `select * from vendor where LOWER(name_1) like LOWER('%${q}%')`
+                `select
+                    v.ven_code,
+                    v.name_1,
+                    t.approval_type,
+                    as2.bu_id
+                from
+                    vendor v
+                left join ticket t on
+                    t.ven_id = v.ven_id
+                left join approval_steps as2 on
+                    as2.id_doctype = t.approval_type
+                    and as2.index_approval = '0'
+                where
+                    LOWER(name_1) like LOWER($1) ${where_name}
+`,
+                [`%${q}%`]
             );
             const counts = checkName.rowCount;
             if (counts > 0) {
@@ -315,6 +341,7 @@ VendorController.checkNameisExist = async (req, res) => {
             client.release();
         }
     } catch (error) {
+        console.log(error);
         res.status(500).send({
             message: error.message,
         });
