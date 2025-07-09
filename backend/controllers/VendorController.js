@@ -301,8 +301,9 @@ VendorController.checkNameisExist = async (req, res) => {
         try {
             //checking bu_id
             console.log(bu_id);
-            if (bu_id == "UPS" || bu_id == "DWS") {
-                where_name = "and (bu_id = 'UPS' or bu_id = 'DWS')";
+            if (bu_id == "UPS" || bu_id == "DWS" || bu_id == "CORP") {
+                where_name =
+                    "and (bu_id = 'UPS' or bu_id = 'DWS' or bu_id = 'CORP')";
             } else if (bu_id == "CG") {
                 where_name = "and (bu_id = 'CG')";
             } else {
