@@ -792,9 +792,22 @@ const Material = {
     },
 
     // Search all materials (including deleted)
-    searchAllMaterials: async (searchTerm, page = 1, pageSize = 10) => {
+    searchAllMaterials: async (
+        searchTerm,
+        page = 1,
+        pageSize = 10,
+        sorting_state
+    ) => {
         try {
             return await DBClientWrapper(async client => {
+                let sorting_q = "";
+                if (sorting_state) {
+                    sorting_q = sorting_state.reduce((result, item) => {
+                        result += `m.${item.col.toUpperCase()} ${item.state.toUpperCase()},`;
+                        return result;
+                    }, "");
+                }
+                console.log(sorting_q);
                 const offset = (page - 1) * pageSize;
                 const safeSearchTerm = String(searchTerm || "").trim();
                 const toTsQuery = input =>
@@ -862,7 +875,7 @@ const Material = {
                         JOIN mat_item_group mig ON mis.item_group_id = mig.id
                         WHERE to_tsvector('english', COALESCE(m.name, '') || ' ' || COALESCE(m.description, '') || ' ' || COALESCE(m.long_text, '') || ' ' || COALESCE(m.alias1, '') || ' ' || COALESCE(m.alias2, '') || ' ' || COALESCE(m.alias3, '') || ' ' || COALESCE(m.code, '')) @@ to_tsquery('english', $1)
                         OR m.code ILIKE $2
-                        ORDER BY code_match_rank, rank DESC, m.name ASC
+                        ORDER BY ${sorting_q}code_match_rank, rank DESC, m.name ASC 
                         LIMIT $4 OFFSET $5`,
                         [tsQuery, ilikeExact, ilikePartial, pageSize, offset]
                     );
@@ -902,7 +915,7 @@ const Material = {
                         FROM mat_sap_data m
                         JOIN mat_item_sub_group mis ON m.material_sub_group_id = mis.id
                         JOIN mat_item_group mig ON mis.item_group_id = mig.id
-                        ORDER BY m.code ASC, m.name ASC
+                        ORDER BY ${sorting_q}m.code ASC, m.name ASC
                         LIMIT $1 OFFSET $2`,
                         [pageSize, offset]
                     );
@@ -938,6 +951,7 @@ const Material = {
     searchMaterials: async (searchTerm, page = 1, pageSize = 10) => {
         try {
             return await DBClientWrapper(async client => {
+                let sorting_q = "";
                 const offset = (page - 1) * pageSize;
                 const safeSearchTerm = String(searchTerm || "").trim();
                 const toTsQuery = input =>
@@ -1007,7 +1021,7 @@ const Material = {
                         WHERE (dffromclient IS NULL OR dffromclient = false)
                         AND (to_tsvector('english', COALESCE(m.name, '') || ' ' || COALESCE(m.description, '') || ' ' || COALESCE(m.long_text, '') || ' ' || COALESCE(m.alias1, '') || ' ' || COALESCE(m.alias2, '') || ' ' || COALESCE(m.alias3, '') || ' ' || COALESCE(m.code, '')) @@ to_tsquery('english', $1)
                         OR m.code ILIKE $2
-                        ORDER BY code_match_rank, rank DESC, m.name ASC
+                        ORDER BY code_match_rank, rank DESC, m.name ASC ${sorting_q}
                         LIMIT $4 OFFSET $5`,
                         [tsQuery, ilikeExact, ilikePartial, pageSize, offset]
                     );
