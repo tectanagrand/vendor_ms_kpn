@@ -260,6 +260,21 @@ const EmailGen = {
                                     ${ven_detail.name_1}
                                 </td>
                             </tr>
+                             <tr class="detail">
+                                <td width="20%" style="padding: 0.1em 2.5em">
+                                    Status Kawasan Berikat
+                                </td>
+                                <td style="padding: 0.1em 2.5em" width="1%">
+                                    :
+                                </td>
+                                <td style="padding: 0.1em 2.5em">
+                                    ${
+                                        ven_detail.kawasan_berikat
+                                            ? "Kawasan Berikat"
+                                            : "Kawasan Bebas Berikat"
+                                    }
+                                </td>
+                            </tr>
                             <tr>
                                 <td style="padding-top: 1rem"></td>
                             </tr>

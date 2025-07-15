@@ -88,6 +88,7 @@ EmailModel.GetDataDetailVendor = async (client, ticket_id) => {
                 v.is_priority,
                 t.token as ticket_id,
                 t.ticket_id as ticket_num,
+                v.kawasan_berikat,
                 case 
                     when tr.bu_id = 'CG' then 'CG'
                     else 'NON_CG'

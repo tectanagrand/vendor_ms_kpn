@@ -638,6 +638,7 @@ const Emailer = {
                         v.lim_curr ,
                         v.limit_vendor ,
                         v.description,
+                        v.kawasan_berikat,
                         t.token
                     from
                         vendor v

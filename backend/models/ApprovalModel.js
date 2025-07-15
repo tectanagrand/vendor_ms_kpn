@@ -574,6 +574,7 @@ ApprovalModel.EndApproval = async (client, ticket_id, user_id) => {
                 verificator[0].email
             );
             await Vendor.UploadStaging(ven_detail.ven_id, client);
+            await Emailer.NotifPajak(ven_detail);
         } else {
             const result = await CGApi.SubmitToTiptop(
                 client,
