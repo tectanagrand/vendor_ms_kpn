@@ -1045,13 +1045,18 @@ const MaterialController = {
         }
     },
 
-    // Export materials to Excel (filtered by group/subgroup)
+    // Export materials to Excel (filtered by group/subgroup or search query)
     exportMaterialsToExcel: async (req, res) => {
         try {
             const groupId = req.query.groupId || null;
             const subGroupId = req.query.subGroupId || null;
+            const searchTerm = req.query.q || null;
             const { buffer, groupCode, subGroupCode } =
-                await Material.exportMaterialsToExcel(groupId, subGroupId);
+                await Material.exportMaterialsToExcel(
+                    groupId,
+                    subGroupId,
+                    searchTerm
+                );
 
             // Debug logging
             console.log(
@@ -1059,6 +1064,8 @@ const MaterialController = {
                 groupId,
                 "subGroupId:",
                 subGroupId,
+                "searchTerm:",
+                searchTerm,
                 "groupCode:",
                 groupCode,
                 "subGroupCode:",
@@ -1071,6 +1078,8 @@ const MaterialController = {
             else if (subGroupCode)
                 filename = `materials_subgroup_${subGroupCode}.xlsx`;
             else if (groupCode) filename = `materials_group_${groupCode}.xlsx`;
+            if (searchTerm && searchTerm.trim() !== "")
+                filename = `materials_search_${searchTerm}.xlsx`;
 
             console.log("[ExportExcel] Final filename:", filename);
 
