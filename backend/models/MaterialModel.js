@@ -875,7 +875,7 @@ const Material = {
                         JOIN mat_item_group mig ON mis.item_group_id = mig.id
                         WHERE to_tsvector('english', COALESCE(m.name, '') || ' ' || COALESCE(m.description, '') || ' ' || COALESCE(m.long_text, '') || ' ' || COALESCE(m.alias1, '') || ' ' || COALESCE(m.alias2, '') || ' ' || COALESCE(m.alias3, '') || ' ' || COALESCE(m.code, '')) @@ to_tsquery('english', $1)
                         OR m.code ILIKE $2
-                        ORDER BY ${sorting_q}code_match_rank, rank DESC, m.name ASC 
+                        ORDER BY ${sorting_q}code_match_rank, rank DESC, m.name ASC
                         LIMIT $4 OFFSET $5`,
                         [tsQuery, ilikeExact, ilikePartial, pageSize, offset]
                     );
@@ -1918,71 +1918,126 @@ const Material = {
         }
     },
 
-    // Export materials to Excel (filtered by group/subgroup)
-    exportMaterialsToExcel: async (groupId, subGroupId) => {
+    // Export materials to Excel (filtered by group/subgroup or search query)
+    exportMaterialsToExcel: async (groupId, subGroupId, searchTerm) => {
         try {
             return await DBClientWrapper(async client => {
-                let query = `
-                    SELECT
-                        m.code,
-                        m.name,
-                        m.description,
-                        m.long_text,
-                        mig.code as group_code,
-                        mig.name as group_name,
-                        mis.code as subgroup_code,
-                        mis.name as subgroup_name,
-                        m.alias1,
-                        m.alias2,
-                        m.alias3,
-                        m.created_at,
-                        m.updated_at
-                    FROM mat_sap_data m
-                    JOIN mat_item_sub_group mis ON m.material_sub_group_id = mis.id
-                    JOIN mat_item_group mig ON mis.item_group_id = mig.id
-                `;
-                const params = [];
-                let where = [];
+                let materialsQueryResult = [];
                 let groupCode = null;
                 let subGroupCode = null;
-                if (subGroupId) {
-                    where.push("mis.id = $" + (params.length + 1));
-                    params.push(subGroupId);
-                    // Fetch subgroup code and its parent group code
-                    const subRes = await client.query(
-                        "SELECT code, item_group_id FROM mat_item_sub_group WHERE id = $1",
-                        [subGroupId]
+                if (searchTerm && searchTerm.trim() !== "") {
+                    // Use the same logic as searchMaterials, but fetch all (no LIMIT)
+                    const safeSearchTerm = String(searchTerm || "").trim();
+                    const toTsQuery = input =>
+                        input
+                            .trim()
+                            .split(/\s+/)
+                            .map(word => `${word}:*`)
+                            .join(" & ");
+                    const tsQuery = toTsQuery(safeSearchTerm);
+                    const ilikeExact = safeSearchTerm;
+                    const ilikePartial = `%${safeSearchTerm}%`;
+                    const result = await client.query(
+                        `SELECT
+                            m.id,
+                            m.code,
+                            m.name,
+                            m.description,
+                            m.long_text,
+                            CASE
+                                WHEN m.description IS NOT NULL AND m.long_text IS NOT NULL THEN CONCAT(m.description, ' - ', m.long_text)
+                                WHEN m.description IS NOT NULL THEN m.description
+                                WHEN m.long_text IS NOT NULL THEN m.long_text
+                                ELSE NULL
+                            END AS combined_description,
+                            m.alias1,
+                            m.alias2,
+                            m.alias3,
+                            m.filter_code_1,
+                            m.filter_code_2,
+                            m.material_sub_group_id,
+                            m.created_at,
+                            m.updated_at,
+                            m.dfFromClient,
+                            m.created_by,
+                            mis.code AS "subGroupCode",
+                            mis.name AS "subGroupName",
+                            mig.code AS "groupCode",
+                            mig.name AS "groupName"
+                        FROM mat_sap_data m
+                        JOIN mat_item_sub_group mis ON m.material_sub_group_id = mis.id
+                        JOIN mat_item_group mig ON mis.item_group_id = mig.id
+                        WHERE (m.dffromclient IS NULL OR m.dffromclient = false)
+                        AND (
+                            to_tsvector('english', COALESCE(m.name, '') || ' ' || COALESCE(m.description, '') || ' ' || COALESCE(m.long_text, '') || ' ' || COALESCE(m.alias1, '') || ' ' || COALESCE(m.alias2, '') || ' ' || COALESCE(m.alias3, '') || ' ' || COALESCE(m.code, '')) @@ to_tsquery('english', $1)
+                            OR m.code ILIKE $2
+                        )
+                        ORDER BY m.code ASC, m.name ASC`,
+                        [tsQuery, ilikePartial]
                     );
-                    if (subRes.rows.length > 0) {
-                        subGroupCode = subRes.rows[0].code;
-                        const groupIdFromSub = subRes.rows[0].item_group_id;
-                        if (groupIdFromSub) {
-                            const groupRes = await client.query(
-                                "SELECT code FROM mat_item_group WHERE id = $1",
-                                [groupIdFromSub]
-                            );
-                            if (groupRes.rows.length > 0)
-                                groupCode = groupRes.rows[0].code;
+                    materialsQueryResult = result.rows;
+                } else {
+                    let query = `
+                        SELECT
+                            m.code,
+                            m.name,
+                            m.description,
+                            m.long_text,
+                            mig.code as group_code,
+                            mig.name as group_name,
+                            mis.code as subgroup_code,
+                            mis.name as subgroup_name,
+                            m.alias1,
+                            m.alias2,
+                            m.alias3,
+                            m.created_at,
+                            m.updated_at
+                        FROM mat_sap_data m
+                        JOIN mat_item_sub_group mis ON m.material_sub_group_id = mis.id
+                        JOIN mat_item_group mig ON mis.item_group_id = mig.id
+                    `;
+                    const params = [];
+                    let where = [];
+                    if (subGroupId) {
+                        where.push("mis.id = $" + (params.length + 1));
+                        params.push(subGroupId);
+                        // Fetch subgroup code and its parent group code
+                        const subRes = await client.query(
+                            "SELECT code, item_group_id FROM mat_item_sub_group WHERE id = $1",
+                            [subGroupId]
+                        );
+                        if (subRes.rows.length > 0) {
+                            subGroupCode = subRes.rows[0].code;
+                            const groupIdFromSub = subRes.rows[0].item_group_id;
+                            if (groupIdFromSub) {
+                                const groupRes = await client.query(
+                                    "SELECT code FROM mat_item_group WHERE id = $1",
+                                    [groupIdFromSub]
+                                );
+                                if (groupRes.rows.length > 0)
+                                    groupCode = groupRes.rows[0].code;
+                            }
                         }
+                    } else if (groupId) {
+                        where.push("mig.id = $" + (params.length + 1));
+                        params.push(groupId);
+                        // Fetch group code
+                        const groupRes = await client.query(
+                            "SELECT code FROM mat_item_group WHERE id = $1",
+                            [groupId]
+                        );
+                        if (groupRes.rows.length > 0)
+                            groupCode = groupRes.rows[0].code;
                     }
-                } else if (groupId) {
-                    where.push("mig.id = $" + (params.length + 1));
-                    params.push(groupId);
-                    // Fetch group code
-                    const groupRes = await client.query(
-                        "SELECT code FROM mat_item_group WHERE id = $1",
-                        [groupId]
-                    );
-                    if (groupRes.rows.length > 0)
-                        groupCode = groupRes.rows[0].code;
+                    if (where.length > 0) {
+                        query += " WHERE " + where.join(" AND ");
+                    }
+                    query += " ORDER BY m.code ASC, m.name ASC";
+                    const result = await client.query(query, params);
+                    materialsQueryResult = result.rows;
                 }
-                if (where.length > 0) {
-                    query += " WHERE " + where.join(" AND ");
-                }
-                query += " ORDER BY m.code ASC, m.name ASC";
-                const result = await client.query(query, params);
                 // Prepare data for Excel
-                const materialsData = result.rows.map(row => {
+                const materialsData = materialsQueryResult.map(row => {
                     let desc =
                         row.description && row.long_text
                             ? `${row.description} - ${row.long_text}`
@@ -1991,12 +2046,11 @@ const Material = {
                     desc = desc.replace(/\r\n|\r|\n/g, " ");
                     return {
                         Code: row.code,
-                        Name: row.name,
                         Description: desc,
-                        "Group Code": row.group_code,
-                        "Group Name": row.group_name,
-                        "Subgroup Code": row.subgroup_code,
-                        "Subgroup Name": row.subgroup_name,
+                        "Group Code": row.group_code || row.groupCode,
+                        "Group Name": row.group_name || row.groupName,
+                        "Subgroup Code": row.subgroup_code || row.subGroupCode,
+                        "Subgroup Name": row.subgroup_name || row.subGroupName,
                         "Alias 1": row.alias1,
                         "Alias 2": row.alias2,
                         "Alias 3": row.alias3,
