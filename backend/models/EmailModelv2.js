@@ -247,7 +247,7 @@ EmailModel.SendManager = async (
 
         const { rows: res_data_mgr } = await client.query(
             `
-                select * from mst_mgr where emp_role_id = $1 and (bu_id = $2 or bu_id_1 = $2 or bu_id_2 = $2) and dept_id = $3                
+                select * from mst_mgr where emp_role_id = $1 and (bu_id = $2 or bu_id_1 = $2 or bu_id_2 = $2) and dept_id = $3 and is_active = true               
                 `,
             [role_id, bu_id, dept_id]
         );
@@ -399,7 +399,7 @@ EmailModel.SendCLevel = async (
 
         const { rows: res_data_mgr } = await client.query(
             `
-                select * from mst_mgr where emp_role_id = $1 and bu_id = $2 and dept_id = $3                
+                select * from mst_mgr where emp_role_id = $1 and bu_id = $2 and dept_id = $3 and is_active = true            
                 `,
             [role_id, bu_id, dept_id]
         );
