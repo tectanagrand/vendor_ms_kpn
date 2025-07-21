@@ -533,6 +533,7 @@ const Material = {
                         m.code,
                         m.name,
                         m.description,
+                        m.unit_of_measurement,
                         m.alias1,
                         m.alias2,
                         m.alias3,
@@ -696,6 +697,7 @@ const Material = {
                         m.name,
                         m.description,
                         m.long_text,
+                        m.unit_of_measurement,
                         CASE
                             WHEN m.description IS NOT NULL AND m.long_text IS NOT NULL THEN CONCAT(m.description, ' - ', m.long_text)
                             WHEN m.description IS NOT NULL THEN m.description
@@ -838,6 +840,7 @@ const Material = {
                             m.name,
                             m.description,
                             m.long_text,
+                            m.unit_of_measurement,
                             CASE
                                 WHEN m.description IS NOT NULL AND m.long_text IS NOT NULL THEN CONCAT(m.description, ' - ', m.long_text)
                                 WHEN m.description IS NOT NULL THEN m.description
@@ -892,6 +895,7 @@ const Material = {
                             m.name,
                             m.description,
                             m.long_text,
+                            m.unit_of_measurement,
                             CASE
                                 WHEN m.description IS NOT NULL AND m.long_text IS NOT NULL THEN CONCAT(m.description, ' - ', m.long_text)
                                 WHEN m.description IS NOT NULL THEN m.description
@@ -1038,6 +1042,7 @@ const Material = {
                             m.name,
                             m.description,
                             m.long_text,
+                            m.unit_of_measurement,
                             CASE
                                 WHEN m.description IS NOT NULL AND m.long_text IS NOT NULL THEN CONCAT(m.description, ' - ', m.long_text)
                                 WHEN m.description IS NOT NULL THEN m.description
@@ -1120,6 +1125,7 @@ const Material = {
                         m.code,
                         m.name,
                         m.description,
+                        m.unit_of_measurement,
                         m.alias1,
                         m.alias2,
                         m.alias3,
@@ -1863,12 +1869,13 @@ const Material = {
                 if (!Array.isArray(codes) || codes.length === 0) return [];
                 // Fetch materials by codes
                 const materialRes = await client.query(
-                    `SELECT
+                    `                    SELECT
                         m.id,
                         m.code,
                         m.name,
                         m.description,
                         m.long_text,
+                        m.unit_of_measurement,
                         m.alias1,
                         m.alias2,
                         m.alias3,
@@ -1944,6 +1951,7 @@ const Material = {
                             m.name,
                             m.description,
                             m.long_text,
+                            m.unit_of_measurement,
                             CASE
                                 WHEN m.description IS NOT NULL AND m.long_text IS NOT NULL THEN CONCAT(m.description, ' - ', m.long_text)
                                 WHEN m.description IS NOT NULL THEN m.description
@@ -1983,6 +1991,7 @@ const Material = {
                             m.name,
                             m.description,
                             m.long_text,
+                            m.unit_of_measurement,
                             mig.code as group_code,
                             mig.name as group_name,
                             mis.code as subgroup_code,
@@ -2047,6 +2056,7 @@ const Material = {
                     return {
                         Code: row.code,
                         Description: desc,
+                        UOM: row.unit_of_measurement || "",
                         "Group Code": row.group_code || row.groupCode,
                         "Group Name": row.group_name || row.groupName,
                         "Subgroup Code": row.subgroup_code || row.subGroupCode,
@@ -2074,6 +2084,7 @@ const Material = {
                     { wch: 20 }, // Code
                     { wch: 35 }, // Name
                     { wch: 60 }, // Description
+                    { wch: 10 }, // UOM
                     { wch: 15 }, // Group Code
                     { wch: 25 }, // Group Name
                     { wch: 15 }, // Subgroup Code
