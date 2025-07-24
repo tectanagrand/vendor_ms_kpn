@@ -804,13 +804,15 @@ const MaterialController = {
 
             // Get user group from cookies for role checking
             const userRole = req.cookies?.role;
+            const userName = req.cookies?.username;
 
             // Use the addAttachment method that handles both database and file operations
             const result = await Material.addAttachment(
                 materialId,
                 filesToProcess,
                 updatedBy,
-                userRole
+                userRole,
+                userName
             );
 
             res.status(200).json({
@@ -842,6 +844,8 @@ const MaterialController = {
             const { alias1, alias2, alias3 } = req.body;
 
             const updatedBy = req.cookies.user_id;
+            const userRole = req.cookies?.role;
+            const userName = req.cookies?.username;
 
             // Check if material exists
             const material = await Material.getMaterialById(materialId);
@@ -857,7 +861,9 @@ const MaterialController = {
                 materialId,
                 alias1,
                 alias2,
-                alias3
+                alias3,
+                userRole,
+                userName
             );
 
             // Update timestamps separately

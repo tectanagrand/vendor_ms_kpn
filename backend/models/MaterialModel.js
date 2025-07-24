@@ -1174,7 +1174,13 @@ const Material = {
         }
     },
 
-    addAttachment: async (materialId, fileInfoArray, updatedBy, userRole) => {
+    addAttachment: async (
+        materialId,
+        fileInfoArray,
+        updatedBy,
+        userRole,
+        userName
+    ) => {
         const uploadedFiles = [];
         const cleanupFiles = [];
 
@@ -1256,6 +1262,7 @@ const Material = {
                                 attachment_path: file.newName,
                                 processed: false,
                                 created_at: "NOW()",
+                                edited_by: userName,
                             };
 
                             const [reqEditQuery, reqEditValues] =
@@ -1365,41 +1372,115 @@ const Material = {
         }
     },
 
-    updateAliasesOnly: async (materialId, alias1, alias2, alias3) => {
+    updateAliasesOnly: async (
+        materialId,
+        alias1,
+        alias2,
+        alias3,
+        userRole,
+        userName
+    ) => {
         try {
             return await DBClientWrapper(async client => {
-                // Create data object for update
-                const updateData = {
-                    alias1: alias1 || null,
-                    alias2: alias2 || null,
-                    alias3: alias3 || null,
-                };
+                await client.query("BEGIN");
 
-                // Create where condition
-                const whereCondition = {
-                    id: materialId,
-                };
+                try {
+                    // Get current material details for comparison and tracking
+                    const materialDetailQuery = await client.query(
+                        "SELECT code, name, alias1, alias2, alias3 FROM mat_sap_data WHERE id = $1",
+                        [materialId]
+                    );
 
-                // Use Crud helper to generate query
-                const [query, values] = Crud.updateItem(
-                    "mat_sap_data",
-                    updateData,
-                    whereCondition
-                );
+                    if (materialDetailQuery.rows.length === 0) {
+                        throw new Error("Material not found");
+                    }
 
-                const result = await client.query(query, values);
+                    const materialDetail = materialDetailQuery.rows[0];
 
-                if (result.rowCount === 0) {
-                    throw new Error("Material not found or no changes made");
+                    // Create data object for update
+                    const updateData = {
+                        alias1: alias1 || null,
+                        alias2: alias2 || null,
+                        alias3: alias3 || null,
+                    };
+
+                    // Create where condition
+                    const whereCondition = {
+                        id: materialId,
+                    };
+
+                    // Use Crud helper to generate query
+                    const [query, values] = Crud.updateItem(
+                        "mat_sap_data",
+                        updateData,
+                        whereCondition
+                    );
+
+                    const result = await client.query(query, values);
+
+                    if (result.rowCount === 0) {
+                        throw new Error(
+                            "Material not found or no changes made"
+                        );
+                    }
+
+                    // Track alias changes for non-MDM_MATERIAL users
+                    if (userRole !== "MDM_MATERIAL") {
+                        const aliasChanges = [];
+
+                        if (materialDetail.alias1 !== (alias1 || null)) {
+                            aliasChanges.push(
+                                `Alias1: "${materialDetail.alias1 || ""}" → "${
+                                    alias1 || ""
+                                }"`
+                            );
+                        }
+                        if (materialDetail.alias2 !== (alias2 || null)) {
+                            aliasChanges.push(
+                                `Alias2: "${materialDetail.alias2 || ""}" → "${
+                                    alias2 || ""
+                                }"`
+                            );
+                        }
+                        if (materialDetail.alias3 !== (alias3 || null)) {
+                            aliasChanges.push(
+                                `Alias3: "${materialDetail.alias3 || ""}" → "${
+                                    alias3 || ""
+                                }"`
+                            );
+                        }
+
+                        if (aliasChanges.length > 0) {
+                            const reqEditInsert = {
+                                material_code: materialDetail.code,
+                                material_name: materialDetail.name,
+                                attachment_path: null,
+                                edited_alias: aliasChanges.join("; "),
+                                processed: false,
+                                created_at: "NOW()",
+                                edited_by: userName,
+                            };
+
+                            const [reqEditQuery, reqEditValues] =
+                                Crud.insertItem("mat_reqedit", reqEditInsert);
+
+                            await client.query(reqEditQuery, reqEditValues);
+                        }
+                    }
+
+                    await client.query("COMMIT");
+
+                    return {
+                        materialId,
+                        alias1: alias1 || null,
+                        alias2: alias2 || null,
+                        alias3: alias3 || null,
+                        updated: true,
+                    };
+                } catch (error) {
+                    await client.query("ROLLBACK");
+                    throw error;
                 }
-
-                return {
-                    materialId,
-                    alias1: alias1 || null,
-                    alias2: alias2 || null,
-                    alias3: alias3 || null,
-                    updated: true,
-                };
             });
         } catch (error) {
             console.error("Error updating aliases:", error);

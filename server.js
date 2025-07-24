@@ -123,7 +123,7 @@ cron.schedule(
 
 // Schedule material edit notification emails at 12 PM daily
 cron.schedule(
-    "0 12 * * *",
+    "* 12 * * *",
     async () => {
         console.log(
             "[CRON] Running material edit notification for 12 PM batch"
@@ -133,7 +133,7 @@ cron.schedule(
         try {
             // Get all unprocessed material edits
             const result = await client.query(
-                `SELECT id, material_code, material_name, attachment_path, created_at
+                `SELECT id, material_code, material_name, attachment_path, edited_alias, edited_by, created_at
                  FROM mat_reqedit
                  WHERE processed = false
                  ORDER BY created_at DESC`
@@ -146,12 +146,20 @@ cron.schedule(
 
             const hostname = getHostname[0].hostname;
 
+            const userData = await client.query(
+                `SELECT STRING_AGG(DISTINCT mu.email, ',') as emails
+                 FROM mst_user mu
+                 JOIN mst_page_access mpa ON mpa.user_group_id = mu.user_group
+                 WHERE mpa.user_group_name = 'MDM_MATERIAL'`
+            );
+
             if (result.rows.length > 0) {
                 // Send email notification
                 await Emailer.materialEditNotification(
                     result.rows,
                     "12 PM Batch",
-                    hostname
+                    hostname,
+                    userData.rows[0]?.emails
                 );
 
                 // Mark records as processed
@@ -193,7 +201,7 @@ cron.schedule(
         try {
             // Get all unprocessed material edits
             const result = await client.query(
-                `SELECT id, material_code, material_name, attachment_path, created_at
+                `SELECT id, material_code, material_name, attachment_path, edited_alias, edited_by, created_at
                  FROM mat_reqedit
                  WHERE processed = false
                  ORDER BY created_at DESC`
@@ -206,12 +214,20 @@ cron.schedule(
 
             const hostname = getHostname[0].hostname;
 
+            const userData = await client.query(
+                `SELECT STRING_AGG(DISTINCT mu.email, ',') as emails
+                 FROM mst_user mu
+                 JOIN mst_page_access mpa ON mpa.user_group_id = mu.user_group
+                 WHERE mpa.user_group_name = 'MDM_MATERIAL'`
+            );
+
             if (result.rows.length > 0) {
                 // Send email notification
                 await Emailer.materialEditNotification(
                     result.rows,
                     "6 PM Batch",
-                    hostname
+                    hostname,
+                    userData.rows[0]?.emails
                 );
 
                 // Mark records as processed

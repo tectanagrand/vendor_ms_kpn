@@ -1072,30 +1072,32 @@ const Emailer = {
         }
     },
 
-    materialEditNotification: async (materialEdits, timeWindow, hostname) => {
+    materialEditNotification: async (
+        materialEdits,
+        timeWindow,
+        hostname,
+        mdmMaterialEmails
+    ) => {
         try {
-            // Use the helper to generate HTML
             const html = MaterialEmail.materialEditNotification(
                 materialEdits,
                 timeWindow,
                 hostname
             );
 
-            // Get email recipients from environment or default
-            const emailRecipientsEnv =
-                process.env.MATERIAL_EDIT_EMAIL_RECIPIENTS ||
-                "benpardede3@gmail.com";
+            if (!mdmMaterialEmails) {
+                throw new Error("MDM_MATERIAL emails are required");
+            }
 
-            // Process comma-separated emails
-            const emailRecipients = emailRecipientsEnv
+            const emailRecipients = mdmMaterialEmails
                 .split(",")
                 .map(email => email.trim())
-                .join(",");
+                .filter(email => email.length > 0);
 
             const setup = {
                 from: process.env.SMTP_USERNAME,
                 to: emailRecipients,
-                subject: `Material Attachment Edit - ${timeWindow} (${materialEdits.length} materials)`,
+                subject: `Material Edit Notification - ${timeWindow} (${materialEdits.length} materials)`,
                 html: html,
             };
 
