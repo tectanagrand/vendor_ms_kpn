@@ -802,11 +802,15 @@ const MaterialController = {
                 }
             }
 
+            // Get user group from cookies for role checking
+            const userRole = req.cookies?.role;
+
             // Use the addAttachment method that handles both database and file operations
             const result = await Material.addAttachment(
                 materialId,
                 filesToProcess,
-                updatedBy
+                updatedBy,
+                userRole
             );
 
             res.status(200).json({

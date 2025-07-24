@@ -1174,7 +1174,7 @@ const Material = {
         }
     },
 
-    addAttachment: async (materialId, fileInfoArray, updatedBy) => {
+    addAttachment: async (materialId, fileInfoArray, updatedBy, userRole) => {
         const uploadedFiles = [];
         const cleanupFiles = [];
 
@@ -1238,6 +1238,31 @@ const Material = {
                             savedAs: file.newName,
                             type: mimeType,
                         });
+                    }
+
+                    // Get material details for mat_reqedit logging
+                    const materialDetailQuery = await client.query(
+                        "SELECT code, name FROM mat_sap_data WHERE id = $1",
+                        [materialId]
+                    );
+
+                    const materialDetail = materialDetailQuery.rows[0];
+
+                    if (userRole !== "MDM_MATERIAL") {
+                        for (const file of fileInfoArray) {
+                            const reqEditInsert = {
+                                material_code: materialDetail.code,
+                                material_name: materialDetail.name,
+                                attachment_path: file.newName,
+                                processed: false,
+                                created_at: "NOW()",
+                            };
+
+                            const [reqEditQuery, reqEditValues] =
+                                Crud.insertItem("mat_reqedit", reqEditInsert);
+
+                            await client.query(reqEditQuery, reqEditValues);
+                        }
                     }
 
                     const updateData = {
