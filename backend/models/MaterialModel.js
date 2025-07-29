@@ -10,6 +10,8 @@ const axios = require("axios");
 const pool = require("../config/connection");
 const saveToDatabase = require("../helper/sap_seeding");
 const getCodeSortClause = require("../helper/sort.js");
+const Emailer = require("../models/EmailModel.js");
+const TRANS = require("../config/transaction.js");
 
 const Material = {
     // Create a new material group
@@ -2368,9 +2370,78 @@ const Material = {
                 return { id: materialId, deleted: true };
             });
         } catch (error) {
+            s;
             console.error("Error soft deleting material:", error);
             throw error;
         }
+    },
+
+    EmailNotificationEditMaterial: async target_clock => {
+        return DBClientWrapper(async client => {
+            try {
+                await client.query(TRANS.BEGIN);
+                console.log(
+                    `[CRON] Running material edit notification for ${target_clock} PM batch`
+                );
+                // Get all unprocessed material edits
+                const result = await client.query(
+                    `SELECT id, material_code, material_name, attachment_path, edited_alias, edited_by, created_at
+                                 FROM mat_reqedit
+                                 WHERE processed = false
+                                 ORDER BY created_at DESC`
+                );
+
+                const { rows: getHostname } = await client.query(
+                    "SELECT hostname from hostname where mode_env = $1",
+                    [process.env.NODE_ENV]
+                );
+
+                const hostname = getHostname[0].hostname;
+
+                const userData = await client.query(
+                    `SELECT STRING_AGG(DISTINCT mu.email, ',') as emails
+                                 FROM mst_user mu
+                                 JOIN mst_page_access mpa ON mpa.user_group_id = mu.user_group
+                                 WHERE mpa.user_group_name = 'MDM_MATERIAL'`
+                );
+
+                if (result.rows.length > 0) {
+                    // Send email notification
+                    await Emailer.materialEditNotification(
+                        result.rows,
+                        `${target_clock} PM Batch`,
+                        hostname,
+                        userData.rows[0]?.emails
+                    );
+
+                    // Mark records as processed
+                    const materialIds = result.rows.map(row => row.id);
+                    await client.query(
+                        `UPDATE mat_reqedit
+                                         SET processed = true, processed_at = $2
+                                         WHERE id = ANY($1)`,
+                        [
+                            materialIds,
+                            moment()
+                                .tz("Asia/Jakarta")
+                                .format("YYYY-MM-DD HH:mm:ss+0700"),
+                        ]
+                    );
+
+                    console.log(
+                        `[CRON] ${target_clock} PM batch: Sent email for ${result.rows.length} material edits`
+                    );
+                } else {
+                    console.log(
+                        `[CRON] ${target_clock} PM batch: No material edits to process`
+                    );
+                }
+                await client.query(TRANS.COMMIT);
+            } catch (error) {
+                await client.query(TRANS.ROLLBACK);
+                throw error;
+            }
+        });
     },
 };
 
