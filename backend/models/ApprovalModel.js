@@ -756,9 +756,9 @@ ApprovalModel.GetNextIndexApproval = async (data, ticket_id, client) => {
                 if (is_change) break;
                 let dt = on_sub_cond[i];
                 let conditions = dt.condition;
-                for (let l = 0; i < conditions.length; i++) {
+                for (let k = 0; k < conditions.length; k++) {
                     if (is_change) break;
-                    let dt_cond = conditions[l];
+                    let dt_cond = conditions[k];
                     let temp_data_field = data[dt_cond.field];
                     let data_field = parseInt(temp_data_field);
                     let val_comparator = parseInt(dt_cond.value);
@@ -771,6 +771,7 @@ ApprovalModel.GetNextIndexApproval = async (data, ticket_id, client) => {
                     if (data_field == undefined) {
                         throw new Error("Field data is undefined");
                     }
+
                     switch (dt_cond.condition) {
                         case "eq":
                             if (data_field == val_comparator) {

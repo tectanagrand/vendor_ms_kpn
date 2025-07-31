@@ -89,6 +89,7 @@ EmailModel.GetDataDetailVendor = async (client, ticket_id) => {
                 t.token as ticket_id,
                 t.ticket_id as ticket_num,
                 v.kawasan_berikat,
+                v.is_interest,
                 case 
                     when tr.bu_id = 'CG' then 'CG'
                     else 'NON_CG'
@@ -424,11 +425,17 @@ EmailModel.SendCLevel = async (
         let openingState = "";
         if (detail_vendor?.is_tender && !detail_vendor?.is_priority) {
             openingState = "who have participated in the tender at KPN Corp";
+            if (detail_vendor?.is_interest) {
+                openingState =
+                    "who have participated in the tender at KPN Corp and prioritized in its interest payment";
+            }
         } else if (!detail_vendor?.is_tender && detail_vendor?.is_priority) {
             openingState = "which is priority vendor";
         } else if (detail_vendor?.is_tender && detail_vendor?.is_priority) {
             openingState =
                 "who have participated in the tender at KPN Corp also a priority vendor";
+        } else if (detail_vendor?.is_interest) {
+            openingState = "who prioritized in its interest payment";
         }
 
         let opening = `Dear ${title_mgr} ${res_data_mgr[0].fullname}, <br /> Please approve for vendor ${openingState} :`;
