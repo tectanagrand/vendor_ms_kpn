@@ -3,6 +3,7 @@ const qr = require("qrcode");
 const fa = require("speakeasy");
 const TRANS = require("../config/transaction");
 const crud = require("../helper/crudquery");
+const DBClientWrapper = require("../helper/DBClientWrapper");
 
 const Master = {
     async getCurrency() {
@@ -585,6 +586,45 @@ const Master = {
         } catch (error) {
             throw error;
         }
+    },
+
+    async GetExistedDeptofBU() {
+        return DBClientWrapper(async client => {
+            try {
+                const { rows } = await client.query(
+                    `
+                    select
+                        distinct bu_id,
+                        dept_id,
+                        md.dept_name
+                    from
+                        mst_user mu
+                    left join mst_department md on md.dept_code = mu.dept_id
+                    where
+                        bu_id is not null
+                        and bu_id <> ''
+                        and bu_id <> 'ADMIN'
+                        and dept_id <> ''
+                    order by bu_id
+                    `
+                );
+                const combi = new Map();
+                for (const row of rows) {
+                    if (!combi.has(row.bu_id)) {
+                        combi.set(row.bu_id, [
+                            { value: row.dept_id, label: row.dept_name },
+                        ]);
+                    } else {
+                        combi
+                            .get(row.bu_id)
+                            .push({ value: row.dept_id, label: row.dept_name });
+                    }
+                }
+                return Object.fromEntries(combi);
+            } catch (error) {
+                throw error;
+            }
+        });
     },
 };
 

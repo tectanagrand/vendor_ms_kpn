@@ -459,6 +459,21 @@ const MasterController = {
             });
         }
     },
+
+    GetBuAndDeptCombi: async (req, res) => {
+        try {
+            const result = await Master.GetExistedDeptofBU();
+            res.status(200).send({
+                data: result,
+            });
+            return;
+        } catch (error) {
+            console.error(error);
+            res.status(500).send({
+                message: error.message,
+            });
+        }
+    },
 };
 
 module.exports = MasterController;
