@@ -48,7 +48,9 @@ const EmailGen = {
                                     <td class="logo" style="text-align: left">
                                         <img
                                             width="40%"
-                                            src="https://safetyfirstindonesia.co.id/assets/uploads/images/9f09b-kpn-corp.png"
+                                            src="${
+                                                process.env.APP_URL
+                                            }/static/assets/kpn-logo-2.png"
                                         />
                                     </td>
                                 </tr>
@@ -185,7 +187,9 @@ const EmailGen = {
                                     <td class="logo" style="text-align: left">
                                         <img
                                             width="40%"
-                                            src="https://safetyfirstindonesia.co.id/assets/uploads/images/9f09b-kpn-corp.png"
+                                            src="${
+                                                process.env.APP_URL
+                                            }/static/assets/kpn-logo-2.png"
                                         />
                                     </td>
                                 </tr>
@@ -616,7 +620,9 @@ const EmailGen = {
                                             <td class="logo" style="text-align: left">
                                                 <img
                                                     width="40%"
-                                                    src="https://safetyfirstindonesia.co.id/assets/uploads/images/9f09b-kpn-corp.png"
+                                                    src="${
+                                                        process.env.APP_URL
+                                                    }/static/assets/kpn-logo-2.png"
                                                 />
                                             </td>
                                         </tr>
@@ -771,7 +777,9 @@ const EmailGen = {
                                             <td class="logo" style="text-align: left">
                                                 <img
                                                     width="40%"
-                                                    src="https://safetyfirstindonesia.co.id/assets/uploads/images/9f09b-kpn-corp.png"
+                                                    src="${
+                                                        process.env.APP_URL
+                                                    }/static/assets/kpn-logo-2.png"
                                                 />
                                             </td>
                                         </tr>
@@ -907,7 +915,9 @@ const EmailGen = {
                                             <td class="logo" style="text-align: left">
                                                 <img
                                                     width="40%"
-                                                    src="https://safetyfirstindonesia.co.id/assets/uploads/images/9f09b-kpn-corp.png"
+                                                    src="${
+                                                        process.env.APP_URL
+                                                    }/static/assets/kpn-logo-2.png"
                                                 />
                                             </td>
                                         </tr>
@@ -1037,7 +1047,9 @@ const EmailGen = {
                                     <td class="logo" style="text-align: left">
                                         <img
                                             width="40%"
-                                            src="https://safetyfirstindonesia.co.id/assets/uploads/images/9f09b-kpn-corp.png"
+                                            src="${
+                                                process.env.APP_URL
+                                            }/static/assets/kpn-logo-2.png"
                                         />
                                     </td>
                                 </tr>
@@ -1398,7 +1410,9 @@ const EmailGen = {
                                             <td class="logo" style="text-align: left">
                                                 <img
                                                     width="40%"
-                                                    src="https://safetyfirstindonesia.co.id/assets/uploads/images/9f09b-kpn-corp.png"
+                                                    src="${
+                                                        process.env.APP_URL
+                                                    }/static/assets/kpn-logo-2.png"
                                                 />
                                             </td>
                                         </tr>
@@ -1554,7 +1568,9 @@ const EmailGen = {
                                             <td class="logo" style="text-align: left">
                                                 <img
                                                     width="40%"
-                                                    src="https://safetyfirstindonesia.co.id/assets/uploads/images/9f09b-kpn-corp.png"
+                                                    src="${
+                                                        process.env.APP_URL
+                                                    }/static/assets/kpn-logo-2.png"
                                                 />
                                             </td>
                                         </tr>

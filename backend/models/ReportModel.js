@@ -55,7 +55,7 @@ const ReportModel = {
                                 t.approval_pos,
                                 t.is_close,
                                 case
-                                    when t.approval_pos = 'END' then 'Confirmed By MDM'
+                                    when t.approval_pos = 'END' then 'Confirmed by MDM'
                                     when t.is_close = true then 'Closed'
                                     when as2.emp_role_id = 'STAFF'
                                     or as2.emp_role_id = 'VENDOR' then 'Create'
@@ -619,12 +619,14 @@ const ReportModel = {
                     whereque.push(
                         `coalesce(t.updated_at, t.created_at) >= to_date($${index}, 'yyyy-mm-dd')`
                     );
+                    index++;
                 }
                 if (to) {
                     whereval.push(to);
                     whereque.push(
                         `coalesce(t.updated_at, t.created_at) <= to_date($${index}, 'yyyy-mm-dd')`
                     );
+                    index++;
                 }
                 if (whereval.length > 0) {
                     where = "and " + whereque.join(" and ");
