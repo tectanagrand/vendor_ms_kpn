@@ -954,10 +954,21 @@ const Material = {
     },
 
     // Update searchMaterials to only return non-deleted materials
-    searchMaterials: async (searchTerm, page = 1, pageSize = 10) => {
+    searchMaterials: async (
+        searchTerm,
+        page = 1,
+        pageSize = 10,
+        sorting_state
+    ) => {
         try {
             return await DBClientWrapper(async client => {
                 let sorting_q = "";
+                if (sorting_state) {
+                    sorting_q = sorting_state.reduce((result, item) => {
+                        result += `m.${item.col.toUpperCase()} ${item.state.toUpperCase()},`;
+                        return result;
+                    }, "");
+                }
                 const offset = (page - 1) * pageSize;
                 const safeSearchTerm = String(searchTerm || "").trim();
                 const toTsQuery = input =>

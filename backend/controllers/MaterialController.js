@@ -622,6 +622,10 @@ const MaterialController = {
         try {
             const { q } = req.query;
             let sorting_state = [];
+            Object.keys(req.query).map(key => {
+                if (key == "q" || key == "pageSize" || key == "page") return;
+                sorting_state.push({ col: key, state: req.query[key] });
+            });
 
             const page = parseInt(req.query.page) || 1;
             const pageSize = parseInt(req.query.pageSize) || 10;
@@ -631,7 +635,8 @@ const MaterialController = {
             const result = await Material.searchMaterials(
                 searchTerm,
                 page,
-                pageSize
+                pageSize,
+                sorting_state
             );
 
             res.status(200).json({

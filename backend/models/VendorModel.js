@@ -1039,31 +1039,39 @@ const Vendor = {
                     vendors.set(value.ven_id, value);
                 });
                 const bankbq = `
-                select 
-                    v.ven_id,
-                    vb.bankv_id,
-                    mbs.bank_name,
-                    bank_acc,
-                    acc_hold,
-                    a001.file_name as A001,
-                    a002.file_name as A002
-                from
-                    ven_bank vb
-                left join ven_file_atth a001 on
-                    vb.bankv_id = a001.bank_id
-                    and a001.file_type = 'A001'
-                left join ven_file_atth a002 on
-                    vb.bankv_id = a002.bank_id
-                    and a002.file_type = 'A002'
-                left join vendor v on
-                    v.ven_id = vb.ven_id
-                left join ticket t on t.ven_id = v.ven_id
-                left join approval_steps as2 on as2.id_doctype = t.approval_type and as2.index_approval = '0'
-                left join mst_bank_sap mbs on mbs.id = vb.bank_id::int
-                where
-                    v.is_verif is null 
-                                    and (v.ven_code is not null and trim(v.ven_code) <> '') and as2.bu_id <> 'CG'                                    
-                order by vb.ven_id desc
+                WITH vb AS (
+                    SELECT
+                        v.ven_id,
+                        vb.bankv_id,
+                        vb.bank_id,
+                        bank_acc,
+                        acc_hold,
+                        a001.file_name AS A001,
+                        a002.file_name AS A002
+                    FROM ven_bank vb
+                    LEFT JOIN vendor v ON v.ven_id = vb.ven_id
+                    LEFT JOIN ticket t ON t.ven_id = v.ven_id
+                    LEFT JOIN approval_steps as2 ON as2.id_doctype = t.approval_type
+                        AND as2.index_approval = '0'
+                    LEFT JOIN ven_file_atth a001 ON vb.bankv_id = a001.bank_id
+                        AND a001.file_type = 'A001'
+                    LEFT JOIN ven_file_atth a002 ON vb.bankv_id = a002.bank_id
+                        AND a002.file_type = 'A002'
+                    WHERE v.is_verif IS NULL
+                    AND (v.ven_code IS NOT NULL AND trim(v.ven_code) <> '')
+                    AND as2.bu_id <> 'CG'
+                )
+                , vb_numeric AS (
+                    SELECT *
+                    FROM vb
+                    WHERE bank_id ~ '^[0-9]+$'
+                )
+                SELECT
+                    vb_numeric.*,
+                    mbs.bank_name
+                FROM vb_numeric
+                LEFT JOIN mst_bank_sap mbs 
+                    ON mbs.id = CAST(vb_numeric.bank_id AS int);
                 `;
                 const { rows: banks } = await client.query(bankbq);
                 let initvenid = banks[0].ven_id;
