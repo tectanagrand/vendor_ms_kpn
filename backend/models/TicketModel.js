@@ -8,6 +8,7 @@ const Emailer = require("../models/EmailModel");
 const moment = require("moment");
 const ApprovalTracker = require("../class/ApprovalTrackerClass");
 const ApprovalModel = require("./ApprovalModel");
+const MutexModel = require("./MutexModel");
 
 const Ticket = {
     async showAll({ is_active, ticket_state }) {
@@ -1149,12 +1150,12 @@ const Ticket = {
     async processByLink(token_appr) {
         try {
             const client = await db.connect();
+            /**
+             * @type {{emp_role_id : string, bu_id : string, dept_id : string, ticket_id : string}}
+             */
+            const decoded = jwt.decode(token_appr, process.env.TOKEN_KEY);
             try {
                 await client.query(TRANS.BEGIN);
-                /**
-                 * @type {{emp_role_id : string, bu_id : string, dept_id : string, ticket_id : string}}
-                 */
-                const decoded = jwt.decode(token_appr, process.env.TOKEN_KEY);
                 const ApprovalTrack = new ApprovalTracker(
                     client,
                     decoded.ticket_id
@@ -1164,6 +1165,7 @@ const Ticket = {
                 let emp_role_id = ApprovalTrack.current_step.emp_role_id;
                 let bu_id = ApprovalTrack.current_step.bu_id;
                 let dept_id = ApprovalTrack.current_step.dept_id;
+                await MutexModel.CreateLock(decoded.ticket_id, emp_role_id);
                 if (!ApprovalTrack.ticket.is_active) {
                     throw new Error("Ticket inactive");
                 }
@@ -1229,6 +1231,7 @@ const Ticket = {
                 await client.query(TRANS.ROLLBACK);
                 throw error;
             } finally {
+                await MutexModel.Unlock(decoded.ticket_id);
                 client.release();
             }
         } catch (error) {
@@ -1239,11 +1242,11 @@ const Ticket = {
     async renderRejectForm(token_appr) {
         try {
             const client = await db.connect();
+            /**
+             * @type {{emp_role_id : string, bu_id : string, dept_id : string, ticket_id : string}}
+             */
+            const decoded = jwt.decode(token_appr, process.env.TOKEN_KEY);
             try {
-                /**
-                 * @type {{emp_role_id : string, bu_id : string, dept_id : string, ticket_id : string}}
-                 */
-                const decoded = jwt.decode(token_appr, process.env.TOKEN_KEY);
                 const ApprovalTrack = new ApprovalTracker(
                     client,
                     decoded.ticket_id
@@ -1253,6 +1256,7 @@ const Ticket = {
                 const emp_role_id = current_step.emp_role_id;
                 const bu_id = current_step.bu_id;
                 const dept_id = current_step.dept_id;
+                await MutexModel.CreateLock(decoded.ticket_id, emp_role_id);
                 if (!ApprovalTrack.ticket.is_active) {
                     throw new Error("Ticket inactive");
                 }
@@ -1294,6 +1298,7 @@ const Ticket = {
             } catch (error) {
                 throw error;
             } finally {
+                await MutexModel.Unlock(decoded.ticket_id);
                 client.release();
             }
         } catch (error) {
