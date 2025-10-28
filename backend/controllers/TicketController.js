@@ -275,6 +275,21 @@ TicketController.submitVendor = async (req, res) => {
     }
 };
 
+TicketController.ReminderApproval = async (req, res) => {
+    try {
+        const { ticket_id } = req.body;
+        const reminderEmail = await Ticket.reminderApprovalEmail(ticket_id);
+        res.status(200).send({
+            message: "Reminder Sent",
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(200).send({
+            message: error.message,
+        });
+    }
+};
+
 TicketController.singleSubmit = async (req, res) => {
     const client = await db.connect();
     try {

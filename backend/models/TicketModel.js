@@ -9,6 +9,8 @@ const moment = require("moment");
 const ApprovalTracker = require("../class/ApprovalTrackerClass");
 const ApprovalModel = require("./ApprovalModel");
 const MutexModel = require("./MutexModel");
+const DBClientWrapper = require("../helper/DBClientWrapper");
+const EmailModel = require("./EmailModelv2");
 
 const Ticket = {
     async showAll({ is_active, ticket_state }) {
@@ -1145,6 +1147,50 @@ const Ticket = {
         } catch (error) {
             throw error;
         }
+    },
+
+    async reminderApprovalEmail(ticket_id) {
+        return await DBClientWrapper(async client => {
+            try {
+                const approvalTracker = new ApprovalTracker(client, ticket_id);
+                await approvalTracker.init();
+                const currentStep = approvalTracker.getCurrentStep();
+                if (!currentStep.wo_auth) {
+                    throw new Error("Approval flow doesn't need reminder");
+                }
+                //move position backward to resend
+                const backStep = approvalTracker.getApprovalStep(
+                    parseInt(currentStep.index_approval) - 1 < 0
+                        ? "0"
+                        : (parseInt(currentStep.index_approval) - 1).toString()
+                );
+
+                const emailType = backStep.def_submit_email;
+                //
+                const emailConfig = {
+                    to: currentStep.email,
+                };
+
+                const { rows: last_token } = await client.query(
+                    `
+                    select token_appr_link from ticket where token = $1
+                    `,
+                    [ticket_id]
+                );
+                await EmailModel.ProcessEmailGen(
+                    emailType,
+                    emailConfig,
+                    ticket_id,
+                    client,
+                    currentStep,
+                    { token_appr: last_token[0].token_appr_link },
+                    true
+                );
+                return true;
+            } catch (error) {
+                throw error;
+            }
+        });
     },
 
     async processByLink(token_appr) {

@@ -137,6 +137,7 @@ EmailModel.GetDataDetailVendor = async (client, ticket_id) => {
  * @param {import("../class/ApprovalTrackerClass").approval_step} next_step
  * @param {Object} misc
  * @param {string|undefined} misc.token_appr
+ * @param {boolean} reminder
  */
 
 EmailModel.ProcessEmailGen = async (
@@ -145,7 +146,8 @@ EmailModel.ProcessEmailGen = async (
     ticket_id,
     client,
     next_step,
-    misc
+    misc,
+    reminder = false
 ) => {
     try {
         let detail_vendor = await EmailModel.GetDataDetailVendor(
@@ -182,7 +184,8 @@ EmailModel.ProcessEmailGen = async (
                     detail_vendor,
                     misc,
                     config,
-                    bu_type
+                    bu_type,
+                    reminder
                 );
                 break;
             case "Submit_CLevel":
@@ -192,7 +195,8 @@ EmailModel.ProcessEmailGen = async (
                     detail_vendor,
                     misc,
                     config,
-                    bu_type
+                    bu_type,
+                    reminder
                 );
                 break;
             case "Submit_MDM":
@@ -214,7 +218,8 @@ EmailModel.SendManager = async (
     detail_vendor,
     misc,
     config,
-    bu = "NON_CG"
+    bu = "NON_CG",
+    reminder
 ) => {
     try {
         let role_id = next_step.emp_role_id;
@@ -357,7 +362,11 @@ EmailModel.SendManager = async (
         let setup = {
             from: process.env.SMTP_USERNAME,
             ...config,
-            subject: `Vendor ${detail_vendor.name_1} ${emp_role_name} ${bu_name} ${dept_name} Approval Request (${detail_vendor.ticket_num})`,
+            subject: `${reminder ? "Reminder :" : ""}Vendor ${
+                detail_vendor.name_1
+            } ${emp_role_name} ${bu_name} ${dept_name} Approval Request (${
+                detail_vendor.ticket_num
+            })`,
             html: html_gen,
             attachments: fileAtth,
         };
@@ -373,7 +382,8 @@ EmailModel.SendCLevel = async (
     detail_vendor,
     misc,
     config,
-    bu = "NON_CG"
+    bu = "NON_CG",
+    reminder
 ) => {
     try {
         let role_id = next_step.emp_role_id;
@@ -529,7 +539,11 @@ EmailModel.SendCLevel = async (
         let setup = {
             from: process.env.SMTP_USERNAME,
             ...config,
-            subject: `Vendor ${detail_vendor.name_1} ${emp_role_name} ${bu_name} Approval Request (${detail_vendor.ticket_num})`,
+            subject: `${reminder ? "Reminder :" : ""}Vendor ${
+                detail_vendor.name_1
+            } ${emp_role_name} ${bu_name} Approval Request (${
+                detail_vendor.ticket_num
+            })`,
             html: html_gen,
             attachments: fileAtth,
         };
