@@ -131,6 +131,7 @@ const Material = {
                 return { id: groupId, deleted: true };
             });
         } catch (error) {
+            await client.query(TRANS.ROLLBACK);
             console.error("Error soft deleting material group:", error);
             throw error;
         }

@@ -736,8 +736,8 @@ const Ticket = {
             await client.query(TRANS.COMMIT);
             return [upTick.rows[0].ticket_id, reject_by, ticket.name_1];
         } catch (err) {
-            console.error(err.stack);
             await client.query(TRANS.ROLLBACK);
+            console.error(err?.stack);
             return err;
         } finally {
             client.release();

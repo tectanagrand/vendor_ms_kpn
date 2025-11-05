@@ -48,7 +48,7 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
         }
         const client = await db.connect();
         console.log(params);
-        client.query(TRANS.BEGIN);
+        await client.query(TRANS.BEGIN);
         if (params.hasOwnProperty("password")) {
             pass = await hashPassword(params.password);
         }
