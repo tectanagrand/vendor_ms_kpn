@@ -106,11 +106,11 @@ const Ticket = {
                     }
                     where_que_arr.push(`(${where_ttype_arr.join(" or ")})`);
                 }
-                if (emp_role_id == "STAFF" && is_active) {
-                    where_que_arr.push(`proc_id = $${idx}`);
-                    where_val.push(user_id);
-                    idx++;
-                }
+                // if (emp_role_id == "STAFF" && is_active) {
+                //     where_que_arr.push(`proc_id = $${idx}`);
+                //     where_val.push(user_id);
+                //     idx++;
+                // }
                 if (q) {
                     where_que_arr.push(
                         `t.ticket_id like $${idx} or v.ven_code like $${idx} or v.name_1 like $${idx}`
@@ -161,7 +161,8 @@ const Ticket = {
                             WHEN T.VALID_UNTIL < NOW() THEN true
                             ELSE false 
                         END AS IS_EXPIRED,
-                        t.approval_pos
+                        t.approval_pos, 
+                        t.proc_id
                     FROM TICKET T
                     LEFT JOIN VENDOR V ON V.VEN_ID = T.VEN_ID
                     LEFT JOIN MST_USER UP ON T.updated_by = UP.user_id
@@ -397,7 +398,8 @@ const Ticket = {
                             as2.emp_role_id,
                             as2.dept_id,
                             as2.bu_id,
-                            bu_ticket.bu_id as bu_ticket_type
+                            bu_ticket.bu_id as bu_ticket_type,
+                            t.proc_id
                         from
                             TICKET T
                         left join VENDOR V on
