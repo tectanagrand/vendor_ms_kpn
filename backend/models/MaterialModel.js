@@ -149,7 +149,23 @@ const Material = {
             return await DBClientWrapper(async client => {
                 const offset = (page - 1) * pageSize;
                 const searchPattern = searchQuery ? `%${searchQuery}%` : null;
-                const sortField = getCodeSortClause("mig.code", order);
+
+                // Whitelist allowed sort columns and directions
+                const _allowedSortCols = {
+                    code: "mig.code",
+                    name: "mig.name",
+                    id: "mig.id",
+                    created_at: "mig.created_at",
+                    updated_at: "mig.updated_at",
+                };
+                const _sortKey = String(sort || "code").toLowerCase();
+                const _safeSortCol = _allowedSortCols[_sortKey] || "mig.code";
+                const _safeOrder =
+                    order && String(order).toLowerCase() === "desc"
+                        ? "DESC"
+                        : "ASC";
+                const sortClause = `${_safeSortCol} ${_safeOrder}`;
+
                 // Only non-deleted groups
                 const countQuery = searchPattern
                     ? await client.query(
@@ -175,7 +191,7 @@ const Material = {
                             ) as materials_count
                         FROM mat_item_group mig
                         WHERE mig.deleted_at IS NULL AND (mig.code ILIKE $3 OR mig.name ILIKE $3)
-                        ORDER BY ${sortField}
+                        ORDER BY ${sortClause}
                         LIMIT $1 OFFSET $2
                     `
                     : `
@@ -192,7 +208,7 @@ const Material = {
                             ) as materials_count
                         FROM mat_item_group mig
                         WHERE mig.deleted_at IS NULL
-                        ORDER BY ${sortField}
+                        ORDER BY ${sortClause}
                         LIMIT $1 OFFSET $2
                     `;
                 const queryParams = searchPattern
@@ -217,7 +233,21 @@ const Material = {
     getAllMaterialGroups: async (sort = "code", order = "asc") => {
         try {
             return await DBClientWrapper(async client => {
-                const sortField = getCodeSortClause("code", order);
+                // Whitelist allowed sort columns and directions
+                const _allowedSortCols = {
+                    code: "code",
+                    name: "name",
+                    id: "id",
+                    created_at: "created_at",
+                    updated_at: "updated_at",
+                };
+                const _sortKey = String(sort || "code").toLowerCase();
+                const _safeSortCol = _allowedSortCols[_sortKey] || "code";
+                const _safeOrder =
+                    order && String(order).toLowerCase() === "desc"
+                        ? "DESC"
+                        : "ASC";
+
                 const result = await client.query(`
                     SELECT
                         id,
@@ -225,7 +255,7 @@ const Material = {
                         name
                     FROM mat_item_group
                     WHERE deleted_at IS NULL
-                    ORDER BY ${sortField}
+                    ORDER BY ${_safeSortCol} ${_safeOrder}
                 `);
                 return result.rows;
             });
@@ -239,7 +269,20 @@ const Material = {
     getAllSubgroupsByGroup: async (groupId, sort = "code", order = "asc") => {
         try {
             return await DBClientWrapper(async client => {
-                const sortField = getCodeSortClause("code", order);
+                // Whitelist allowed sort columns and directions
+                const _allowedSortCols = {
+                    code: "code",
+                    name: "name",
+                    id: "id",
+                    created_at: "created_at",
+                    updated_at: "updated_at",
+                };
+                const _sortKey = String(sort || "code").toLowerCase();
+                const _safeSortCol = _allowedSortCols[_sortKey] || "code";
+                const _safeOrder =
+                    order && String(order).toLowerCase() === "desc"
+                        ? "DESC"
+                        : "ASC";
                 const result = await client.query(
                     `
                     SELECT
@@ -249,7 +292,7 @@ const Material = {
                         item_group_id
                     FROM mat_item_sub_group
                     WHERE item_group_id = $1 AND deleted_at IS NULL
-                    ORDER BY ${sortField}
+                    ORDER BY ${_safeSortCol} ${_safeOrder}
                 `,
                     [groupId]
                 );
@@ -459,6 +502,21 @@ const Material = {
                 const totalCount = parseInt(countQuery.rows[0].total);
                 const totalPages = Math.ceil(totalCount / pageSize);
 
+                // Determine safe sorting column and order (whitelist)
+                const _allowedSortCols = {
+                    code: "mis.code",
+                    name: "mis.name",
+                    id: "mis.id",
+                    created_at: "mis.created_at",
+                    updated_at: "mis.updated_at",
+                };
+                const _sortKey = String(sortField || "code").toLowerCase();
+                const _safeSortCol = _allowedSortCols[_sortKey] || "mis.code";
+                const _safeOrder =
+                    order && String(order).toLowerCase() === "desc"
+                        ? "DESC"
+                        : "ASC";
+
                 // Get the subgroups with pagination and search filter if provided
                 const result = await client.query(
                     `
@@ -473,7 +531,7 @@ const Material = {
                     FROM mat_item_sub_group mis
                     JOIN mat_item_group mig ON mis.item_group_id = mig.id
                     WHERE ${whereClause}
-                    ORDER BY ${sortField} ${order}
+                    ORDER BY ${_safeSortCol} ${_safeOrder}
                     LIMIT $2 OFFSET $3
                 `,
                     params
@@ -504,7 +562,25 @@ const Material = {
         try {
             return await DBClientWrapper(async client => {
                 const offset = (page - 1) * pageSize;
-                const sortField = getCodeSortClause("m.code", order);
+
+                // Whitelist allowed sort columns and directions
+                const _allowedSortCols = {
+                    code: "m.code",
+                    name: "m.name",
+                    description: "m.description",
+                    created_at: "m.created_at",
+                    updated_at: "m.updated_at",
+                    uom: "m.unit_of_measurement",
+                    group_code: "mig.code",
+                    subgroup_code: "mis.code",
+                };
+                const _sortKey = String(sort || "code").toLowerCase();
+                const _safeSortCol = _allowedSortCols[_sortKey] || "m.code";
+                const _safeOrder =
+                    order && String(order).toLowerCase() === "desc"
+                        ? "DESC"
+                        : "ASC";
+                const sortClause = `${_safeSortCol} ${_safeOrder}`;
 
                 // First get the total count
                 const countQuery = await client.query(
@@ -554,7 +630,7 @@ const Material = {
                     JOIN mat_item_sub_group mis ON m.material_sub_group_id = mis.id
                     JOIN mat_item_group mig ON mis.item_group_id = mig.id
                     WHERE mig.id = $1
-                    ORDER BY ${sortField}
+                    ORDER BY ${sortClause}
                     LIMIT $2 OFFSET $3
                     `,
                     [groupId, pageSize, offset]
@@ -622,7 +698,25 @@ const Material = {
             return await DBClientWrapper(async client => {
                 const offset = (page - 1) * pageSize;
                 const searchPattern = searchQuery ? `%${searchQuery}%` : null;
-                const sortField = getCodeSortClause("m.code", order);
+
+                // Whitelist allowed sort columns and directions
+                const _allowedSortCols = {
+                    code: "m.code",
+                    name: "m.name",
+                    description: "m.description",
+                    created_at: "m.created_at",
+                    updated_at: "m.updated_at",
+                    uom: "m.unit_of_measurement",
+                    group_code: "mig.code",
+                    subgroup_code: "mis.code",
+                };
+                const _sortKey = String(sort || "code").toLowerCase();
+                const _safeSortCol = _allowedSortCols[_sortKey] || "m.code";
+                const _safeOrder =
+                    order && String(order).toLowerCase() === "desc"
+                        ? "DESC"
+                        : "ASC";
+                const sortClause = `${_safeSortCol} ${_safeOrder}`;
 
                 // Build where clause and params based on search query
                 let whereClause = "m.material_sub_group_id = $1";
@@ -805,11 +899,25 @@ const Material = {
     ) => {
         try {
             return await DBClientWrapper(async client => {
+                // Build a safe sorting clause from sorting_state by whitelisting columns and directions
                 let sorting_q = "";
                 if (sorting_state) {
+                    const colMap = {
+                        CODE: "m.code",
+                        NAME: "m.name",
+                        CREATED_AT: "m.created_at",
+                        UPDATED_AT: "m.updated_at",
+                        FULLCODE: "m.code",
+                        GROUPCODE: "mig.code",
+                        SUBGROUPCODE: "mis.code",
+                    };
                     sorting_q = sorting_state.reduce((result, item) => {
-                        result += `m.${item.col.toUpperCase()} ${item.state.toUpperCase()},`;
-                        return result;
+                        const col = String(item.col || "").toUpperCase();
+                        const state = String(item.state || "").toUpperCase();
+                        const mapped = colMap[col];
+                        if (!mapped) return result;
+                        const dir = state === "DESC" ? "DESC" : "ASC";
+                        return result + `${mapped} ${dir},`;
                     }, "");
                 }
                 console.log(sorting_q);
@@ -963,11 +1071,25 @@ const Material = {
     ) => {
         try {
             return await DBClientWrapper(async client => {
+                // Build a safe sorting clause from sorting_state by whitelisting columns and directions
                 let sorting_q = "";
                 if (sorting_state) {
+                    const colMap = {
+                        CODE: "m.code",
+                        NAME: "m.name",
+                        CREATED_AT: "m.created_at",
+                        UPDATED_AT: "m.updated_at",
+                        FULLCODE: "m.code",
+                        GROUPCODE: "mig.code",
+                        SUBGROUPCODE: "mis.code",
+                    };
                     sorting_q = sorting_state.reduce((result, item) => {
-                        result += `m.${item.col.toUpperCase()} ${item.state.toUpperCase()},`;
-                        return result;
+                        const col = String(item.col || "").toUpperCase();
+                        const state = String(item.state || "").toUpperCase();
+                        const mapped = colMap[col];
+                        if (!mapped) return result;
+                        const dir = state === "DESC" ? "DESC" : "ASC";
+                        return result + `${mapped} ${dir},`;
                     }, "");
                 }
                 const offset = (page - 1) * pageSize;
@@ -1039,7 +1161,7 @@ const Material = {
                         WHERE (dffromclient IS NULL OR dffromclient = false)
                         AND (to_tsvector('english', COALESCE(m.name, '') || ' ' || COALESCE(m.description, '') || ' ' || COALESCE(m.long_text, '') || ' ' || COALESCE(m.alias1, '') || ' ' || COALESCE(m.alias2, '') || ' ' || COALESCE(m.alias3, '') || ' ' || COALESCE(m.code, '')) @@ to_tsquery('english', $1)
                         OR m.code ILIKE $2
-                        ORDER BY code_match_rank, rank DESC, m.name ASC ${sorting_q}
+                        ORDER BY ${sorting_q}code_match_rank, rank DESC, m.name ASC
                         LIMIT $4 OFFSET $5`,
                         [tsQuery, ilikeExact, ilikePartial, pageSize, offset]
                     );

@@ -16,11 +16,14 @@ const Ticket = {
     async showAll({ is_active, ticket_state }) {
         const client = await db.connect();
         try {
-            let where = "";
-            if (is_active === "true") {
-                where = `WHERE T.is_active = ${is_active} AND ticket_state in (${ticket_state}) `;
-            } else {
-                where = `WHERE T.is_active = ${is_active} `;
+            const params = [];
+            let where = "WHERE T.is_active = $1";
+            params.push(is_active === "true");
+
+            if (is_active === "true" && ticket_state) {
+                const stateArray = ticket_state.split(",").map(s => s.trim());
+                where += ` AND ticket_state = ANY($2)`;
+                params.push(stateArray);
             }
             let q = `SELECT T.token,
             T.is_active, 

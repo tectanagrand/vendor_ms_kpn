@@ -23,10 +23,12 @@ const Vendor = {
                         LEFT JOIN TICKET_REQSTAT_VEN T ON T.VEN_ID = V.VEN_ID AND T.IS_ACTIVE = true
                         WHERE V.is_active is not null`;
 
+            const vals = [];
             if (isactive != "") {
-                q += ` and V.is_active = ${isactive}`;
+                q += ` and V.is_active = $1`;
+                vals.push(isactive);
             }
-            const result = await client.query(q);
+            const result = await client.query(q, vals);
             return {
                 count: result.rowCount,
                 data: result.rows,
@@ -68,7 +70,8 @@ const Vendor = {
         const promise = new Promise(async (resolve, reject) => {
             try {
                 let files = await client.query(
-                    `select * from temp_ven_file_atth where ven_id = '${ven_id}'`
+                    `select * from temp_ven_file_atth where ven_id = $1`,
+                    [ven_id]
                 );
                 if (files.rows.length === 0) {
                     resolve(true);
@@ -87,7 +90,8 @@ const Vendor = {
                     ];
                     const insertFile = await client.query(qInsert, values);
                     const cleanTemp = await client.query(
-                        `delete from temp_ven_file_atth where ven_id = '${ven_id}'`
+                        `delete from temp_ven_file_atth where ven_id = $1`,
+                        [ven_id]
                     );
                 });
                 resolve(true);
@@ -106,7 +110,8 @@ const Vendor = {
    */
         try {
             const isExist = await client.query(
-                `SELECT * FROM VENDOR WHERE ven_id = '${detail.ven_id}'`
+                `SELECT * FROM VENDOR WHERE ven_id = $1`,
+                [detail.ven_id]
             );
             const { rows: getStatusTicket } = await client.query(
                 `select reject_by, is_draft from ticket where ven_id = $1`,
@@ -577,7 +582,8 @@ const Vendor = {
                         ven_id = file.ven_id;
                     }
                     data = await client.query(
-                        `SELECT file_id, ven_id, file_name, file_type, created_at, created_by, desc_file FROM TEMP_VEN_FILE_ATTH WHERE file_id = '${file.file_id}'`
+                        `SELECT file_id, ven_id, file_name, file_type, created_at, created_by, desc_file FROM TEMP_VEN_FILE_ATTH WHERE file_id = $1`,
+                        [file.file_id]
                     );
                     if (data.rowCount === 0) {
                         break;
@@ -645,7 +651,8 @@ const Vendor = {
                 desc_file,
                 expired_date,
                 'insert' as method 
-                from temp_ven_file_atth where ven_id = '${vendor_id}' ${restfile}`
+                from temp_ven_file_atth where ven_id = $1 ${restfile}`,
+            [vendor_id]
         );
         tempFiles = getTempFiles.rows;
         let file_toUp = [...files, ...tempFiles];
@@ -660,7 +667,8 @@ const Vendor = {
                             ven_id = file.ven_id;
                         }
                         data = await client.query(
-                            `SELECT file_id, ven_id, file_name, file_type, created_at, created_by, desc_file, expired_date FROM TEMP_VEN_FILE_ATTH WHERE file_id = '${file.file_id}'`
+                            `SELECT file_id, ven_id, file_name, file_type, created_at, created_by, desc_file, expired_date FROM TEMP_VEN_FILE_ATTH WHERE file_id = $1`,
+                            [file.file_id]
                         );
                         if (data.rowCount === 0) {
                             break;
@@ -705,9 +713,9 @@ const Vendor = {
     async getHeaderCode({ local_ovs, ven_acc, ven_type, ven_group }) {
         const client = await db.connect();
         const promise = new Promise(async (resolve, reject) => {
-            const q = `SELECT HEADER FROM VEN_CODE_HD WHERE local_ovs='${local_ovs}' and ven_acc='${ven_acc}' and ven_type='${ven_type}' and ven_group='${ven_group}'`;
+            const q = `SELECT HEADER FROM VEN_CODE_HD WHERE local_ovs = $1 and ven_acc = $2 and ven_type = $3 and ven_group = $4`;
             try {
-                const headercode = await client.query(q);
+                const headercode = await client.query(q, [local_ovs, ven_acc, ven_type, ven_group]);
                 resolve({ status: true, header: headercode.rows[0] });
             } catch (err) {
                 reject({ status: false, message: "Header not found" });
@@ -940,11 +948,11 @@ const Vendor = {
                 await client.query(`UPDATE ticket
                                 set reject_by = 'VERIFIC',
                                 cur_pos = 'PROC',
-                                remarks= '${notes}',
+                                remarks= $1,
                                 ticket_state = 'FINA',
                                 updated_at = DEFAULT
-                                where token = '${proc_email[0].token}'
-                                returning ticket_id`);
+                                where token = $2
+                                returning ticket_id`, [notes, proc_email[0].token]);
                 await client.query(qins, valins);
                 // send reject email to proc
                 await Emailer.rejectedVerif(
@@ -1123,9 +1131,9 @@ const Vendor = {
                 left join mst_user mdm on mdm.user_id = t.mdm_id
                 left join mst_mgr mgr_pr on mgr_pr.mgr_id = proc.mgr_id
                 left join mst_mgr mgr_md on mgr_md.mgr_id = mdm.mgr_id
-                where t.token = '${ticket_id}'
+                where t.token = $1
             `;
-            const item = await client.query(getTargetsq);
+            const item = await client.query(getTargetsq, [ticket_id]);
             return item.rows[0];
         } catch (error) {
             console.error(error);

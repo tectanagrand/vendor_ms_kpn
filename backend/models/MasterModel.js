@@ -44,11 +44,8 @@ const Master = {
     async getCities(idCountry) {
         const client = await db.connect();
         try {
-            const where = `country_id = '${idCountry}'`;
-            let q = "SELECT DISTINCT city, code, country_id FROM mst_cities";
-            q = q + " where " + where;
-            q += " order by city asc";
-            const cities = await client.query(q);
+            let q = "SELECT DISTINCT city, code, country_id FROM mst_cities where country_id = $1 order by city asc";
+            const cities = await client.query(q, [idCountry]);
             return {
                 count: cities.rowCount,
                 data: cities.rows,
@@ -124,19 +121,30 @@ const Master = {
 
     async getssrBank({ page, maxPage, que }) {
         const client = await db.connect();
-        let qtext = "";
-        if (que != null && que != "") {
-            qtext = ` where lower(b.bank_code) like '%${que}%' or lower(b.bank_key) like '%${que}%' or lower(b.bank_name) like '%${que}%'`;
-        }
-        let q = `select b.*, c.country_name from mst_bank_sap b left join mst_country c on b.country = c.country_code ${qtext} order by b.bank_code asc limit ${maxPage} offset ${
-            page * maxPage
-        } 
-        `;
         try {
-            const data = await client.query(q);
-            const allRows = await client.query(
-                `select count(*) as rowscount from mst_bank_sap b ${qtext}`
-            );
+            const vals = [];
+            let whereClauses = "";
+            if (que != null && que != "") {
+                whereClauses = ` where (lower(b.bank_code) like $1 or lower(b.bank_key) like $1 or lower(b.bank_name) like $1)`;
+                vals.push(`%${que.toLowerCase()}%`);
+            }
+            // pagination params
+            vals.push(maxPage);
+            vals.push(page * maxPage);
+
+            const q = `select b.*, c.country_name from mst_bank_sap b left join mst_country c on b.country = c.country_code ${whereClauses} order by b.bank_code asc limit $${vals.length - 1} offset $${vals.length}`;
+            const data = await client.query(q, vals);
+
+            // count query uses same whereClauses but only the first parameter if present
+            let countQuery;
+            let countVals = [];
+            if (whereClauses) {
+                countQuery = `select count(*) as rowscount from mst_bank_sap b ${whereClauses}`;
+                countVals.push(vals[0]);
+            } else {
+                countQuery = `select count(*) as rowscount from mst_bank_sap b`;
+            }
+            const allRows = await client.query(countQuery, countVals);
             return {
                 allrow: allRows.rows[0].rowscount,
                 count: data.rowCount,
