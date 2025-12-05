@@ -190,12 +190,13 @@ const MasterController = {
 
     getFileType: async (req, res) => {
         try {
-            const { title, ventype, bu_id, curpos } = req.query;
+            const { title, ventype, bu_id, curpos, trade } = req.query;
             const result = await Master.GetFileType({
                 title,
                 ventype,
                 bu_id,
                 curpos,
+                trade,
             });
             res.status(200).send({ data: result });
         } catch (error) {

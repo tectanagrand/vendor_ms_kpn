@@ -44,7 +44,8 @@ const Master = {
     async getCities(idCountry) {
         const client = await db.connect();
         try {
-            let q = "SELECT DISTINCT city, code, country_id FROM mst_cities where country_id = $1 order by city asc";
+            let q =
+                "SELECT DISTINCT city, code, country_id FROM mst_cities where country_id = $1 order by city asc";
             const cities = await client.query(q, [idCountry]);
             return {
                 count: cities.rowCount,
@@ -132,7 +133,9 @@ const Master = {
             vals.push(maxPage);
             vals.push(page * maxPage);
 
-            const q = `select b.*, c.country_name from mst_bank_sap b left join mst_country c on b.country = c.country_code ${whereClauses} order by b.bank_code asc limit $${vals.length - 1} offset $${vals.length}`;
+            const q = `select b.*, c.country_name from mst_bank_sap b left join mst_country c on b.country = c.country_code ${whereClauses} order by b.bank_code asc limit $${
+                vals.length - 1
+            } offset $${vals.length}`;
             const data = await client.query(q, vals);
 
             // count query uses same whereClauses but only the first parameter if present
@@ -314,10 +317,12 @@ const Master = {
             throw error;
         }
     },
-    async GetFileType({ title, ventype, bu_id, curpos }) {
+    async GetFileType({ title, ventype, bu_id, curpos, trade }) {
         try {
             const client = await db.connect();
             try {
+                let or = [];
+                let orval = [];
                 let where = [];
                 let whereval = [];
                 let index = 1;
@@ -387,14 +392,20 @@ const Master = {
                     whereval.push("STAFF");
                     index += 2;
                 }
+
+                if ((trade == "true") & (curpos != "VENDOR")) {
+                    or.push(`bu_id = $${index} and trade = true`);
+                    orval.push(bu_id);
+                    index++;
+                }
                 const { rows } = await client.query(
                     `
                     select file_code, file_type, is_mandatory, help, helpen, need_exp_date
-                    from mst_file_type where ${where.join(
-                        " and "
-                    )} order by file_code asc                    
+                    from mst_file_type where ${where.join(" and ")} ${
+                        or.length > 0 ? `or (${or.join("")}) ` : ""
+                    }order by file_code asc                    
                     `,
-                    whereval
+                    [...whereval, ...orval]
                 );
                 return rows;
             } catch (error) {
