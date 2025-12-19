@@ -222,16 +222,18 @@ ApprovalModel.CreateApprovalFlow = async ({
             let approval_steps = [];
             for (const f of flow) {
                 let method_flow = "update";
+                //check if index approval exist with current doctype
                 const { rows: is_step_exist } = await client.query(
                     `select id from approval_steps
                     where index_approval = $1 and id_doctype = $2`,
                     [f.index_approval, id_doctype]
                 );
-
+                // if it is new approval index, act as insert
                 if (is_step_exist.length == 0) {
                     method_flow = "insert";
                 }
                 let id_on_submit = null;
+                //if there's a on submit condition, create uuid for it
                 if (f.on_submit) {
                     id_on_submit = f.on_submit.id;
                     if (!id_on_submit) {
@@ -259,6 +261,7 @@ ApprovalModel.CreateApprovalFlow = async ({
                     enabled_input: f.enabled_input,
                     id_doctype: id_doctype,
                 };
+                //insert and update to approval_steps
                 let queFlow, valFlow;
                 if (method_flow == "insert") {
                     payload = {
