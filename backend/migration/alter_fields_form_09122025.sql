@@ -1,0 +1,1 @@
+ALTER TABLE public.fields_form ADD is_active bool DEFAULT true NULL;
