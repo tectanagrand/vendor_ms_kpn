@@ -352,7 +352,7 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
         const client = await db.connect();
         try {
             // add union to a_uservendor
-                const userData = await client.query(
+            const userData = await client.query(
                 `SELECT * FROM 
                 (SELECT USERNAME,
                     PASSWORD,
@@ -400,7 +400,8 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
                 throw new Error("User not found");
             }
             const userGroup = userData.rows[0].user_group;
-            const getAuthorization = await client.query(`
+            const getAuthorization = await client.query(
+                `
             SELECT 
                             PG.MENU_ID AS "id",
                             PG.PAGE,
@@ -429,7 +430,9 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
                             MST_PAGE_ACCESS 
                             ACS ON ACS.PAGE_ID = PG.MENU_ID AND ACS.user_group_id = $1
                         order by PG.parent_id asc, is_parent asc
-            `, [userGroup]);
+            `,
+                [userGroup]
+            );
             let authPerm = {};
             getAuthorization.rows.map(item => {
                 authPerm[item.page] = {
@@ -585,7 +588,8 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
                     throw new Error("User not found");
                 }
                 const user = userData.rows[0];
-                    const getAuthorization = await client.query(`
+                const getAuthorization = await client.query(
+                    `
                     SELECT 
                                     PG.MENU_ID AS "id",
                                     PG.PAGE,
@@ -614,7 +618,9 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
                                     MST_PAGE_ACCESS 
                                     ACS ON ACS.PAGE_ID = PG.MENU_ID AND ACS.user_group_id = $1
                                 order by PG.parent_id asc, is_parent asc
-                    `, [user.user_group]);
+                    `,
+                    [user.user_group]
+                );
                 let authPerm = {};
                 getAuthorization.rows.map(item => {
                     authPerm[item.page] = {
@@ -667,7 +673,8 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
     getAuthorization: async userGroup => {
         const client = await db.connect();
         try {
-            const getAuthorization = await client.query(`
+            const getAuthorization = await client.query(
+                `
             SELECT 
                             PG.MENU_ID AS "id",
                             PG.PAGE,
@@ -696,7 +703,9 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
                             MST_PAGE_ACCESS 
                 ACS ON ACS.PAGE_ID = PG.MENU_ID AND ACS.user_group_id = $1
                     order by PG.parent_id asc, is_parent asc
-            `, [userGroup]);
+            `,
+                [userGroup]
+            );
             let authPerm = {};
             getAuthorization.rows.map(item => {
                 authPerm[item.page] = {
@@ -778,7 +787,10 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
                                 ACS ON ACS.PAGE_ID = PG.MENU_ID AND ACS.user_group_id = $1
                             order by PG.parent_id asc, is_parent asc
                             `;
-            const secMtx = await client.query(secMtxq, group_id ? [group_id] : []);
+            const secMtx = await client.query(
+                secMtxq,
+                group_id ? [group_id] : [""]
+            );
             return {
                 name: secName,
                 count: secMtx.rowCount,
