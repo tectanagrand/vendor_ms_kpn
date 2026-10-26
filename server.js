@@ -1,4 +1,5 @@
 const express = require("express");
+const morgan = require("morgan");
 const header = require("./backend/middleware/header");
 const app = express();
 const dotenv = require("dotenv").config({
@@ -14,9 +15,22 @@ const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const fs = require("fs");
 const db = require("./backend/config/connection");
+const {
+    ensureSingleRequestSchema,
+} = require("./backend/config/ensureSingleRequestSchema");
 const VerifyLogin = require("./backend/middleware/VerifyLogin");
 const { SchedulerSyncStaged } = require("./backend/helper/Scheduler");
 const Material = require("./backend/models/MaterialModel");
+const materialSapStagingService = require("./backend/services/materialSapStagingService");
+const materialService = require("./backend/services/materialService");
+const reworkEmailInboundService = require("./backend/services/reworkEmailInboundService");
+const aiValidationService = require("./backend/services/aiValidationService");
+const {
+    ensureVendorSubmissionOutboxSchema,
+} = require("./backend/config/ensureVendorSubmissionOutboxSchema");
+const {
+    processPendingVendorSubmissions,
+} = require("./backend/services/vendorSubmissionOutboxService");
 const cron = require("node-cron");
 const moment = require("moment-timezone");
 
@@ -25,6 +39,7 @@ const whitelist = [
     "http://172.29.0.1:3000",
     "http://localhost:3000",
     "https://localhost:3000",
+    "https://localhost:3004",
     "https://localhost:4173",
     "https://4c59-49-156-20-130.ngrok-free.app",
 ];
@@ -54,10 +69,22 @@ if (os.platform() === "linux") {
     app.set("views", path.join(__dirname, "\\backend\\views\\pages"));
 }
 app.use(cors(corsOption));
+// The AI-validation webhook authenticates with an HMAC computed over the raw
+// request body, so it must reach the handler as bytes. body-parser sets
+// req._body once it has consumed the stream, which is what makes the
+// express.json() below skip this path instead of double-parsing it. Order
+// matters: move this after express.json() and every signature check fails.
+app.use(
+    "/api/ai-validation/webhook",
+    express.raw({ type: () => true, limit: "5mb" })
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
 app.use(routers);
+app.use(
+    morgan(":method :url :status :res[content-length] - :response-time ms")
+);
 app.use(express.static(path.join(__dirname, "public/build")));
 app.use("/static", express.static(path.join(__dirname, "backend/public")));
 app.get("/*$", (req, res) => {
@@ -120,30 +147,122 @@ cron.schedule(
     }
 );
 
-// Schedule material edit notification emails at 12 PM daily
+// Reconcile the Oracle SAP staging table (VMS_MATERIALDATA) — runs every minute
+// for now (testing); raise the interval for production. Pulls SAP's write-back —
+// FLAG 'S' (success, material created) or 'E' (error + message) — back into
+// mat_single_request.sap_push_status (the source of truth the UI reads), and
+// also pushes any PENDING stragglers the inline post-MDM push may have missed.
 cron.schedule(
-    "* 12 * * *",
+    "* * * * *",
     async () => {
-        await Material.EmailNotificationEditMaterial("12");
+        try {
+            const pushed =
+                await materialSapStagingService.pushPendingMaterialsToSapStaging(
+                    { limit: 50 }
+                );
+            const synced =
+                await materialSapStagingService.syncMaterialStagingFromSap();
+            if (
+                pushed.pushed.length ||
+                pushed.errors.length ||
+                synced.synced.length ||
+                synced.failed.length
+            ) {
+                console.log("[CRON] SAP material staging:", {
+                    pushed: pushed.pushed.length,
+                    pushErrors: pushed.errors.length,
+                    synced: synced.synced.length,
+                    syncFailed: synced.failed.length,
+                });
+            }
+        } catch (error) {
+            console.error(
+                "[CRON] SAP material staging reconcile failed:",
+                error
+            );
+        }
     },
-    {
-        timezone: "Asia/Jakarta",
-    }
+    // Don't let a slow tick overlap the next one.
+    { noOverlap: true }
 );
 
-// Schedule material edit notification emails at 6 PM daily
+// Pull rework-approver replies out of the VMS mailbox — every 60s.
+// OFF unless REWORK_EMAIL_INBOUND_ENABLED === 'true': the box is shared with
+// humans and holds 14k+ unrelated mails, so nothing connects to it until an
+// operator opts in per environment. The first enabled tick only seeds its
+// cursor at uidNext-1 and reads nothing (see reworkEmailInboundService).
 cron.schedule(
-    "0 18 * * *",
+    "* * * * *",
     async () => {
-        await Material.EmailNotificationEditMaterial("18");
+        if (process.env.REWORK_EMAIL_INBOUND_ENABLED !== "true") {
+            return;
+        }
+
+        try {
+            const result = await reworkEmailInboundService.pollReworkEmailReplies();
+            if (result.scanned || result.inserted || result.reason !== "RESUME") {
+                console.log("[CRON] Rework email inbound:", result);
+            }
+        } catch (error) {
+            console.error("[CRON] Rework email inbound poll failed:", error);
+        }
     },
-    {
-        timezone: "Asia/Jakarta",
-    }
+    // A slow IMAP round trip must not stack ticks on the same mailbox.
+    { noOverlap: true }
 );
 
-const server = https
-    .createServer(servOption, app)
-    .listen(port, "0.0.0.0", () => {
+// Close out AI validation runs that can never complete — every 5 minutes.
+//
+// A run stays PROCESSING from the 202 until its webhook lands. When that
+// webhook never comes there is nothing else to end the wait: the service has no
+// status endpoint to poll, and its retry ladder (5s/15s/45s) is spent within a
+// minute. Without this the form panel reports "Processing…" forever and a dead
+// run looks exactly like a slow one.
+//
+// It only relabels — no retry, no recovery. A late webhook still overwrites the
+// row, because storeValidationResult matches on request_id regardless of
+// submit_status.
+cron.schedule(
+    "*/5 * * * *",
+    async () => {
+        if (process.env.AI_VALIDATION_ENABLED !== "true") {
+            return;
+        }
+        try {
+            await aiValidationService.sweepStaleValidations();
+        } catch (error) {
+            console.error("[CRON] AI validation stale sweep failed:", error);
+        }
+    },
+    { noOverlap: true }
+);
+
+async function startServer() {
+    await ensureSingleRequestSchema(db);
+    await ensureVendorSubmissionOutboxSchema(db);
+    cron.schedule(
+        "* * * * *",
+        async () => {
+            try {
+                const result = await processPendingVendorSubmissions();
+                if (result.succeeded || result.retried || result.failed) {
+                    console.log("[CRON] Vendor submission outbox:", result);
+                }
+            } catch (error) {
+                console.error("[CRON] Vendor submission outbox failed:", error);
+            }
+        },
+        { noOverlap: true }
+    );
+    // Materials admins besides ADMIN (MATERIAL_ADMIN group), kept in a cache.
+    materialService.startMaterialAdminRefresh();
+
+    https.createServer(servOption, app).listen(port, "0.0.0.0", () => {
         console.log(`App running on ${port}`);
     });
+}
+
+startServer().catch(error => {
+    console.error("Failed to initialize server schema:", error);
+    process.exit(1);
+});

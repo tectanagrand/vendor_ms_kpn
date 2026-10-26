@@ -6,10 +6,42 @@ const crud = require("../helper/crudquery");
 const { hashPassword } = require("../middleware/hashpass");
 const PageModel = require("../models/PageModel");
 
+const getReadableError = err => {
+    const rawMessage =
+        err?.message || err?.stack || (typeof err === "string" ? err : null);
+    const code = err?.code;
+    const message = rawMessage || "Internal server error";
+
+    if (
+        [
+            "ECONNRESET",
+            "ECONNREFUSED",
+            "ETIMEDOUT",
+            "EHOSTUNREACH",
+            "EACCES",
+        ].includes(code) ||
+        message.includes("ECONNRESET") ||
+        message.includes("ETIMEDOUT") ||
+        message.includes("EHOSTUNREACH") ||
+        message.includes("EACCES")
+    ) {
+        return "Database connection failed. Check office network or VPN access, then verify the PostgreSQL host is reachable.";
+    }
+
+    return message;
+};
+
 const UserController = {
     showAll: async (req, res) => {
         try {
-            let data = await User.showAll();
+            // Optional pagination + search. Omit page/limit to get all rows
+            // (unchanged behavior for existing callers). Aliases: pageSize, q.
+            const { page, limit, pageSize, search, q } = req.query || {};
+            let data = await User.showAll({
+                page,
+                limit: limit ?? pageSize,
+                search: search ?? q,
+            });
             res.status(200).send(data);
         } catch (err) {
             console.error(err);
@@ -43,7 +75,7 @@ const UserController = {
         } catch (err) {
             console.log(err);
             res.status(500).send({
-                message: err,
+                message: getReadableError(err),
             });
         }
     },
@@ -75,8 +107,8 @@ const UserController = {
     },
 
     refreshToken: async (req, res) => {
+        let client;
         try {
-            const client = await db.connect();
             let headers =
                 req.headers.Authorization || req.headers.authorization;
             let token = headers?.split(" ")[1];
@@ -85,53 +117,45 @@ const UserController = {
                     message: "Unauthorized",
                 });
             }
-            let cookies;
-            const result = jwt.verify(token, process.env.TOKEN_KEY, {
+            const cookies = jwt.verify(token, process.env.TOKEN_KEY, {
                 ignoreExpiration: true,
             });
-            cookies = result;
-            try {
-                let refToken_q = "";
-                if (cookies.role == "VENDOR") {
-                    refToken_q = `select token from a_uservendor where user_id = '${cookies.user_id}'`;
-                } else if (cookies.role !== "MGR") {
-                    refToken_q = `select token from mst_user where user_id = '${cookies.user_id}'`;
-                } else {
-                    refToken_q = `select token from mst_mgr where mgr_id = '${cookies.user_id}'`;
-                }
-                const getrefToken = await client.query(refToken_q);
-                const refToken = getrefToken.rows[0].token;
-                const verif = jwt.verify(refToken, process.env.TOKEN_KEY);
-                const newAct = jwt.sign(
-                    {
-                        user_id: cookies.user_id,
-                        username: cookies.username,
-                        role: cookies.role,
-                        emp_role_id: cookies.emp_role_id,
-                        bu_id: cookies.bu_id,
-                        dept_id: cookies.dept_id,
-                    },
-                    process.env.TOKEN_KEY,
-                    {
-                        expiresIn: "30s",
-                    }
-                );
-                res.status(200).send({
-                    accessToken: newAct,
-                });
-            } catch (error) {
-                console.error(error);
-                res.status(401).send({
-                    message: "Login Expired",
-                });
-            } finally {
-                client.release();
+            client = await db.connect();
+            let refToken_q = "";
+            if (cookies.role == "VENDOR") {
+                refToken_q = `select token from a_uservendor where user_id = '${cookies.user_id}'`;
+            } else if (cookies.role !== "MGR") {
+                refToken_q = `select token from mst_user where user_id = '${cookies.user_id}'`;
+            } else {
+                refToken_q = `select token from mst_mgr where mgr_id = '${cookies.user_id}'`;
             }
+            const getrefToken = await client.query(refToken_q);
+            const refToken = getrefToken.rows[0].token;
+            const verif = jwt.verify(refToken, process.env.TOKEN_KEY);
+            const newAct = jwt.sign(
+                {
+                    user_id: cookies.user_id,
+                    username: cookies.username,
+                    role: cookies.role,
+                    emp_role_id: cookies.emp_role_id,
+                    bu_id: cookies.bu_id,
+                    dept_id: cookies.dept_id,
+                },
+                process.env.TOKEN_KEY,
+                {
+                    expiresIn: "15m",
+                }
+            );
+            res.status(200).send({
+                accessToken: newAct,
+            });
         } catch (error) {
             console.error(error);
             res.status(401).send({
                 message: "Login Expired",
             });
+        } finally {
+            if (client) client.release();
         }
     },
 
@@ -209,15 +233,24 @@ const UserController = {
 
     createNewUser: async (req, res) => {
         const Dt = req.body;
-        console.log(Dt);
         if (req.body.hasOwnProperty("password")) {
             Dt.password = req.body.password;
         }
         try {
             let submitDt;
-            if (Dt.role == "VENDOR") {
+            const existingAccountType = Dt.user_id ? await User.getAccountType(Dt.user_id) : null;
+            if (Dt.user_id && !existingAccountType) {
+                throw Object.assign(new Error("User no longer exists. Refresh the user list."), {
+                    statusCode: 404,
+                });
+            }
+            // Existing managers may have PROC, TAX or MDM access roles. The
+            // stored account, rather than an empty manager field, chooses the table.
+            const accountType = existingAccountType
+                || (Dt.role === "MGR" ? "MGR" : Dt.role === "VENDOR" ? "VENDOR" : "USER");
+            if (accountType === "VENDOR") {
                 submitDt = await User.updateVendor(Dt);
-            } else if (Dt.mgr_id === "") {
+            } else if (accountType === "MGR") {
                 submitDt = await User.createManager(Dt);
             } else {
                 submitDt = await User.createUser(Dt);
@@ -228,7 +261,9 @@ const UserController = {
             });
         } catch (error) {
             console.error(error);
-            res.status(500).send(error);
+            res.status(error.statusCode || 500).send({
+                message: error.message || String(error),
+            });
         }
     },
 

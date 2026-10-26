@@ -147,6 +147,29 @@ const Vendor = {
         }
     },
 
+    async setDetailVenCoupa(detail, client) {
+        try {
+            const today = new Date();
+            if ("valid_until" in detail) {
+                const valid_until = new Date(
+                    detail.valid_until
+                ).toLocaleDateString();
+                detail.valid_until = valid_until ? valid_until : null;
+            }
+            detail.updated_at = moment(today).format("YYYY-MM-DD");
+            detail.created_at = moment(today).format("YYYY-MM-DD");
+
+            [q, value] = crud.insertItem("vendor", detail, "*");
+            console.log(q, value);
+            const submit = await client.query(q, value);
+            // console.log(submit);
+            return submit;
+        } catch (err) {
+            console.log(err);
+            throw err;
+        }
+    },
+
     async setTemp(params) {
         const { fields, uploaded_files } = params;
         let promises = [];
@@ -510,6 +533,7 @@ const Vendor = {
                     country: bank.bank_country ?? null,
                     bank_curr: bank.bank_curr,
                     acc_hold: bank.acc_hold,
+                    acc_name: bank.acc_name,
                 };
                 switch (method) {
                     case "insert":
@@ -526,6 +550,7 @@ const Vendor = {
                 }
             }
             const returnPromise = await Promise.all(promises);
+            // console.log(returnPromise);
             return returnPromise;
         } catch (error) {
             console.error(error.stack);
@@ -715,7 +740,12 @@ const Vendor = {
         const promise = new Promise(async (resolve, reject) => {
             const q = `SELECT HEADER FROM VEN_CODE_HD WHERE local_ovs = $1 and ven_acc = $2 and ven_type = $3 and ven_group = $4`;
             try {
-                const headercode = await client.query(q, [local_ovs, ven_acc, ven_type, ven_group]);
+                const headercode = await client.query(q, [
+                    local_ovs,
+                    ven_acc,
+                    ven_type,
+                    ven_group,
+                ]);
                 resolve({ status: true, header: headercode.rows[0] });
             } catch (err) {
                 reject({ status: false, message: "Header not found" });
@@ -945,14 +975,17 @@ const Vendor = {
                     },
                     "ticket_id"
                 );
-                await client.query(`UPDATE ticket
+                await client.query(
+                    `UPDATE ticket
                                 set reject_by = 'VERIFIC',
                                 cur_pos = 'PROC',
                                 remarks= $1,
                                 ticket_state = 'FINA',
                                 updated_at = DEFAULT
                                 where token = $2
-                                returning ticket_id`, [notes, proc_email[0].token]);
+                                returning ticket_id`,
+                    [notes, proc_email[0].token]
+                );
                 await client.query(qins, valins);
                 // send reject email to proc
                 await Emailer.rejectedVerif(
@@ -1374,8 +1407,24 @@ const Vendor = {
             if (!psqlclient) {
                 psqlclient = await db.connect();
             }
-            const oraclient = await getConnection();
+            let oraclient;
+            let sessionLocked = false;
+            let releaseError;
+            const lockKey = `vms:vendor:staging:${ven_id}`;
             try {
+                // Serialize this vendor across replicas, including an upload
+                // retried after Oracle committed but the worker lost its lease.
+                // Legacy callers supply an open transaction; the worker owns
+                // its connection and uses a session lock instead.
+                await psqlclient.query(
+                    pgclient
+                        ? "SELECT pg_advisory_xact_lock(hashtext($1))"
+                        : "SELECT pg_advisory_lock(hashtext($1))",
+                    [lockKey]
+                );
+                sessionLocked = !pgclient;
+                oraclient = await getConnection();
+                oraclient.callTimeout = 60000;
                 const { rows: vendor_data } = await psqlclient.query(
                     `
                     select
@@ -1406,7 +1455,9 @@ const Vendor = {
                         limit_vendor,
                         lim_curr,
                         ven_acc,
-                        mpc.prefix as phone_pref
+                        mpc.prefix as phone_pref,
+                        nitku,
+                        coupa_id
                     from
                         vendor v
                     left join mst_company mc on
@@ -1422,6 +1473,22 @@ const Vendor = {
                     [ven_id]
                 );
                 const ven = vendor_data[0];
+                if (!ven || !ven.ven_code) {
+                    throw new Error("Vendor code is required for SAP staging");
+                }
+                const { rows: staged } = await oraclient.execute(
+                    "SELECT VEN_CODE FROM VMS_VENDORDATA WHERE VEN_ID = :venId",
+                    { venId: ven_id }
+                );
+                if (staged.length) {
+                    if (staged.length !== 1 || staged[0][0] !== ven.ven_code) {
+                        throw new Error("Existing SAP staging record conflicts with this vendor");
+                    }
+                    // The header, banks and files are committed together. An
+                    // existing matching header means that upload is complete;
+                    // preserve SAP's flags and avoid appending duplicate children.
+                    return { ven_code: ven.ven_code, already_staged: true };
+                }
                 let localovs;
                 let title = "";
                 if (ven.title === "COMPANY") {
@@ -1506,6 +1573,8 @@ const Vendor = {
                     ISRETRIEVEDBYSAP: 0,
                     FLAG_CRT: "N",
                     FLAG_EXT: "N",
+                    NITKU: ven.nitku,
+                    COUPA_ID: ven.coupa_id,
                 };
 
                 const [insDet, valDet] = crud.insertItemOra(
@@ -1544,19 +1613,38 @@ const Vendor = {
                     );
                     await oraclient.execute(insFile, valFile);
                 }
-                oraclient.commit();
+                await oraclient.commit();
                 return {
                     ven_code: ven.ven_code,
                 };
             } catch (error) {
-                oraclient.rollback();
+                if (oraclient) {
+                    try {
+                        await oraclient.rollback();
+                    } catch (rollbackError) {
+                        console.error("Vendor staging rollback failed:", rollbackError.message);
+                    }
+                }
                 throw error;
             } finally {
-                if (!pgclient && psqlclient) {
-                    psqlclient.release();
-                }
                 if (oraclient) {
-                    oraclient.release();
+                    try {
+                        await oraclient.close();
+                    } catch (closeError) {
+                        console.error("Vendor staging connection close failed:", closeError.message);
+                    }
+                }
+                if (sessionLocked) {
+                    try {
+                        await psqlclient.query("SELECT pg_advisory_unlock(hashtext($1))", [lockKey]);
+                    } catch (unlockError) {
+                        releaseError = unlockError;
+                    }
+                }
+                if (!pgclient && psqlclient) {
+                    // Drop a connection if unlocking failed, so a session lock
+                    // cannot leak back into the connection pool.
+                    psqlclient.release(releaseError);
                 }
             }
         } catch (error) {
@@ -2163,6 +2251,49 @@ const Vendor = {
             }
         } catch (error) {
             throw error;
+        }
+    },
+
+    async allVerified(type) {
+        const client = await db.connect();
+        try {
+            let query = `
+            select 
+                v.ven_id as vendor_id,
+                v.ven_code as vendor_code,
+                v.name_1 as vendor_name,
+                v.email,
+                v.is_active,
+                v.ven_acc as vendor_account,
+                v.ven_type as vendor_type,
+                trim(concat_ws(' ',
+                    v.street,
+                    v.street2,
+                    v.street3,
+                    v.street4
+                )) as street_address
+            from vendor v
+            where v.is_pushsap = true
+        `;
+
+            const values = [];
+
+            if (type) {
+                values.push(type.toLowerCase());
+                query += ` and lower(v.ven_type) = $${values.length}`;
+            }
+
+            const result = await client.query(query, values);
+
+            return {
+                count: result.rowCount,
+                data: result.rows,
+            };
+        } catch (err) {
+            console.error("error fetching verified vendors:", err);
+            throw err;
+        } finally {
+            client.release();
         }
     },
 

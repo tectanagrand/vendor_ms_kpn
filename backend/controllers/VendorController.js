@@ -8,7 +8,6 @@ const os = require("os");
 const TRANS = require("../config/transaction");
 const uuid = require("uuidv4");
 const Crud = require("../helper/crudquery");
-const SFTPModel = require("../models/SFTPModel");
 
 VendorController = {};
 
@@ -159,9 +158,9 @@ VendorController.setTempFile = async (req, res) => {
 };
 
 VendorController.setBankFile = async (req, res) => {
+    let client;
     try {
         // console.log(req);
-        const client = await db.connect();
         const id_user = req.cookies.user_id;
         const extensions = ["pdf", "doc", "docx", "img", "png", "jpg", "jpeg"];
         const form = new formidable.IncomingForm();
@@ -172,6 +171,7 @@ VendorController.setBankFile = async (req, res) => {
         let file = items.file_atth[0];
         let newPath = "";
         try {
+            client = await db.connect();
             await client.query(TRANS.BEGIN);
             const date = Date.now().toString();
             let name = file.originalFilename.split(".");
@@ -220,7 +220,7 @@ VendorController.setBankFile = async (req, res) => {
                 file_id: payload.file_id,
             });
         } catch (error) {
-            await client.query(TRANS.ROLLBACK);
+            if (client) await client.query(TRANS.ROLLBACK);
             console.log(error);
             if (error.message === "File Format invalid") {
                 return res.status(400).send({
@@ -231,7 +231,7 @@ VendorController.setBankFile = async (req, res) => {
                 throw error;
             }
         } finally {
-            client.release();
+            if (client) client.release();
         }
     } catch (err) {
         console.log(err);
@@ -598,19 +598,4 @@ VendorController.EditExpiryDateFile = async (req, res) => {
     }
 };
 
-//Get SFTP
-VendorController.GetDataSFTP = async (req, res) => {
-    try {
-        const { location, filename } = req.body;
-        const GetSFTP = await SFTPModel.GetSFTPFiles(location, filename);
-        res.status(200).send({
-            result: GetSFTP,
-        });
-    } catch (error) {
-        console.error(error);
-        res.status(500).send({
-            error: error,
-        });
-    }
-};
 module.exports = VendorController;
