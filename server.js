@@ -11,6 +11,7 @@ const http = require("http");
 const path = require("path");
 const routers = require("./backend/routes");
 const port = process.env.PORT;
+const host = process.env.HOST || "0.0.0.0";
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const fs = require("fs");
@@ -257,8 +258,8 @@ async function startServer() {
     // Materials admins besides ADMIN (MATERIAL_ADMIN group), kept in a cache.
     materialService.startMaterialAdminRefresh();
 
-    https.createServer(servOption, app).listen(port, "0.0.0.0", () => {
-        console.log(`App running on ${port}`);
+    https.createServer(servOption, app).listen(port, host, () => {
+        console.log(`App running on ${port} at ${host}`);
     });
 }
 

@@ -3,11 +3,13 @@ const router = express.Router();
 const MaterialController = require("../controllers/MaterialController");
 const GuideController = require("../controllers/GuideController");
 const MaterialDashboardController = require("../controllers/MaterialDashboardController");
+const MaterialSlaReportController = require("../controllers/MaterialSlaReportController");
 const AuthToken = require("../middleware/tokenmanager");
 const requireMaterialAdmin = require("../middleware/requireMaterialAdmin");
 const requireMaterialMasterData = require("../middleware/requireMaterialMasterData");
 
 router.get("/dashboard", AuthToken.authSession, MaterialDashboardController.getDashboard);
+router.get("/dashboard/sla", AuthToken.authSession, MaterialSlaReportController.getReport);
 
 // Get all material groups
 router.get("/groups", MaterialController.getMaterialGroups);

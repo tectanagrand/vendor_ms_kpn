@@ -2,6 +2,9 @@ const { Pool } = require("pg");
 const dotenv = require("dotenv").config({
   path: `./${process.env.NODE_ENV}.env`,
 });
+const postgresSsl = process.env.PGSSL === "disable"
+  ? false
+  : { rejectUnauthorized: false };
 
 const prodSettings = {
   host: process.env.PGHOST,
@@ -10,9 +13,7 @@ const prodSettings = {
   port: process.env.PGPORT,
   database: process.env.PGDATABASE,
   timezone: "Asia/Jakarta",
-  ssl: {
-    rejectUnauthorized: false,
-  },
+  ssl: postgresSsl,
   idleTimeoutMillis: 3000,
   connectionTimeoutMillis: 30000,
   allowExitOnIdle: true,
@@ -29,9 +30,7 @@ const devSettings = {
   idleTimeoutMillis: 3000,
   connectionTimeoutMillis: 30000,
   allowExitOnIdle: true,
-  ssl: {
-    rejectUnauthorized: false,
-  },
+  ssl: postgresSsl,
   application_name: "VMS",
 };
 
