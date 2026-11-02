@@ -8,7 +8,8 @@ WITH items AS (
            r.request_no AS ticket_number, COALESCE(r.material_code, r.final_code) AS material_code,
            r.material_description, COALESCE(g.code, 'Unspecified') AS material_group,
            COALESCE(u.username, r.created_by) AS requester, u.department,
-           r.status AS request_status, r.created_at AS request_at, r.updated_at
+           r.status AS request_status, r.created_at AS request_at, r.updated_at,
+           r.plant_code
     FROM mat_single_request r
     LEFT JOIN mat_item_group g ON g.id = r.material_group_id
     LEFT JOIN mst_user u ON u.user_id = r.created_by
@@ -22,7 +23,8 @@ WITH items AS (
            i.material_description,
            COALESCE(NULLIF(BTRIM(i.material_group), ''), 'Unspecified'),
            COALESCE(u.username, i.created_by), u.department,
-           i.status, m.created_at, i.updated_at
+           i.status, m.created_at, i.updated_at,
+           i.plant_code
     FROM mat_mass_request_item i
     JOIN mat_mass_request m ON m.id = i.mass_request_id
     LEFT JOIN mst_user u ON u.user_id = i.created_by
@@ -84,6 +86,8 @@ WITH items AS (
 )
 SELECT i.request_kind, i.item_id, i.ticket_number, i.material_code, i.material_description,
        i.material_group, i.requester, i.department, i.request_status, i.request_at,
+       i.plant_code,
+       COALESCE(mc.group_comp, mc_fb.group_comp) AS group_comp,
        CASE
            WHEN approvals.last_manual_approval IS NOT NULL THEN approvals.last_manual_approval
            WHEN NOT COALESCE(approvals.has_manual_steps, FALSE) THEN i.request_at
@@ -97,6 +101,9 @@ SELECT i.request_kind, i.item_id, i.ticket_number, i.material_code, i.material_d
        COALESCE(approvals.stages, '[]'::jsonb) AS approval_stages,
        CURRENT_TIMESTAMP AS report_as_of
 FROM items i
+LEFT JOIN mst_plant mp ON mp.plant_code = i.plant_code
+LEFT JOIN mst_company mc ON mc.sap_code = mp.company_code
+LEFT JOIN mst_company mc_fb ON mc_fb.sap_code = SUBSTRING(i.plant_code FROM 1 FOR 2)
 LEFT JOIN step_rollup approvals
     ON approvals.request_kind = i.request_kind AND approvals.item_id = i.item_id
 LEFT JOIN comment_rollup comments
@@ -128,6 +135,25 @@ function calculateSlaDays(startAt, endAt) {
     return Math.max(1, cutoffDayOrdinal(endAt) - cutoffDayOrdinal(startAt));
 }
 
+const UPSTREAM_PREFIXES = new Set([
+    "AC", "AG", "AJ", "AM", "AN", "BS", "BU", "CM", "CR", "GN",
+    "GS", "GW", "HS", "IA", "IP", "IS", "IU", "JJ", "KA", "KB",
+    "KN", "KS", "KU", "ND", "NJ", "PA", "PC", "PD", "PN", "PT",
+    "SA", "SI", "SN", "SU", "SY", "TH", "TS", "UI", "WS", "WW",
+]);
+
+function getBusinessUnit(plantCode, groupComp) {
+    if (groupComp) {
+        const norm = String(groupComp).trim().toUpperCase();
+        if (norm === "UPSTREAM") return "Upstream";
+        if (norm === "DOWNSTREAM") return "Downstream";
+    }
+    if (!plantCode) return "-";
+    const prefix = String(plantCode).trim().substring(0, 2).toUpperCase();
+    if (UPSTREAM_PREFIXES.has(prefix)) return "Upstream";
+    return "Downstream";
+}
+
 async function getMaterialSlaReport({ actorUsername, query = {} } = {}) {
     await materialService.refreshMaterialAdminUsernames({ minAgeMs: 10000 });
     if (!materialService.isAdminMaterialApprover(actorUsername)) {
@@ -157,6 +183,8 @@ async function getMaterialSlaReport({ actorUsername, query = {} } = {}) {
                 (cancelled ? row.cancelled_at : row.report_as_of);
             return {
                 ...row,
+                plant_code: row.plant_code || "-",
+                business_unit: getBusinessUnit(row.plant_code, row.group_comp),
                 response_sla_days: calculateSlaDays(row.request_at, responseEnd),
                 ticket_journey_days: calculateSlaDays(row.request_at, journeyEnd),
                 is_responded: Boolean(row.response_at),
@@ -169,5 +197,7 @@ module.exports = {
     SLA_REPORT_QUERY,
     calculateSlaDays,
     cutoffDayOrdinal,
+    getBusinessUnit,
+    UPSTREAM_PREFIXES,
     getMaterialSlaReport,
 };
