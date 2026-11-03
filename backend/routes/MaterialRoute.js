@@ -1,9 +1,21 @@
 const express = require("express");
 const router = express.Router();
 const MaterialController = require("../controllers/MaterialController");
+const GuideController = require("../controllers/GuideController");
+const MaterialDashboardController = require("../controllers/MaterialDashboardController");
+const MaterialSlaReportController = require("../controllers/MaterialSlaReportController");
 const AuthToken = require("../middleware/tokenmanager");
+const requireMaterialAdmin = require("../middleware/requireMaterialAdmin");
+const requireMaterialMasterData = require("../middleware/requireMaterialMasterData");
+
+router.get("/dashboard", AuthToken.authSession, MaterialDashboardController.getDashboard);
+router.get("/dashboard/sla", AuthToken.authSession, MaterialSlaReportController.getReport);
+
 // Get all material groups
 router.get("/groups", MaterialController.getMaterialGroups);
+
+// Get initial screen data (Plant, Sloc, Material Type)
+router.get("/initial-screen-data", MaterialController.getInitialScreenData);
 
 // Get all material groups for dropdown (no pagination)
 router.get("/groups/dropdown", MaterialController.getAllMaterialGroups);
@@ -96,6 +108,9 @@ router.get(
 // Search materials (query parameter: ?q=searchTerm)
 router.get("/search", MaterialController.searchMaterials);
 
+// Get search suggestions (query parameter: ?q=searchTerm)
+router.get("/suggestions", MaterialController.getSearchSuggestions);
+
 // Search all materials (including deleted)
 router.get("/search/all", MaterialController.searchAllMaterials);
 
@@ -112,10 +127,11 @@ router.post(
     MaterialController.uploadAttachment
 );
 
-// Delete attachment
+// Delete attachment: Master Data and Materials administrators only
 router.delete(
     "/attachments/:attachmentId",
     AuthToken.authSession,
+    requireMaterialMasterData,
     MaterialController.deleteAttachment
 );
 
@@ -126,17 +142,321 @@ router.put(
     MaterialController.updateAliases
 );
 
-// Serve attachment file
-router.get("/file/:filename", MaterialController.serveFile);
+// Serve attachment file (catch-all so nested paths like
+// `attachments/single-request/<date>/<id>/<file>` reach the controller intact).
+// Express 4 path-to-regexp: (*) captures everything including nested path segments.
+router.get("/file(*)", MaterialController.serveFile);
+
+// Material guides — uploaded documents and videos shown on Materials > Dashboard.
+// Registered here, ahead of `GET /:materialId` further down, or "guides" would be
+// read as a material id.
+router.get("/guides", AuthToken.authSession, GuideController.getGuides);
+// Unauthenticated like `/file(*)` above: a <video> or <iframe> src cannot carry
+// the Authorization header. Range-capable, so videos are seekable.
+router.get("/guides/files/:fileId/content", GuideController.streamFile);
+// A gigabyte batch on an ordinary office uplink outlasts Node's 5-minute
+// default request timeout, which would abort the upload mid-stream. Raised for
+// this one route rather than server-wide, so every other endpoint keeps the
+// shorter ceiling.
+router.post(
+    "/guides/upload",
+    AuthToken.authSession,
+    requireMaterialAdmin,
+    (req, res, next) => {
+        req.setTimeout(30 * 60 * 1000);
+        res.setTimeout(30 * 60 * 1000);
+        next();
+    },
+    GuideController.uploadGuides
+);
+// Managing guides is the Administrator section's; reading them (above) is open.
+router.post(
+    "/guides/folders",
+    AuthToken.authSession,
+    requireMaterialAdmin,
+    GuideController.createFolder
+);
+router.put(
+    "/guides/folders/:folderId",
+    AuthToken.authSession,
+    requireMaterialAdmin,
+    GuideController.updateFolder
+);
+router.delete(
+    "/guides/folders/:folderId",
+    AuthToken.authSession,
+    requireMaterialAdmin,
+    GuideController.deleteFolder
+);
+router.put(
+    "/guides/files/:fileId",
+    AuthToken.authSession,
+    requireMaterialAdmin,
+    GuideController.updateFile
+);
+router.delete(
+    "/guides/files/:fileId",
+    AuthToken.authSession,
+    requireMaterialAdmin,
+    GuideController.deleteFile
+);
 
 // SAP data synchronization endpoint
-router.get("/sync-sap", AuthToken.authSession, MaterialController.syncSAPData);
+
+// Single material request endpoints
+router.get(
+    "/requests/single/active-check",
+    AuthToken.authSession,
+    MaterialController.checkActiveSingleRequest
+);
+router.post(
+    "/requests/single",
+    AuthToken.authSession,
+    MaterialController.createSingleRequest
+);
+router.post(
+    "/requests/mass",
+    AuthToken.authSession,
+    MaterialController.createMassRequest
+);
+router.get(
+    "/requests/mass",
+    AuthToken.authSession,
+    MaterialController.getMassRequests
+);
+router.get(
+    "/requests/single",
+    AuthToken.authSession,
+    MaterialController.getSingleRequests
+);
+router.get(
+    "/requests/single/approval-inbox",
+    AuthToken.authSession,
+    MaterialController.getSingleRequestApprovalInbox
+);
+router.get(
+    "/requests/mass/approval-inbox",
+    AuthToken.authSession,
+    MaterialController.getMassRequestApprovalInbox
+);
+router.post(
+    "/requests/mass/:id/approve",
+    AuthToken.authSession,
+    MaterialController.approveMassRequest
+);
+router.post(
+    "/requests/mass/:id/rework",
+    AuthToken.authSession,
+    MaterialController.requestMassRequestRework
+);
+router.post(
+    "/requests/mass/:id/reject",
+    AuthToken.authSession,
+    MaterialController.rejectMassRequest
+);
+router.post(
+    "/requests/mass/:id/decide",
+    AuthToken.authSession,
+    MaterialController.decideMassRequest
+);
+router.get(
+    "/requests/mass/:id/items",
+    AuthToken.authSession,
+    MaterialController.getMassRequestItems
+);
+router.get(
+    "/requests/single/approver-masters",
+    AuthToken.authSession,
+    MaterialController.getSingleRequestApproverMasters
+);
+router.get(
+    "/requests/single/:id",
+    AuthToken.authSession,
+    MaterialController.getSingleRequestById
+);
+// Whole-list save of a requester's ordered manual approver chain.
+router.put(
+    "/requests/single/approver-masters/:requesterUserId",
+    AuthToken.authSession,
+    MaterialController.assignSingleRequestApproverMaster
+);
+// PATCH alias kept temporarily for backward compatibility during cutover.
+router.patch(
+    "/requests/single/approver-masters/:requesterUserId",
+    AuthToken.authSession,
+    MaterialController.assignSingleRequestApproverMaster
+);
+router.patch(
+    "/requests/single/:id/assign-approvers",
+    AuthToken.authSession,
+    MaterialController.assignSingleRequestApprovers
+);
+// MDM grab: claim the open Master Data (final) step.
+router.post(
+    "/requests/single/:id/claim-mdm",
+    AuthToken.authSession,
+    MaterialController.claimSingleRequestMdmStep
+);
+router.post(
+    "/requests/mass/:id/claim-mdm",
+    AuthToken.authSession,
+    MaterialController.claimMassRequestMdmStep
+);
+router.post(
+    "/requests/single/:id/approve",
+    AuthToken.authSession,
+    MaterialController.approveSingleRequest
+);
+router.post(
+    "/requests/single/:id/rework",
+    AuthToken.authSession,
+    MaterialController.requestSingleRequestRework
+);
+router.post(
+    "/requests/single/:id/reject",
+    AuthToken.authSession,
+    MaterialController.rejectSingleRequest
+);
+router.put(
+    "/requests/single/:id/rework",
+    AuthToken.authSession,
+    MaterialController.saveSingleRequestRework
+);
+router.post(
+    "/requests/single/:id/sap-resubmit",
+    AuthToken.authSession,
+    MaterialController.requestSapErrorRework
+);
+router.post(
+    "/requests/mass/:id/sap-resubmit",
+    AuthToken.authSession,
+    MaterialController.requestMassSapErrorRework
+);
+router.put(
+    "/requests/mass/:id/rework",
+    AuthToken.authSession,
+    MaterialController.saveMassRequestRework
+);
+
+// AI material match — advisory "does this already exist?" ranking, stored per
+// material line after submit/rework. Plain reads plus a manual re-queue, and a
+// pre-save preview the request forms call before anything is written.
+router.post(
+    "/ai-match/preview",
+    AuthToken.authSession,
+    MaterialController.previewAiMatch
+);
+router.get(
+    "/requests/single/:id/ai-match",
+    AuthToken.authSession,
+    MaterialController.getSingleRequestAiMatch
+);
+router.get(
+    "/requests/mass/:id/ai-match",
+    AuthToken.authSession,
+    MaterialController.getMassRequestAiMatch
+);
+router.post(
+    "/requests/single/:id/ai-match/rerun",
+    AuthToken.authSession,
+    MaterialController.rerunSingleRequestAiMatch
+);
+router.post(
+    "/requests/mass/:id/ai-match/rerun",
+    AuthToken.authSession,
+    MaterialController.rerunMassRequestAiMatch
+);
+
+// Rework e-mail: the draft the Master Data dialog prefills before sending,
+// and the sent-mails + replies thread the request detail renders read-only.
+router.get(
+    "/requests/single/:id/rework-email-template",
+    AuthToken.authSession,
+    MaterialController.getSingleRequestReworkEmailTemplate
+);
+router.get(
+    "/requests/mass/:id/rework-email-template",
+    AuthToken.authSession,
+    MaterialController.getMassRequestReworkEmailTemplate
+);
+router.get(
+    "/requests/single/:id/rework-email-thread",
+    AuthToken.authSession,
+    MaterialController.getSingleRequestReworkEmailThread
+);
+router.get(
+    "/requests/mass/:id/rework-email-thread",
+    AuthToken.authSession,
+    MaterialController.getMassRequestReworkEmailThread
+);
+
+// Comment history: everything said about a request, in the order it was said.
+router.get(
+    "/requests/single/:id/comments",
+    AuthToken.authSession,
+    MaterialController.getSingleRequestComments
+);
+router.get(
+    "/requests/mass/:id/comments",
+    AuthToken.authSession,
+    MaterialController.getMassRequestComments
+);
+
+// Per-user preference store, generic over the key. The owner is always the
+// authenticated session, never a param or body field.
+router.get(
+    "/preferences/:key",
+    AuthToken.authSession,
+    MaterialController.getUserPreference
+);
+router.put(
+    "/preferences/:key",
+    AuthToken.authSession,
+    MaterialController.setUserPreference
+);
+
+
+// Material template endpoints
+router.get("/templates", MaterialController.getMaterialTemplates);
+router.get(
+    "/material-suggestions",
+    MaterialController.searchMaterialTemplateSuggestions
+);
+router.post(
+    "/template-validations",
+    MaterialController.validateMaterialTemplate
+);
+router.post(
+    "/groups/:materialGroupCode/template-description-previews",
+    MaterialController.previewMaterialTemplateDescription
+);
+router.get(
+    "/groups/:materialGroupCode/form-schema",
+    MaterialController.getMaterialFormSchemaByGroup
+);
+router.get(
+    "/groups/:materialGroupCode/template",
+    MaterialController.getMaterialTemplateByGroup
+);
 
 // Export materials to Excel (filtered by group/subgroup)
 router.get(
     "/export/materials",
     AuthToken.authSession,
     MaterialController.exportMaterialsToExcel
+);
+
+// Get UoM master list for dropdown
+router.get("/uom", AuthToken.authSession, MaterialController.getUomMaster);
+
+// Get plant master list for dropdown
+router.get("/plant", AuthToken.authSession, MaterialController.getPlantMaster);
+
+// Get storage location master list for dropdown
+router.get(
+    "/storage-location",
+    AuthToken.authSession,
+    MaterialController.getStorageLocationMaster
 );
 
 // Get material by ID with full details and attachments

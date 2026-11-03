@@ -7,9 +7,14 @@ const crud = require("../helper/crudquery.js");
 const moment = require("moment");
 const PageModel = require("../models/PageModel.js");
 const { param } = require("../routes/UserRoute.js");
+const {
+    buildLoginUserGroupInfo,
+    resolveMaterialMenuAccess,
+    applyMaterialMenuAccess,
+} = require("../services/materialService.js");
 
 const User = {
-    showAll: async () => {
+    showAll: async ({ page, limit, search } = {}) => {
         const client = await db.connect();
         try {
             const row = await client.query(`
@@ -26,10 +31,47 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
                 us.is_active
                 FROM mst_mgr us
 				LEFT JOIN (SELECT DISTINCT user_group_name, user_group_id from mst_page_access) sec on us.user_group = sec.user_group_id`);
-            return {
-                count: row.rowCount,
-                data: row.rows,
+            let rows = row.rows;
+
+            // Optional backend search across name / username / email / role / group.
+            const term = typeof search === "string" ? search.trim().toLowerCase() : "";
+            if (term) {
+                rows = rows.filter(user =>
+                    [
+                        user.fullname,
+                        user.username,
+                        user.email,
+                        user.role,
+                        user.user_group_name,
+                    ].some(value => String(value ?? "").toLowerCase().includes(term))
+                );
+            }
+
+            const total = rows.length;
+
+            // Optional pagination — applied only when BOTH page and limit are valid
+            // positive integers. Otherwise the full (filtered) list is returned, so
+            // existing callers that pass no params keep the original { count, data }.
+            const pageNum = Number.parseInt(page, 10);
+            const limitNum = Number.parseInt(limit, 10);
+            const paginate =
+                Number.isInteger(pageNum) &&
+                pageNum > 0 &&
+                Number.isInteger(limitNum) &&
+                limitNum > 0;
+
+            const result = {
+                count: total,
+                data: paginate
+                    ? rows.slice((pageNum - 1) * limitNum, (pageNum - 1) * limitNum + limitNum)
+                    : rows,
             };
+            if (paginate) {
+                result.page = pageNum;
+                result.limit = limitNum;
+                result.totalPages = Math.ceil(total / limitNum);
+            }
+            return result;
         } catch (error) {
             console.error(error);
         } finally {
@@ -37,7 +79,7 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
         }
     },
     createUser: async params => {
-        const uidExist = params.user_id;
+        const uidExist = params.user_id || "";
         let pass;
         let query, val;
         let submitState = "";
@@ -46,9 +88,6 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
         } else {
             submitState = "insert";
         }
-        const client = await db.connect();
-        console.log(params);
-        await client.query(TRANS.BEGIN);
         if (params.hasOwnProperty("password")) {
             pass = await hashPassword(params.password);
         }
@@ -64,7 +103,7 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
         const username = params.username;
         const email = params.email;
         const userGroup = params.usergroup;
-        const mgr_id = params.mgr_id;
+        const mgr_id = params.mgr_id || null;
         const role = params.role;
         let userSubmit = {
             fullname: fullname,
@@ -106,15 +145,40 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
             );
         }
 
+        let client;
         try {
+            client = await db.connect();
+            await client.query(TRANS.BEGIN);
+            if (mgr_id) {
+                const manager = await client.query(
+                    "SELECT mgr_id, is_active FROM mst_mgr WHERE mgr_id = $1 FOR KEY SHARE",
+                    [mgr_id]
+                );
+                if (!manager.rows[0]?.is_active) {
+                    // Keep an unchanged legacy assignment when a user edits
+                    // their profile. A new assignment must be an active manager.
+                    const existing = uidExist
+                        ? await client.query(
+                              "SELECT mgr_id FROM mst_user WHERE user_id = $1",
+                              [uidExist]
+                          )
+                        : { rows: [] };
+                    if (existing.rows[0]?.mgr_id !== mgr_id) {
+                        throw Object.assign(
+                            new Error("Select an active manager before saving this user."),
+                            { statusCode: 400 }
+                        );
+                    }
+                }
+            }
             const insertUser = await client.query(query, val);
             await client.query(TRANS.COMMIT);
             return { name: insertUser.rows[0].username };
         } catch (error) {
-            await client.query(TRANS.ROLLBACK);
+            if (client) await client.query(TRANS.ROLLBACK);
             throw error;
         } finally {
-            client.release();
+            if (client) client.release();
         }
     },
 
@@ -152,6 +216,28 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
         }
     },
 
+    getAccountType: async idUser => {
+        const client = await db.connect();
+        try {
+            const result = await client.query(
+                `SELECT 'USER' AS account_type FROM mst_user WHERE user_id = $1
+                 UNION ALL
+                 SELECT 'MGR' AS account_type FROM mst_mgr WHERE mgr_id = $1
+                 UNION ALL
+                 SELECT 'VENDOR' AS account_type FROM a_uservendor WHERE user_id = $1`,
+                [idUser]
+            );
+            if (result.rows.length > 1) {
+                throw Object.assign(new Error("This user ID belongs to multiple accounts."), {
+                    statusCode: 409,
+                });
+            }
+            return result.rows[0]?.account_type || null;
+        } finally {
+            client.release();
+        }
+    },
+
     showUserData: async idUser => {
         const client = await db.connect();
         const q = `SELECT * FROM (SELECT FULLNAME,
@@ -169,7 +255,8 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
             BU_ID_2,
             DEPT_ID, 
             EMP_ROLE_ID,
-            EMAIL
+            EMAIL,
+            'USER' AS ACCOUNT_TYPE
         FROM MST_USER
         UNION ALL
         SELECT FULLNAME,
@@ -187,7 +274,8 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
             BU_ID_2,
             DEPT_ID, 
             EMP_ROLE_ID,
-            EMAIL
+            EMAIL,
+            'MGR' AS ACCOUNT_TYPE
         FROM MST_MGR
         UNION ALL
         SELECT FULLNAME,
@@ -205,7 +293,8 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
             null as BU_ID_2,
             null as DEPT_ID, 
             null as EMP_ROLE_ID,
-            EMAIL
+            EMAIL,
+            'VENDOR' AS ACCOUNT_TYPE
         FROM a_uservendor
         ) AS userdata where user_id = $1`;
         try {
@@ -222,15 +311,10 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
     },
 
     createManager: async params => {
-        const client = await db.connect();
-        const uidExist = params.user_id;
+        const uidExist = params.user_id || "";
         let pass = "";
         let query, val;
-        if (uidExist != "") {
-            submitState = "update";
-        } else {
-            submitState = "insert";
-        }
+        const submitState = uidExist ? "update" : "insert";
         if (params.hasOwnProperty("password")) {
             pass = await hashPassword(params.password);
         }
@@ -242,7 +326,7 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
         const currentdate = new Date().toLocaleDateString();
         const startDate = params.createddate;
         const validDate = params.expireddate;
-        const user_id = uuid.uuid();
+        const user_id = uidExist || uuid.uuid();
         const fullname = params.fullname;
         const username = params.username;
         const email = params.email;
@@ -275,6 +359,8 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
         if (submitState == "insert") {
             [query, val] = crud.insertItem("mst_mgr", userSubmit, "username");
         } else {
+            // This ID is also referenced by users, tickets and material approvals.
+            delete userSubmit.mgr_id;
             [query, val] = crud.updateItem(
                 "mst_mgr",
                 userSubmit,
@@ -284,13 +370,15 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
                 "username"
             );
         }
+        let client;
         try {
+            client = await db.connect();
             const insertUserMgr = await client.query(query, val);
             return { name: insertUserMgr.rows[0].username };
         } catch (error) {
             throw error.message;
         } finally {
-            client.release();
+            if (client) client.release();
         }
     },
 
@@ -350,9 +438,10 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
     },
     loginUser: async ({ username, password }) => {
         const client = await db.connect();
+        let transactionStarted = false;
         try {
             // add union to a_uservendor
-                const userData = await client.query(
+            const userData = await client.query(
                 `SELECT * FROM 
                 (SELECT USERNAME,
                     PASSWORD,
@@ -400,7 +489,22 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
                 throw new Error("User not found");
             }
             const userGroup = userData.rows[0].user_group;
-            const getAuthorization = await client.query(`
+            const userGroupInfoResult = await client.query(
+                `SELECT DISTINCT
+                    user_group_id,
+                    user_group_name
+                FROM mst_page_access
+                WHERE user_group_id = $1
+                    AND user_group_name IS NOT NULL
+                ORDER BY user_group_name`,
+                [userGroup]
+            );
+            const userGroupInfo = buildLoginUserGroupInfo(
+                userGroupInfoResult.rows,
+                userGroup
+            );
+            const getAuthorization = await client.query(
+                `
             SELECT 
                             PG.MENU_ID AS "id",
                             PG.PAGE,
@@ -429,7 +533,9 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
                             MST_PAGE_ACCESS 
                             ACS ON ACS.PAGE_ID = PG.MENU_ID AND ACS.user_group_id = $1
                         order by PG.parent_id asc, is_parent asc
-            `, [userGroup]);
+            `,
+                [userGroup]
+            );
             let authPerm = {};
             getAuthorization.rows.map(item => {
                 authPerm[item.page] = {
@@ -460,7 +566,7 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
                     groupid: resdata.user_group,
                 },
                 process.env.TOKEN_KEY,
-                { expiresIn: "30s" }
+                { expiresIn: "15m" }
             );
             refreshToken = jwt.sign(
                 {
@@ -474,10 +580,10 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
                 },
                 process.env.TOKEN_KEY,
                 {
-                    expiresIn: "6h",
-                }
+                    expiresIn: "7d" }
             );
             await client.query(TRANS.BEGIN);
+            transactionStarted = true;
             let is_reset_pwd = null;
             if (resdata.role === "MGR") {
                 await client.query(
@@ -504,7 +610,18 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
                 );
             }
             await client.query(TRANS.COMMIT);
+            transactionStarted = false;
+            // My Approval and the Materials Administrator section are per user,
+            // on top of the group's page access.
+            const materialAccess = await resolveMaterialMenuAccess({
+                userId: resdata.user_id,
+                username: resdata.username,
+            });
+            applyMaterialMenuAccess(authPerm, materialAccess);
             return {
+                // Materials admin powers (ADMIN or MATERIAL_ADMIN group), for
+                // the approval dialogs' admin override.
+                is_material_admin: materialAccess.isAdmin === true,
                 fullname: resdata.fullname,
                 username: resdata.username,
                 user_id: resdata.user_id,
@@ -513,15 +630,22 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
                 accessToken: accessToken,
                 permission: authPerm,
                 groupid: userGroup,
+                ...userGroupInfo,
                 emp_role_id: resdata.emp_role_id,
                 bu_id: resdata.bu_id,
                 dept_id: resdata.dept_id,
                 is_reset_pwd: is_reset_pwd,
             };
         } catch (error) {
-            await client.query(TRANS.ROLLBACK);
+            if (transactionStarted) {
+                try {
+                    await client.query(TRANS.ROLLBACK);
+                } catch (rollbackError) {
+                    console.error("Login rollback failed:", rollbackError);
+                }
+            }
             console.error(error);
-            throw error.message;
+            throw error;
         } finally {
             client.release();
         }
@@ -585,7 +709,29 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
                     throw new Error("User not found");
                 }
                 const user = userData.rows[0];
-                    const getAuthorization = await client.query(`
+                // Master Data membership is a group-name fact, not a role one:
+                // every material user carries role "MATERIAL", so only the
+                // MDM_MATERIAL group name separates Master Data from the
+                // approvers and requesters around them. Login already resolves
+                // it this way; the session refresh has to agree, because the
+                // MDM-only UI is gated on the flag it returns. A user with no
+                // page-access rows yields no group names, hence false.
+                const userGroupInfoResult = await client.query(
+                    `SELECT DISTINCT
+                        user_group_id,
+                        user_group_name
+                    FROM mst_page_access
+                    WHERE user_group_id = $1
+                        AND user_group_name IS NOT NULL
+                    ORDER BY user_group_name`,
+                    [user.user_group]
+                );
+                const userGroupInfo = buildLoginUserGroupInfo(
+                    userGroupInfoResult.rows,
+                    user.user_group
+                );
+                const getAuthorization = await client.query(
+                    `
                     SELECT 
                                     PG.MENU_ID AS "id",
                                     PG.PAGE,
@@ -614,7 +760,9 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
                                     MST_PAGE_ACCESS 
                                     ACS ON ACS.PAGE_ID = PG.MENU_ID AND ACS.user_group_id = $1
                                 order by PG.parent_id asc, is_parent asc
-                    `, [user.user_group]);
+                    `,
+                    [user.user_group]
+                );
                 let authPerm = {};
                 getAuthorization.rows.map(item => {
                     authPerm[item.page] = {
@@ -640,7 +788,14 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
                     user.user_group,
                     user.username
                 );
+                // Same per-user Materials access as at login.
+                const materialAccess = await resolveMaterialMenuAccess({
+                    userId: user.user_id,
+                    username: user.username,
+                });
+                applyMaterialMenuAccess(authPerm, materialAccess);
                 return {
+                    is_material_admin: materialAccess.isAdmin === true,
                     fullname: user.fullname,
                     username: user.username,
                     user_id: user.user_id,
@@ -651,6 +806,7 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
                     bu_id: user.bu_id,
                     permission: authPerm,
                     groupid: user.user_group,
+                    is_mdm_material: userGroupInfo.user_group.is_mdm_material,
                     is_reset_pwd: is_reset_pwd,
                     menu: menu,
                 };
@@ -667,7 +823,8 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
     getAuthorization: async userGroup => {
         const client = await db.connect();
         try {
-            const getAuthorization = await client.query(`
+            const getAuthorization = await client.query(
+                `
             SELECT 
                             PG.MENU_ID AS "id",
                             PG.PAGE,
@@ -696,7 +853,9 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
                             MST_PAGE_ACCESS 
                 ACS ON ACS.PAGE_ID = PG.MENU_ID AND ACS.user_group_id = $1
                     order by PG.parent_id asc, is_parent asc
-            `, [userGroup]);
+            `,
+                [userGroup]
+            );
             let authPerm = {};
             getAuthorization.rows.map(item => {
                 authPerm[item.page] = {
@@ -718,11 +877,15 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
     showExistSecGrp: async () => {
         const client = await db.connect();
         try {
-            const q = `select distinct 
-                        user_group_name, 
-                        user_group_id, 
-                        TO_CHAR(created_at, 'mm/dd/yyyy') as createddate
-                        from mst_page_access`;
+            // One row per group. mst_page_access has one row per page, and a
+            // page added to a group on a later day must not list the group
+            // twice, so the date is the group's first (its creation).
+            const q = `select
+                        user_group_name,
+                        user_group_id,
+                        TO_CHAR(min(created_at), 'mm/dd/yyyy') as createddate
+                        from mst_page_access
+                        group by user_group_name, user_group_id`;
             const userGroups = await client.query(q);
             return {
                 count: userGroups.rowCount,
@@ -778,7 +941,10 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
                                 ACS ON ACS.PAGE_ID = PG.MENU_ID AND ACS.user_group_id = $1
                             order by PG.parent_id asc, is_parent asc
                             `;
-            const secMtx = await client.query(secMtxq, group_id ? [group_id] : []);
+            const secMtx = await client.query(
+                secMtxq,
+                group_id ? [group_id] : [""]
+            );
             return {
                 name: secName,
                 count: secMtx.rowCount,
@@ -859,7 +1025,8 @@ SELECT us.mgr_id as id, us.fullname, us.username, us.email, sec.user_group_name,
     showManagers: async () => {
         const client = await db.connect();
         try {
-            const q = `select mgr_id, fullname from mst_mgr`;
+            const q = `SELECT mgr_id, fullname, bu_id, bu_id_1, bu_id_2,
+                dept_id, is_active FROM mst_mgr ORDER BY fullname, mgr_id`;
             const managers = await client.query(q);
             return {
                 count: managers.rowCount,
