@@ -135,23 +135,15 @@ function calculateSlaDays(startAt, endAt) {
     return Math.max(1, cutoffDayOrdinal(endAt) - cutoffDayOrdinal(startAt));
 }
 
-const UPSTREAM_PREFIXES = new Set([
-    "AC", "AG", "AJ", "AM", "AN", "BS", "BU", "CM", "CR", "GN",
-    "GS", "GW", "HS", "IA", "IP", "IS", "IU", "JJ", "KA", "KB",
-    "KN", "KS", "KU", "ND", "NJ", "PA", "PC", "PD", "PN", "PT",
-    "SA", "SI", "SN", "SU", "SY", "TH", "TS", "UI", "WS", "WW",
-]);
-
-function getBusinessUnit(plantCode, groupComp) {
-    if (groupComp) {
-        const norm = String(groupComp).trim().toUpperCase();
-        if (norm === "UPSTREAM") return "Upstream";
-        if (norm === "DOWNSTREAM") return "Downstream";
-    }
-    if (!plantCode) return "-";
-    const prefix = String(plantCode).trim().substring(0, 2).toUpperCase();
-    if (UPSTREAM_PREFIXES.has(prefix)) return "Upstream";
-    return "Downstream";
+// Business Unit comes from master data only: the request's plant ->
+// mst_plant.company_code -> mst_company.group_comp. A company master data does
+// not classify reads "-" rather than a guess from the plant code, so a missing
+// mapping shows up in the report instead of hiding behind a default.
+function getBusinessUnit(groupComp) {
+    const norm = String(groupComp ?? "").trim().toUpperCase();
+    if (norm === "UPSTREAM") return "Upstream";
+    if (norm === "DOWNSTREAM") return "Downstream";
+    return "-";
 }
 
 async function getMaterialSlaReport({ actorUsername, query = {} } = {}) {
@@ -184,7 +176,7 @@ async function getMaterialSlaReport({ actorUsername, query = {} } = {}) {
             return {
                 ...row,
                 plant_code: row.plant_code || "-",
-                business_unit: getBusinessUnit(row.plant_code, row.group_comp),
+                business_unit: getBusinessUnit(row.group_comp),
                 response_sla_days: calculateSlaDays(row.request_at, responseEnd),
                 ticket_journey_days: calculateSlaDays(row.request_at, journeyEnd),
                 is_responded: Boolean(row.response_at),
@@ -198,6 +190,5 @@ module.exports = {
     calculateSlaDays,
     cutoffDayOrdinal,
     getBusinessUnit,
-    UPSTREAM_PREFIXES,
     getMaterialSlaReport,
 };
