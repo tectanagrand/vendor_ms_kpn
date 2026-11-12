@@ -1084,6 +1084,7 @@ test("single and mass create reject exact matches before any write, even without
     getMaterialGroupByCode: materialService.getMaterialGroupByCode,
     createSingleRequest: materialService.createSingleRequest,
     createMassRequest: materialService.createMassRequest,
+    validateMassGridRows: materialService.validateMassGridRows,
     validate: template.validateMaterialRequestTemplate,
   };
   let parsed;
@@ -1097,6 +1098,8 @@ test("single and mass create reject exact matches before any write, even without
   formidable.IncomingForm.prototype.parse = async () => parsed;
   materialService.getMaterialGroupByCode = async () => ({ id: 1, code: "935" });
   materialService.createSingleRequest = materialService.createMassRequest = async () => { writes += 1; };
+  // Master data is not under test here; every grid value passes.
+  materialService.validateMassGridRows = async rows => ({ errors: [], rows });
   template.validateMaterialRequestTemplate = async ({ requestFields }) => ({
     errors: [], normalizedRequestFields: requestFields,
   });
@@ -1135,6 +1138,7 @@ test("single and mass create reject exact matches before any write, even without
     materialService.getMaterialGroupByCode = originals.getMaterialGroupByCode;
     materialService.createSingleRequest = originals.createSingleRequest;
     materialService.createMassRequest = originals.createMassRequest;
+    materialService.validateMassGridRows = originals.validateMassGridRows;
     template.validateMaterialRequestTemplate = originals.validate;
   }
 });

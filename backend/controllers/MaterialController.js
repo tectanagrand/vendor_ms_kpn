@@ -2039,6 +2039,41 @@ const MaterialController = {
             }
         }
     },
+    // The mass grid's master-data check (plant, sloc, material group, UoM, PO
+    // text width) on its own, so the form can mark bad cells before the reason
+    // and AI pre-check dialogs. createMassRequest runs the same check again.
+    // Body: { rows: [...] }, one object per grid line, blanks included.
+    validateMassRequestRows: async (req, res) => {
+        try {
+            if (!req.cookies.user_id) {
+                return res.status(401).json({
+                    success: false,
+                    message: "Unauthorized",
+                });
+            }
+
+            const rows = req.body?.rows;
+            if (!Array.isArray(rows) || rows.length > 10) {
+                return res.status(400).json({
+                    success: false,
+                    message: "rows must be an array of at most 10 grid lines.",
+                });
+            }
+
+            const { errors } = await materialService.validateMassGridRows(rows);
+            return res.status(200).json({
+                success: true,
+                data: { valid: errors.length === 0, errors },
+            });
+        } catch (error) {
+            console.error("Error validating mass request rows:", error);
+            return res.status(500).json({
+                success: false,
+                message: "Failed to validate mass request rows",
+            });
+        }
+    },
+
     // Create a batch of material-create requests (1..10 rows per submit).
     createMassRequest: async (req, res) => {
         let tempFilePaths = [];
@@ -2107,7 +2142,7 @@ const MaterialController = {
             form.options.maxFileSize = 5 * 1024 * 1024;
 
             const [fields, items] = await form.parse(req);
-            const rows = JSON.parse(fields.rows);
+            let rows = JSON.parse(fields.rows);
             const files = (items.files || []).filter(Boolean);
             tempFilePaths = files.map(file => file.filepath).filter(Boolean);
             const fileRowIndexes = (fields.fileRowIndex || []).map(index =>
@@ -2201,6 +2236,21 @@ const MaterialController = {
                 });
             }
 
+            // Plant, sloc, material group and UoM against our master data
+            // (plus the PO text width). One error per cell: a cell that
+            // already failed above keeps that message.
+            const masterCheck = await materialService.validateMassGridRows(
+                rows.slice(0, maxRows)
+            );
+            const failedCells = new Set(
+                errors.map(error => `${error.rowIndex}|${error.fieldKey}`)
+            );
+            for (const error of masterCheck.errors) {
+                if (!failedCells.has(`${error.rowIndex}|${error.fieldKey}`)) {
+                    errors.push(error);
+                }
+            }
+
             if (errors.length > 0) {
                 return res.status(400).json({
                     success: false,
@@ -2208,6 +2258,8 @@ const MaterialController = {
                     errors,
                 });
             }
+            // Store plant / sloc / UoM as the master spells them.
+            rows = masterCheck.rows;
 
             const attachmentsByRow = Array.from(
                 { length: maxRows },

@@ -23,6 +23,10 @@ const GROUP_CODES = {
     13: { material_group_code: "902", material_sub_group_code: "007" },
 };
 
+// A slice of mst_uom, with one of its case-only twins (M3 / m3) and one
+// mixed-case code (Kwh). PCS is deliberately absent, as it is in prod.
+const MST_UOM_CODES = ["EA", "PC", "SET", "M3", "m3", "Kwh"];
+
 const item = (id, itemNo, overrides = {}) => ({
     id,
     item_no: itemNo,
@@ -210,6 +214,24 @@ const createMassBatchFake = ({ items, steps, mdmUsers = ["MDM-01"] }) => {
                 row.sap_error_msg = null;
             });
             return done(rows.length, rows.map(row => ({ id: row.id })));
+        }
+
+        // The master-data check an item edit runs before it is written.
+        if (/^SELECT id, item_no, plant_code, sloc_code\s+FROM mat_mass_request_item\s+WHERE mass_request_id = \$1\s+AND id = ANY\(\$2::bigint\[\]\)$/.test(sql)) {
+            const rows = state.items
+                .filter(row => inIds(params[1], row.id))
+                .map(row => ({
+                    id: String(row.id),
+                    item_no: row.item_no,
+                    plant_code: row.plant_code ?? null,
+                    sloc_code: row.sloc_code ?? null,
+                }));
+            return done(rows.length, rows);
+        }
+
+        if (/^SELECT uom_code FROM mst_uom$/.test(sql)) {
+            const rows = MST_UOM_CODES.map(uom_code => ({ uom_code }));
+            return done(rows.length, rows);
         }
 
         match = sql.match(
@@ -681,6 +703,71 @@ test("saveMassRequestRework refuses an edit on an item that is not in Rework", a
         assert.equal(error.statusCode, 409);
         assert.equal(error.code, "MASS_REQUEST_ITEM_NOT_EDITABLE");
         assert.equal(itemById(11).material_description, "Item 1");
+    });
+});
+
+test("saveMassRequestRework refuses a UoM that is not in mst_uom and writes nothing", async () => {
+    await withMassBatch(batchAfterDecisions(), async ({ state, itemById }) => {
+        const error = await captureReject(() =>
+            materialService.saveMassRequestRework({
+                massRequestId: MASS_REQUEST_ID,
+                actorUserId: "REQ-01",
+                items: [{ id: 12, base_uom: "PCS", material_description: "Item 2 lengkap" }],
+                comment: "Ubah UoM",
+            })
+        );
+
+        assert.equal(error.statusCode, 400);
+        assert.equal(error.code, "MASS_REQUEST_ITEM_MASTER_INVALID");
+        assert.match(error.message, /^Item 2: Base UoM "PCS" tidak ditemukan di master UoM\.$/);
+        assert.deepEqual(error.errors, [
+            {
+                itemId: "12",
+                itemNo: 2,
+                fieldKey: "uom",
+                message: 'Base UoM "PCS" tidak ditemukan di master UoM.',
+            },
+        ]);
+        assert.equal(itemById(12).material_description, "Item 2");
+        assert.equal(itemById(12).status, "Rework");
+        assert.ok(!state.log.includes("COMMIT"));
+    });
+});
+
+test("saveMassRequestRework stores an accepted UoM in the master's spelling", async () => {
+    await withMassBatch(batchAfterDecisions(), async ({ itemById }) => {
+        await materialService.saveMassRequestRework({
+            massRequestId: MASS_REQUEST_ID,
+            actorUserId: "REQ-01",
+            items: [{ id: 12, base_uom: "KWH" }],
+            comment: "Ubah UoM",
+        });
+
+        assert.equal(itemById(12).base_uom, "Kwh");
+        assert.equal(itemById(12).status, "Submit");
+    });
+});
+
+test("an item edit refuses a required field cleared or a description over 40 chars", async () => {
+    await withMassBatch(batchAfterDecisions(), async ({ itemById }) => {
+        const error = await captureReject(() =>
+            materialService.saveMassRequestRework({
+                massRequestId: MASS_REQUEST_ID,
+                actorUserId: "REQ-01",
+                items: [{ id: 12, base_uom: " ", material_description: "X".repeat(41) }],
+                comment: "Ubah",
+            })
+        );
+
+        assert.equal(error.statusCode, 400);
+        assert.deepEqual(
+            error.errors.map(row => [row.fieldKey, row.message]),
+            [
+                ["uom", "Base UoM wajib diisi."],
+                ["description", "Material description maksimal 40 karakter."],
+            ]
+        );
+        assert.equal(itemById(12).material_description, "Item 2");
     });
 });
 

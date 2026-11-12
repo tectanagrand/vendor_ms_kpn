@@ -43,6 +43,10 @@ const {
 // process ever opens an SMTP socket (same seam as db.connect).
 const reworkEmailSender = require("../helper/reworkEmailSender");
 const materialSapStagingService = require("./materialSapStagingService");
+const {
+    validateMassRowsAgainstMasters,
+    validateMassGridRows,
+} = require("./materialMassMasterValidation");
 
 // ===========================================================================
 // Step engine (mat_*_approval_step) — shared by single + mass.
@@ -2720,6 +2724,117 @@ const filterMassItemPayload = (items, batchItems, allowedItemIds) => {
     );
 };
 
+// mat_mass_request_item column -> the mass grid field the master check knows.
+const MASS_ITEM_COLUMN_TO_GRID_FIELD = Object.freeze({
+    plant_code: "plant",
+    sloc_code: "sloc",
+    material_group: "materialGroup",
+    base_uom: "uom",
+    material_description: "description",
+    po_text: "poText",
+});
+const MASS_GRID_FIELD_TO_ITEM_COLUMN = Object.freeze({
+    plant: "plant_code",
+    sloc: "sloc_code",
+    uom: "base_uom",
+});
+
+// The master-data check for an edit (approver correction or requester rework):
+// the fields being changed are checked the same way a fresh upload is, and a
+// sloc is re-checked whenever its plant changes. Unchanged fields are left
+// alone, so an edit to one field never trips over a legacy value in another.
+// Throws 400 MASS_REQUEST_ITEM_MASTER_INVALID naming each item; otherwise
+// returns item id -> { column: value in the master's spelling }.
+const validateMassItemFieldEdits = async (client, massRequestId, items) => {
+    const edited = items
+        .filter(item => item?.id)
+        .map(item => ({ item, edits: pickMassItemFieldEdits(item) }))
+        .filter(({ edits }) => Object.keys(edits).length > 0);
+
+    if (edited.length === 0) {
+        return new Map();
+    }
+
+    const { rows: currentRows } = await client.query(
+        `SELECT id, item_no, plant_code, sloc_code
+         FROM mat_mass_request_item
+         WHERE mass_request_id = $1
+           AND id = ANY($2::bigint[])`,
+        [massRequestId, edited.map(({ item }) => String(item.id))]
+    );
+    const currentById = new Map(currentRows.map(row => [String(row.id), row]));
+
+    const entries = [];
+    for (const { item, edits } of edited) {
+        const current = currentById.get(String(item.id));
+        // Not an item of this batch: the UPDATE below cannot touch it either.
+        if (!current) continue;
+
+        const merged = column =>
+            Object.prototype.hasOwnProperty.call(edits, column)
+                ? edits[column]
+                : current[column];
+        const fields = Object.keys(edits)
+            .map(column => MASS_ITEM_COLUMN_TO_GRID_FIELD[column])
+            .filter(Boolean);
+        if (fields.includes("plant") && !fields.includes("sloc")) {
+            fields.push("sloc");
+        }
+        if (fields.length === 0) continue;
+
+        entries.push({
+            key: String(item.id),
+            itemNo: current.item_no,
+            fields,
+            values: {
+                plant: merged("plant_code"),
+                sloc: merged("sloc_code"),
+                materialGroup: edits.material_group,
+                uom: edits.base_uom,
+                description: edits.material_description,
+                poText: edits.po_text,
+            },
+        });
+    }
+
+    const { errors, canonical } = await validateMassRowsAgainstMasters(
+        client,
+        entries,
+        { requireFilled: true }
+    );
+
+    if (errors.length > 0) {
+        const itemNoByKey = new Map(entries.map(e => [e.key, e.itemNo]));
+        const detailed = errors.map(({ key, fieldKey, message }) => ({
+            itemId: key,
+            itemNo: itemNoByKey.get(key),
+            fieldKey,
+            message,
+        }));
+        throw Object.assign(
+            buildMassActionError(
+                detailed
+                    .map(error => `Item ${error.itemNo}: ${error.message}`)
+                    .join(" "),
+                "MASS_REQUEST_ITEM_MASTER_INVALID",
+                400
+            ),
+            { errors: detailed }
+        );
+    }
+
+    const columnsById = new Map();
+    for (const [key, values] of canonical) {
+        const columns = {};
+        for (const [field, value] of Object.entries(values)) {
+            const column = MASS_GRID_FIELD_TO_ITEM_COLUMN[field];
+            if (column) columns[column] = value;
+        }
+        columnsById.set(key, columns);
+    }
+    return columnsById;
+};
+
 // Write the editable fields of the given items (an approver's or the
 // requester's corrections). Callers pass only items the action may change.
 const applyMassItemFieldEdits = async (client, massRequestId, items) => {
@@ -2727,10 +2842,26 @@ const applyMassItemFieldEdits = async (client, massRequestId, items) => {
         return;
     }
 
+    const canonicalById = await validateMassItemFieldEdits(
+        client,
+        massRequestId,
+        items
+    );
+
     for (const item of items) {
         if (!item?.id) continue;
 
-        const editEntries = Object.entries(pickMassItemFieldEdits(item));
+        const edits = pickMassItemFieldEdits(item);
+        // Only overwrite a column this edit actually sets: a re-checked sloc
+        // (its plant changed) keeps whatever the payload did or did not send.
+        for (const [column, value] of Object.entries(
+            canonicalById.get(String(item.id)) || {}
+        )) {
+            if (Object.prototype.hasOwnProperty.call(edits, column)) {
+                edits[column] = value;
+            }
+        }
+        const editEntries = Object.entries(edits);
         if (editEntries.length === 0) continue;
 
         const setClauses = editEntries.map(([field], i) => `${field} = $${i + 3}`);
@@ -5651,6 +5782,12 @@ const GET_ADMINISTRATOR_APPROVER_MASTERS_QUERY = `SELECT
 // ===========================================================================
 
 const MaterialRequests = {
+    // The mass grid's master-data check (plant, sloc, material group, UoM, PO
+    // text width) for the create/validate endpoints. Returns
+    // { errors: [{ rowIndex, fieldKey, message }], rows } where rows carry
+    // plant / sloc / UoM in the master's spelling.
+    validateMassGridRows: rows => validateMassGridRows(pool, rows),
+
     getMaterialGroupByCode: async materialGroupCode => {
         try {
             return await DBClientWrapper(async client => {
@@ -9443,6 +9580,8 @@ module.exports = {
     persistMassRequestAttachmentFiles,
     applyMassRequestAttachmentChange,
     applyMassRequestItemAttachmentChanges,
+    applyMassItemFieldEdits,
+    validateMassItemFieldEdits,
     prepareSingleRequestApprovalEditPatch,
     queryUsersWithPageAccessByIds,
     queryActiveMdmMaterialUsers,

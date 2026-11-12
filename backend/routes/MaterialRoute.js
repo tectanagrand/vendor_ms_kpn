@@ -219,6 +219,11 @@ router.post(
     AuthToken.authSession,
     MaterialController.createMassRequest
 );
+router.post(
+    "/requests/mass/validate",
+    AuthToken.authSession,
+    MaterialController.validateMassRequestRows
+);
 router.get(
     "/requests/mass",
     AuthToken.authSession,
