@@ -5,12 +5,17 @@ const os = require("os");
 const path = require("path");
 const { Client } = require("pg");
 const EmailGen = require("../helper/EmailGenv2");
+const aiValidationService = require("../services/aiValidationService");
+const { buildAiSummaryHtml } = require("../helper/aiValidationEmailBlock");
 const mailer = require("nodemailer");
 
 const tp = mailer.createTransport({
     host: process.env.SMTP_HOST,
     secure: true,
     port: 465,
+    connectionTimeout: 30000,
+    greetingTimeout: 30000,
+    socketTimeout: 60000,
     tls: {
         ciphers: "SSLv3",
         rejectUnauthorized: false,
@@ -258,6 +263,11 @@ EmailModel.SendManager = async (
             [role_id, bu_id, dept_id]
         );
         let data_mgr = res_data_mgr[0];
+        if (!data_mgr) {
+            throw new Error(
+                `No active manager found for role=${role_id}, bu=${bu_id}, dept=${dept_id}`
+            );
+        }
         let title_mgr = "Bapak";
         if (data_mgr.gender == "F") {
             title_mgr = "Ibu";
@@ -341,6 +351,24 @@ EmailModel.SendManager = async (
                 content: fs.createReadStream(pathStream),
             };
         });
+        // Manager and C-Level approve straight from this e-mail without opening
+        // VMS, so the AI verdict has to travel with it — the on-form panel is
+        // Master Data only. Never let this block the mail: a missing or failed
+        // lookup just means the e-mail goes out exactly as it did before.
+        let ai_html = "";
+        try {
+            const latestValidation =
+                await aiValidationService.getLatestValidation(
+                    detail_vendor.ven_id
+                );
+            ai_html = buildAiSummaryHtml(latestValidation);
+        } catch (error) {
+            console.error(
+                "[AI-VALIDATION] could not attach summary to approval e-mail:",
+                error && error.message
+            );
+        }
+
         let html_gen = "";
         if (bu == "NON_CG") {
             html_gen = EmailGen.Submit_Manager(
@@ -348,7 +376,8 @@ EmailModel.SendManager = async (
                 detail_vendor,
                 bankTable,
                 approveLink,
-                rejectLink
+                rejectLink,
+                ai_html
             );
         } else {
             html_gen = EmailGen.Submit_Manager_CG(
@@ -356,7 +385,8 @@ EmailModel.SendManager = async (
                 detail_vendor,
                 bankTable,
                 approveLink,
-                rejectLink
+                rejectLink,
+                ai_html
             );
         }
         let setup = {
@@ -415,6 +445,11 @@ EmailModel.SendCLevel = async (
             [role_id, bu_id, dept_id]
         );
         let data_mgr = res_data_mgr[0];
+        if (!data_mgr) {
+            throw new Error(
+                `No active manager found for role=${role_id}, bu=${bu_id}, dept=${dept_id}`
+            );
+        }
         let title_mgr = "Mr. ";
         if (data_mgr.gender == "F") {
             title_mgr = "Mrs. ";
@@ -518,6 +553,24 @@ EmailModel.SendCLevel = async (
             };
         });
 
+        // Manager and C-Level approve straight from this e-mail without opening
+        // VMS, so the AI verdict has to travel with it — the on-form panel is
+        // Master Data only. Never let this block the mail: a missing or failed
+        // lookup just means the e-mail goes out exactly as it did before.
+        let ai_html = "";
+        try {
+            const latestValidation =
+                await aiValidationService.getLatestValidation(
+                    detail_vendor.ven_id
+                );
+            ai_html = buildAiSummaryHtml(latestValidation);
+        } catch (error) {
+            console.error(
+                "[AI-VALIDATION] could not attach summary to approval e-mail:",
+                error && error.message
+            );
+        }
+
         let html_gen = "";
         if (bu == "NON_CG") {
             html_gen = EmailGen.Submit_Manager(
@@ -525,7 +578,8 @@ EmailModel.SendCLevel = async (
                 detail_vendor,
                 bankTable,
                 approveLink,
-                rejectLink
+                rejectLink,
+                ai_html
             );
         } else {
             html_gen = EmailGen.Submit_Manager_CG(
@@ -533,7 +587,8 @@ EmailModel.SendCLevel = async (
                 detail_vendor,
                 bankTable,
                 approveLink,
-                rejectLink
+                rejectLink,
+                ai_html
             );
         }
         let setup = {
@@ -634,4 +689,60 @@ EmailModel.EndTicket = async (ven_name, ven_code, config) => {
         throw error;
     }
 };
+
+EmailModel.coupaEmail = async (client, ven_detail, ven_banks) => {
+    try {
+        const { rows } = await client.query(`
+            SELECT email
+            FROM mst_mgr
+            WHERE emp_role_id = 'C_LEVEL'
+            AND is_active = true
+            LIMIT 1
+        `);
+
+        if (!rows.length) {
+            throw new Error("C-Level email not found");
+        }
+
+        const to = rows[0].email;
+
+        const config = {
+            to,
+            cc: process.env.COUPA_EMAIL_CC,
+        };
+
+        const banks_html = await Promise.all(
+            ven_banks.map(async bank => {
+                const { rows } = await client.query(
+                    `SELECT bank_name FROM mst_bank_sap WHERE id::varchar = $1`,
+                    [bank.bank_id]
+                );
+                const bank_name = rows[0]?.bank_name ?? bank.bank_id;
+                return `
+                <tr>
+                    <td>${bank.bank_country ?? ""}</td>
+                    <td>${bank_name}</td>
+                    <td>${bank.bank_curr ?? ""}</td>
+                    <td>${bank.bank_acc ?? ""}</td>
+                    <td>${bank.acc_hold ?? ""}</td>
+                </tr>
+                `;
+            })
+        );
+
+        const html_gen = EmailGen.Submit_Coupa(ven_detail, banks_html);
+        const setup = {
+            from: process.env.SMTP_USERNAME,
+            ...config,
+            subject: `Information Coupa Vendor ${ven_detail.name_1}`,
+            html: html_gen,
+        };
+
+        await tp.sendMail(setup);
+        return { skipped: false };
+    } catch (error) {
+        throw error;
+    }
+};
+
 module.exports = EmailModel;

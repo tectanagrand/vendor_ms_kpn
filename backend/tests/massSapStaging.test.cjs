@@ -1,0 +1,707 @@
+// Mass-request SAP staging: per-item final codes at the Master Data step, the
+// Create-only backstop on submit, and the per-item staging payload mapping.
+//
+// Everything here is either a pure function or approveMassRequest driven
+// against a stubbed pg client — no database is touched.
+
+const assert = require("node:assert/strict");
+const test = require("node:test");
+const db = require("../config/connection");
+const materialService = require("../services/materialService");
+const materialSapStagingService = require("../services/materialSapStagingService");
+const MaterialController = require("../controllers/MaterialController");
+
+const {
+    assertMassRequestRowsAreCreateOnly,
+    resolveMassItemFinalCodeSuffixes,
+    assertMassFinalCodesAreDistinct,
+    buildMassRequestFinalCodePlan,
+} = materialService;
+
+// assert.throws / assert.rejects do not hand the error back, and every case
+// below asserts on statusCode + code + message, so capture it directly.
+const captureThrow = (fn, why = "expected the call to throw") => {
+    try {
+        fn();
+    } catch (error) {
+        return error;
+    }
+    throw new Error(why);
+};
+
+const captureReject = async (fn, why = "expected the call to reject") => {
+    try {
+        await fn();
+    } catch (error) {
+        return error;
+    }
+    throw new Error(why);
+};
+
+// ---------------------------------------------------------------------------
+// Create-only backstop (createMassRequest)
+// ---------------------------------------------------------------------------
+
+test("assertMassRequestRowsAreCreateOnly accepts rows with no ticket type at all", () => {
+    assert.equal(
+        assertMassRequestRowsAreCreateOnly([
+            { description: "BEARING" },
+            { description: "SEAL", ticketType: "" },
+            { description: "BOLT", ticketType: "  create  " },
+            { description: "NUT", ticket_type: "CREATE" },
+        ]),
+        true
+    );
+});
+
+test("assertMassRequestRowsAreCreateOnly rejects a Change/Extend row with MASS_REQUEST_CREATE_ONLY", () => {
+    const error = captureThrow(() =>
+        assertMassRequestRowsAreCreateOnly([
+            { description: "BEARING" },
+            { description: "SEAL", ticketType: "Change" },
+            { description: "BOLT", ticket_type: "Extend" },
+        ])
+    );
+
+    assert.equal(error.statusCode, 400);
+    assert.equal(error.code, "MASS_REQUEST_CREATE_ONLY");
+    assert.deepEqual(
+        error.errors.map(entry => entry.rowIndex),
+        [1, 2]
+    );
+    assert.match(error.errors[0].message, /Row 2/);
+    assert.match(error.errors[0].message, /Change/);
+});
+
+test("createMassRequest runs the create-only backstop before opening a transaction", () => {
+    const source = materialService.createMassRequest.toString();
+    const guardIndex = source.indexOf("assertMassRequestRowsAreCreateOnly");
+    const beginIndex = source.indexOf('client.query("BEGIN")');
+
+    assert.ok(guardIndex > -1, "createMassRequest must call the backstop");
+    assert.ok(beginIndex > -1);
+    assert.ok(guardIndex < beginIndex);
+});
+
+// ---------------------------------------------------------------------------
+// Suffix validation — one running number per item, keyed by item_id
+// ---------------------------------------------------------------------------
+
+const itemStubs = [
+    { item_id: 11, item_no: 1 },
+    { item_id: 12, item_no: 2 },
+    { item_id: 13, item_no: 3 },
+];
+
+test("resolveMassItemFinalCodeSuffixes reads each item's own entered running number", () => {
+    assert.deepEqual(
+        resolveMassItemFinalCodeSuffixes({
+            finalCodeSuffixes: { 11: "005", 12: "006", 13: "021" },
+            items: itemStubs,
+        }),
+        ["005", "006", "021"]
+    );
+});
+
+test("resolveMassItemFinalCodeSuffixes rejects a missing entry, naming the item", () => {
+    const error = captureThrow(() =>
+        resolveMassItemFinalCodeSuffixes({
+            finalCodeSuffixes: { 11: "005", 13: "021" },
+            items: itemStubs,
+        })
+    );
+
+    assert.equal(error.statusCode, 400);
+    assert.equal(error.code, "MASS_REQUEST_FINAL_CODE_SUFFIX_INVALID");
+    assert.equal(error.errors[0].fieldKey, "finalCodeSuffix");
+    assert.match(error.message, /Item 2/);
+});
+
+test("resolveMassItemFinalCodeSuffixes accepts letters, as the single-request path does", () => {
+    // Reported from Master Data: "B80" is a valid running number and was being
+    // refused here with "must be exactly 3 digits", while the same value is
+    // accepted on a single request. The frontend allowed letters all along.
+    assert.deepEqual(
+        resolveMassItemFinalCodeSuffixes({
+            finalCodeSuffixes: { 11: "B80", 12: "A01", 13: "021" },
+            items: itemStubs,
+        }),
+        ["B80", "A01", "021"]
+    );
+});
+
+test("resolveMassItemFinalCodeSuffixes uppercases what it returns", () => {
+    // The composed material code is stored in one casing, so a lowercase entry
+    // is accepted rather than refused on a technicality.
+    assert.deepEqual(
+        resolveMassItemFinalCodeSuffixes({
+            finalCodeSuffixes: { 11: "b80", 12: " a01 ", 13: "021" },
+            items: itemStubs,
+        }),
+        ["B80", "A01", "021"]
+    );
+});
+
+test("resolveMassItemFinalCodeSuffixes rejects a malformed entry, naming the item", () => {
+    // Wrong length, blank, or anything outside letters and digits. Three
+    // alphanumeric characters is the whole rule.
+    for (const suffix of ["1", "12", "1234", "", null, undefined, "  ", "A-1", "A 1", "A.1"]) {
+        const error = captureThrow(
+            () =>
+                resolveMassItemFinalCodeSuffixes({
+                    finalCodeSuffixes: { 11: "005", 12: suffix, 13: "021" },
+                    items: itemStubs,
+                }),
+            `suffix ${JSON.stringify(suffix)} must be rejected`
+        );
+
+        assert.equal(error.statusCode, 400);
+        assert.equal(error.code, "MASS_REQUEST_FINAL_CODE_SUFFIX_INVALID");
+        assert.match(error.message, /Item 2/);
+    }
+});
+
+// ---------------------------------------------------------------------------
+// Composed plan: group-code resolution + sibling uniqueness
+// ---------------------------------------------------------------------------
+
+const massItems = [
+    {
+        item_id: 11,
+        item_no: 1,
+        request_no: "3000000011",
+        material_group_code: "901",
+        material_sub_group_code: "031",
+    },
+    {
+        item_id: 12,
+        item_no: 2,
+        request_no: "3000000012",
+        material_group_code: "901",
+        material_sub_group_code: "031",
+    },
+    {
+        item_id: 13,
+        item_no: 3,
+        request_no: "3000000013",
+        material_group_code: "902",
+        material_sub_group_code: "007",
+    },
+];
+
+const massFinalCodeSuffixes = { 11: "005", 12: "006", 13: "007" };
+
+test("buildMassRequestFinalCodePlan composes each item's own entered code", () => {
+    assert.deepEqual(
+        buildMassRequestFinalCodePlan({
+            finalCodeSuffixes: massFinalCodeSuffixes,
+            items: massItems,
+        }),
+        [
+            {
+                item_id: 11,
+                item_no: 1,
+                request_no: "3000000011",
+                final_code: "901.031.005",
+            },
+            {
+                item_id: 12,
+                item_no: 2,
+                request_no: "3000000012",
+                final_code: "901.031.006",
+            },
+            {
+                item_id: 13,
+                item_no: 3,
+                request_no: "3000000013",
+                final_code: "902.007.007",
+            },
+        ]
+    );
+});
+
+test("buildMassRequestFinalCodePlan orders by item_no regardless of the row order it is handed", () => {
+    const plan = buildMassRequestFinalCodePlan({
+        finalCodeSuffixes: massFinalCodeSuffixes,
+        items: [massItems[2], massItems[0], massItems[1]],
+    });
+
+    assert.deepEqual(
+        plan.map(entry => `${entry.item_no}:${entry.final_code}`),
+        ["1:901.031.005", "2:901.031.006", "3:902.007.007"]
+    );
+});
+
+test("buildMassRequestFinalCodePlan 409s naming the item whose group code is unresolvable", () => {
+    const error = captureThrow(() =>
+        buildMassRequestFinalCodePlan({
+            finalCodeSuffixes: massFinalCodeSuffixes,
+            items: [
+                massItems[0],
+                { ...massItems[1], material_sub_group_code: null },
+            ],
+        })
+    );
+
+    assert.equal(error.statusCode, 409);
+    assert.equal(error.code, "MASS_REQUEST_FINAL_CODE_GROUP_UNRESOLVED");
+    assert.match(error.message, /Item 2/);
+});
+
+test("assertMassFinalCodesAreDistinct 409s naming both colliding item numbers", () => {
+    const error = captureThrow(() =>
+        assertMassFinalCodesAreDistinct([
+            { item_no: 1, final_code: "901.031.005" },
+            { item_no: 2, final_code: "901.031.006" },
+            { item_no: 3, final_code: "901.031.005" },
+        ])
+    );
+
+    assert.equal(error.statusCode, 409);
+    assert.equal(error.code, "MASS_REQUEST_FINAL_CODE_ALREADY_EXISTS");
+    assert.match(error.message, /Item 3/);
+    assert.match(error.message, /901\.031\.005/);
+    assert.match(error.message, /item 1/);
+});
+
+// ---------------------------------------------------------------------------
+// approveMassRequest at the Master Data step (stubbed pg client)
+// ---------------------------------------------------------------------------
+
+// Every item of the batch waits at the Master Data step, claimed by MDM-01.
+const mdmSteps = () =>
+    massItems.map((item, index) => ({
+        id: 91 + index,
+        item_id: item.item_id,
+        level: 1,
+        kind: "MDM",
+        approver_user_id: "MDM-01",
+        status: "WAITING",
+    }));
+
+const batchItemRows = () =>
+    massItems.map(item => ({
+        id: item.item_id,
+        item_no: item.item_no,
+        request_no: item.request_no,
+        status: "Submit",
+        assigned_to: "Master Data",
+        sap_push_status: null,
+    }));
+
+// loadMassItemGroupCodes is scoped to the items being approved ($2).
+const groupCodeRows = itemIds =>
+    massItems
+        .filter(item => itemIds.map(String).includes(String(item.item_id)))
+        .map(item => ({
+            item_id: item.item_id,
+            item_no: item.item_no,
+            request_no: item.request_no,
+            material_group_code: item.material_group_code,
+            material_sub_group_code: item.material_sub_group_code,
+        }));
+
+// Drives approveMassRequest against a stub client. `duplicates` injects rows for
+// the three uniqueness lookups; `queries` collects everything that was issued.
+const runMassApprove = async ({
+    duplicates = {},
+    finalCodeSuffixes = massFinalCodeSuffixes,
+} = {}) => {
+    const originalConnect = db.connect;
+    const originalPush =
+        materialSapStagingService.pushPendingMaterialsToSapStaging;
+    const queries = [];
+    const pushCalls = [];
+
+    materialSapStagingService.pushPendingMaterialsToSapStaging = async args => {
+        pushCalls.push(args);
+        return { pushed: [], errors: [] };
+    };
+
+    db.connect = async () => ({
+        query: async (queryText, params = []) => {
+            if (["BEGIN", "COMMIT", "ROLLBACK"].includes(queryText)) {
+                return { rows: [], rowCount: null };
+            }
+
+            queries.push({ queryText, params });
+
+            if (/FOR UPDATE OF i/.test(queryText)) {
+                return {
+                    rows: [{ id: 11, request_no: "3000000011", created_by: "REQ-01" }],
+                    rowCount: 1,
+                };
+            }
+
+            if (/FOR UPDATE OF s/.test(queryText)) {
+                return { rows: mdmSteps(), rowCount: 3 };
+            }
+
+            if (/SELECT i\.id, i\.item_no, i\.request_no, i\.status/.test(queryText)) {
+                return { rows: batchItemRows(), rowCount: 3 };
+            }
+
+            if (/mst_page_access/i.test(queryText)) {
+                return { rows: [{ exists: 1 }], rowCount: 1 };
+            }
+
+            if (/mig\.code AS material_group_code/i.test(queryText)) {
+                const rows = groupCodeRows(params[1]);
+                return { rows, rowCount: rows.length };
+            }
+
+            if (/FROM mat_sap_data WHERE code = ANY/i.test(queryText)) {
+                const rows = duplicates.sap ?? [];
+                return { rows, rowCount: rows.length };
+            }
+
+            if (/FROM mat_single_request\s+WHERE final_code = ANY/i.test(queryText)) {
+                const rows = duplicates.single ?? [];
+                return { rows, rowCount: rows.length };
+            }
+
+            if (
+                /FROM mat_mass_request_item\s+WHERE final_code = ANY/i.test(
+                    queryText
+                )
+            ) {
+                const rows = duplicates.mass ?? [];
+                return { rows, rowCount: rows.length };
+            }
+
+            if (/UPDATE mat_mass_request_item_approval_step/.test(queryText)) {
+                return { rows: [], rowCount: 3 };
+            }
+
+            if (/UPDATE mat_mass_request_item\b/.test(queryText)) {
+                return { rows: [{ id: 11 }, { id: 12 }, { id: 13 }], rowCount: 3 };
+            }
+
+            // Every request action also appends to the request comment history; the
+            // stub answers that write the way the database would.
+            if (/mat_request_comment/.test(queryText)) {
+                return { rows: [], rowCount: 1 };
+            }
+
+            throw new Error(`Unexpected query: ${queryText}`);
+        },
+        release: () => {},
+    });
+
+    try {
+        const result = await materialService.approveMassRequest({
+            massRequestId: 5,
+            actorUserId: "MDM-01",
+            actorUsername: "master.data.one",
+            remark: "approved",
+            items: null,
+            finalCodeSuffixes,
+        });
+        return { result, queries, pushCalls };
+    } finally {
+        db.connect = originalConnect;
+        materialSapStagingService.pushPendingMaterialsToSapStaging =
+            originalPush;
+    }
+};
+
+test("approveMassRequest writes each item's own entered final code and flags them PENDING", async () => {
+    const { result, queries, pushCalls } = await runMassApprove();
+
+    assert.deepEqual(
+        result.final_codes.map(entry => entry.final_code),
+        ["901.031.005", "901.031.006", "902.007.007"]
+    );
+    assert.equal(result.status, "DONE");
+
+    const finalCodeWrites = queries.filter(entry =>
+        /SET final_code = \$3/.test(entry.queryText)
+    );
+    assert.equal(finalCodeWrites.length, 3);
+    assert.deepEqual(
+        finalCodeWrites.map(entry => entry.params),
+        [
+            [11, 5, "901.031.005"],
+            [12, 5, "901.031.006"],
+            [13, 5, "902.007.007"],
+        ]
+    );
+
+    const completion = queries.find(entry =>
+        /UPDATE mat_mass_request_item\s+SET status = \$2/.test(entry.queryText)
+    );
+    assert.ok(completion);
+    assert.match(completion.queryText, /sap_push_status = 'PENDING'/);
+
+    // Terminal completion fires the same inline push the single flow fires.
+    assert.equal(pushCalls.length, 1);
+    assert.equal(pushCalls[0].massRequestId, 5);
+});
+
+test("approveMassRequest requires a well-formed running number for every item at the Master Data step", async () => {
+    // Too short. Letters are fine — see the test below — so the rejected value
+    // here has to be malformed rather than merely non-numeric.
+    const error = await captureReject(() =>
+        runMassApprove({
+            finalCodeSuffixes: { ...massFinalCodeSuffixes, 12: "12" },
+        })
+    );
+
+    assert.equal(error.statusCode, 400);
+    assert.equal(error.code, "MASS_REQUEST_FINAL_CODE_SUFFIX_INVALID");
+});
+
+test("approveMassRequest composes a final code from a running number containing letters", async () => {
+    // The reported case: Master Data enters "B80" and the approve went through
+    // on a single request but failed on a mass one.
+    const { result } = await runMassApprove({
+        finalCodeSuffixes: { ...massFinalCodeSuffixes, 12: "B80" },
+    });
+
+    assert.deepEqual(
+        result.final_codes.map(entry => entry.final_code),
+        ["901.031.005", "901.031.B80", "902.007.007"]
+    );
+    assert.equal(result.status, "DONE");
+});
+
+test("approveMassRequest 409s when a composed code already exists in SAP master data", async () => {
+    const error = await captureReject(() =>
+        runMassApprove({ duplicates: { sap: [{ code: "901.031.006" }] } })
+    );
+
+    assert.equal(error.statusCode, 409);
+    assert.equal(error.code, "MASS_REQUEST_FINAL_CODE_ALREADY_EXISTS");
+    assert.match(error.message, /Item 2/);
+    assert.match(error.message, /SAP master data/);
+});
+
+test("approveMassRequest 409s when a composed code is held by a single request", async () => {
+    const error = await captureReject(() =>
+        runMassApprove({
+            duplicates: {
+                single: [
+                    { request_no: "1000000710", final_code: "902.007.007" },
+                ],
+            },
+        })
+    );
+
+    assert.equal(error.statusCode, 409);
+    assert.equal(error.code, "MASS_REQUEST_FINAL_CODE_ALREADY_EXISTS");
+    assert.match(error.message, /Item 3/);
+    assert.match(error.message, /1000000710/);
+});
+
+test("approveMassRequest 409s when a composed code is held by another batch's item", async () => {
+    const error = await captureReject(() =>
+        runMassApprove({
+            duplicates: {
+                mass: [
+                    {
+                        request_no: "3000000099",
+                        item_no: 2,
+                        final_code: "901.031.005",
+                    },
+                ],
+            },
+        })
+    );
+
+    assert.equal(error.statusCode, 409);
+    assert.equal(error.code, "MASS_REQUEST_FINAL_CODE_ALREADY_EXISTS");
+    assert.match(error.message, /Item 1/);
+    assert.match(error.message, /3000000099/);
+});
+
+test("the mass uniqueness lookups release a CANCELled code and skip only the items being rewritten", () => {
+    const source = materialService.assertMassFinalCodePlanIsAvailable.toString();
+
+    assert.match(source, /FROM mat_sap_data WHERE code = ANY/);
+    assert.match(
+        source,
+        /FROM mat_single_request[\s\S]*UPPER\(COALESCE\(status, ''\)\) <> 'CANCEL'/
+    );
+    // Not the whole batch: a sibling approved earlier (Master Data decides
+    // items one by one) already holds its code and must be checked.
+    assert.match(
+        source,
+        /FROM mat_mass_request_item[\s\S]*id <> ALL\(\$2::bigint\[\]\)[\s\S]*UPPER\(COALESCE\(status, ''\)\) <> 'CANCEL'/
+    );
+    assert.doesNotMatch(source, /mass_request_id <> \$2/);
+});
+
+// ---------------------------------------------------------------------------
+// Per-item staging payload mapping
+// ---------------------------------------------------------------------------
+
+test("buildMassItemStagingSnapshot feeds po_text through the long-text partition", () => {
+    const snapshot = materialSapStagingService.buildMassItemStagingSnapshot({
+        request_no: "3000000011",
+        ticket_type: "Create",
+        final_code: "901.031.005",
+        plant_code: "EU73",
+        sloc_code: "ST01",
+        material_description: "BEARING BALL 6204 2RS",
+        base_uom: "PC",
+        material_group_code: "901",
+        derived_sales_org: "1000",
+        po_text: "SUPPLIER PART NO 4711-A",
+    });
+
+    assert.equal(snapshot.long_text_1, "SUPPLIER PART NO 4711-A");
+    assert.equal(snapshot.long_text_2, null);
+    assert.equal(snapshot.long_text_3, null);
+    assert.equal(snapshot.template_payload, null);
+    assert.equal(snapshot.material_code, null);
+});
+
+test("mass item payload caps MATERIAL_DESC at 40 and PURCHASE_ORDER_TEXT at 210", () => {
+    const payload = materialSapStagingService.buildMaterialStagingPayload({
+        snapshot: materialSapStagingService.buildMassItemStagingSnapshot({
+            request_no: "3000000011",
+            ticket_type: "Create",
+            final_code: "901.031.005",
+            plant_code: "EU73",
+            sloc_code: "ST01",
+            material_description: "D".repeat(60),
+            base_uom: "PC",
+            material_group_code: "901",
+            derived_sales_org: "1000",
+            po_text: "P".repeat(400),
+        }),
+        approvedBy: "mdm@example.com",
+        now: new Date("2026-08-06T00:00:00.000Z"),
+    });
+
+    assert.equal(payload.MATERIAL_DESC, "D".repeat(40));
+    assert.equal(payload.PURCHASE_ORDER_TEXT, "P".repeat(210));
+    assert.equal(payload.MATERIAL_NUMBER, "901.031.005");
+    assert.equal(payload.MATERIAL_GROUP, "901");
+    assert.equal(payload.SALES_ORGANIZATION, "1000");
+    assert.equal(payload.APPROVED_BY, "mdm@example.com");
+    assert.equal(payload.MOVING_AVG_PRICE, null);
+    assert.equal(payload.FLAG, "I");
+});
+
+test("mass item payload collapses newlines 1:1 so the 210 width still holds", () => {
+    const payload = materialSapStagingService.buildMaterialStagingPayload({
+        snapshot: materialSapStagingService.buildMassItemStagingSnapshot({
+            request_no: "3000000012",
+            final_code: "901.031.006",
+            material_description: "BEARING\nBALL",
+            base_uom: "PC",
+            po_text: "LINE ONE\nLINE TWO",
+        }),
+    });
+
+    assert.equal(payload.MATERIAL_DESC, "BEARING BALL");
+    assert.equal(payload.PURCHASE_ORDER_TEXT, "LINE ONE LINE TWO");
+});
+
+test("mass item payload sends NULL PURCHASE_ORDER_TEXT when po_text is blank", () => {
+    const payload = materialSapStagingService.buildMaterialStagingPayload({
+        snapshot: materialSapStagingService.buildMassItemStagingSnapshot({
+            request_no: "3000000013",
+            final_code: "902.007.007",
+            material_description: "SEAL OIL",
+            base_uom: "PC",
+            po_text: "   ",
+        }),
+    });
+
+    assert.equal(payload.PURCHASE_ORDER_TEXT, null);
+});
+
+// ---------------------------------------------------------------------------
+// Push / sync / resubmit wiring
+// ---------------------------------------------------------------------------
+
+test("pushPendingMaterialsToSapStaging selects pending mass items keyed by the item request_no", () => {
+    const source =
+        materialSapStagingService.pushPendingMaterialsToSapStaging.toString();
+
+    assert.match(
+        source,
+        /FROM mat_mass_request_item i[\s\S]*i\.status = 'DONE' AND i\.sap_push_status = 'PENDING'/
+    );
+    assert.match(source, /AND i\.mass_request_id = \$2/);
+    assert.match(source, /buildMassItemStagingSnapshot/);
+    // Targeting one kind must not drag in the other.
+    assert.match(source, /massRequestId != null\s*\?\s*\{ rows: \[\] \}/);
+    assert.match(source, /requestId != null\s*\?\s*\{ rows: \[\] \}/);
+});
+
+test("syncMaterialStagingFromSap reconciles mass items alongside single requests", () => {
+    const source = materialSapStagingService.syncMaterialStagingFromSap.toString();
+
+    assert.match(
+        source,
+        /FROM mat_mass_request_item\s+WHERE sap_push_status = 'PUSHED'/
+    );
+    assert.match(source, /PUSH_TARGET_TABLES\[target\.kind\]/);
+    assert.equal(
+        materialSapStagingService.PUSH_TARGET_TABLES.mass.table,
+        "mat_mass_request_item"
+    );
+});
+
+test("requestMassSapErrorRework reopens the Master Data step and clears the item SAP fields", () => {
+    const source = materialService.requestMassSapErrorRework.toString();
+
+    assert.match(source, /BEGIN/);
+    assert.match(source, /COMMIT/);
+    assert.match(source, /ROLLBACK/);
+    assert.match(source, /MASS_REQUEST_SAP_RETRY_CONFLICT/);
+    assert.match(source, /MASS_REQUEST_SAP_RETRY_FORBIDDEN/);
+    assert.match(source, /MASS_REQUEST_SAP_RETRY_NO_MDM/);
+    assert.match(source, /status: "WAITING", acted_at: null, remark: null/);
+    assert.match(source, /sap_push_status = NULL,\s*\n\s*sap_error_msg = NULL/);
+});
+
+// Regression guard: the existence probe must be a row SELECT, not the
+// error-count aggregate. An ungrouped COUNT(*) always returns exactly one row,
+// so probing `rows.length === 0` against it can never fire — a missing batch
+// would fall through as "0 errors" and surface as a 409 RETRY_CONFLICT instead
+// of a 404. The probe doubles as the FOR UPDATE lock (the same first-item
+// anchor approveMassRequest takes), which is what serialises a concurrent
+// approve against a resubmit.
+test("requestMassSapErrorRework locks + probes existence on a row, not on the count", () => {
+    const source = materialService.requestMassSapErrorRework.toString();
+
+    // The 404 branch is guarded by a real row read that can return zero rows.
+    assert.match(
+        source,
+        /SELECT i\.id\s+FROM mat_mass_request_item i\s+WHERE i\.mass_request_id = \$1\s+ORDER BY i\.item_no ASC\s+LIMIT 1\s+FOR UPDATE OF i/
+    );
+    assert.match(
+        source,
+        /lockResult\.rows\.length === 0[\s\S]{0,200}MASS_REQUEST_NOT_FOUND/
+    );
+
+    // The aggregate is a separate query and is only ever read for its value.
+    assert.match(source, /errorCountResult[\s\S]*?COUNT\(\*\) AS error_count/);
+    assert.match(
+        source,
+        /Number\(errorCountResult\.rows\[0\]\.error_count \|\| 0\) === 0/
+    );
+    assert.doesNotMatch(source, /lockResult\.rows\[0\]\.error_count/);
+});
+
+test("mass approve + resubmit are wired through the controller and routes", () => {
+    assert.match(
+        MaterialController.approveMassRequest.toString(),
+        /finalCodeSuffixes: req\.body\?\.finalCodeSuffixes \?\? null/
+    );
+    assert.match(
+        MaterialController.requestMassSapErrorRework.toString(),
+        /requestMassSapErrorRework\(\{/
+    );
+
+    const routeSource = require("fs").readFileSync(
+        require("path").join(__dirname, "../routes/MaterialRoute.js"),
+        "utf8"
+    );
+    assert.match(routeSource, /"\/requests\/mass\/:id\/sap-resubmit"/);
+    assert.match(routeSource, /MaterialController\.requestMassSapErrorRework/);
+});

@@ -11,6 +11,7 @@ const ApprovalModel = require("./ApprovalModel");
 const MutexModel = require("./MutexModel");
 const DBClientWrapper = require("../helper/DBClientWrapper");
 const EmailModel = require("./EmailModelv2");
+const aiValidationService = require("../services/aiValidationService");
 
 const Ticket = {
     async showAll({ is_active, ticket_state }) {
@@ -1142,6 +1143,29 @@ const Ticket = {
                     };
                 }
                 await client.query(TRANS.COMMIT);
+
+                // Hand the finished registration to the external AI document
+                // validator. Fires on the first submit of the chain only —
+                // index 0 is the VENDOR step on the self-service doctypes and
+                // the STAFF step on the *_USR ones, and either way that is the
+                // point where the form values and the attachments first exist
+                // together. Later approvers do not re-trigger it.
+                //
+                // After COMMIT and not awaited: the result is advisory, arrives
+                // ~30s later on a webhook, and must never be able to fail or
+                // slow down a submission that has already succeeded.
+                if (
+                    is_draft === false &&
+                    currentApprovalStep &&
+                    String(currentApprovalStep.index_approval) === "0" &&
+                    ven_detail &&
+                    ven_detail.ven_id
+                ) {
+                    aiValidationService.submitValidationInBackground(
+                        ven_detail.ven_id
+                    );
+                }
+
                 return result;
             } catch (error) {
                 await client.query(TRANS.ROLLBACK);
@@ -1200,11 +1224,11 @@ const Ticket = {
 
     async processByLink(token_appr) {
         try {
-            const client = await db.connect();
             /**
              * @type {{emp_role_id : string, bu_id : string, dept_id : string, ticket_id : string}}
              */
             const decoded = jwt.decode(token_appr, process.env.TOKEN_KEY);
+            const client = await db.connect();
             try {
                 await client.query(TRANS.BEGIN);
                 const ApprovalTrack = new ApprovalTracker(
@@ -1292,11 +1316,11 @@ const Ticket = {
 
     async renderRejectForm(token_appr) {
         try {
-            const client = await db.connect();
             /**
              * @type {{emp_role_id : string, bu_id : string, dept_id : string, ticket_id : string}}
              */
             const decoded = jwt.decode(token_appr, process.env.TOKEN_KEY);
+            const client = await db.connect();
             try {
                 const ApprovalTrack = new ApprovalTracker(
                     client,
